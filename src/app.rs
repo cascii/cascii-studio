@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use crate::components::sidebar::Sidebar;
+use crate::pages;
 
 #[wasm_bindgen]
 extern "C" {
@@ -59,10 +60,11 @@ pub fn app() -> Html {
         })
     };
 
+    let current_page = use_state(|| "home".to_string());
     let on_nav = {
-        let greet_msg = greet_msg.clone();
+        let current_page = current_page.clone();
         Callback::from(move |route: &'static str| {
-            greet_msg.set(format!("Clicked {route}"));
+            current_page.set(route.to_string());
         })
     };
 
@@ -70,23 +72,31 @@ pub fn app() -> Html {
         <>
             <Sidebar on_navigate={on_nav} />
             <main class="container">
-                <h1>{"Welcome to Tauri + Yew"}</h1>
-
-                <div class="row">
-                    <a href="https://tauri.app" target="_blank">
-                        <img src="public/tauri.svg" class="logo tauri" alt="Tauri logo"/>
-                    </a>
-                    <a href="https://yew.rs" target="_blank">
-                        <img src="public/yew.png" class="logo yew" alt="Yew logo"/>
-                    </a>
-                </div>
-                <p>{"Click on the Tauri and Yew logos to learn more."}</p>
-
-                <form class="row" onsubmit={greet}>
-                    <input id="greet-input" ref={greet_input_ref} placeholder="Enter a name..." />
-                    <button type="submit">{"Greet"}</button>
-                </form>
-                <p>{ &*greet_msg }</p>
+                {
+                    if &*current_page == "settings" {
+                        html! { <pages::settings::SettingsPage /> }
+                    } else {
+                        html! {
+                            <>
+                                <h1>{"Welcome to Tauri + Yew"}</h1>
+                                <div class="row">
+                                    <a href="https://tauri.app" target="_blank">
+                                        <img src="public/tauri.svg" class="logo tauri" alt="Tauri logo"/>
+                                    </a>
+                                    <a href="https://yew.rs" target="_blank">
+                                        <img src="public/yew.png" class="logo yew" alt="Yew logo"/>
+                                    </a>
+                                </div>
+                                <p>{"Click on the Tauri and Yew logos to learn more."}</p>
+                                <form class="row" onsubmit={greet}>
+                                    <input id="greet-input" ref={greet_input_ref} placeholder="Enter a name..." />
+                                    <button type="submit">{"Greet"}</button>
+                                </form>
+                                <p>{ &*greet_msg }</p>
+                            </>
+                        }
+                    }
+                }
             </main>
         </>
     }

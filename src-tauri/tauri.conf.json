@@ -5,7 +5,7 @@
   "identifier": "com.hjoncour.cascii_studio",
   "build": {
     "beforeDevCommand": "trunk serve",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:8765",
     "beforeBuildCommand": "trunk build",
     "frontendDist": "../dist"
   },

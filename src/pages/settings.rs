@@ -57,8 +57,26 @@ pub fn settings_page() -> Html {
     let on_pick_directory = {
         let settings = settings.clone();
         Callback::from(move |_| {
-            let s = (*settings).clone();
-            web_sys::window().unwrap().alert_with_message(&format!("Current: {}", s.output_directory)).ok();
+            let settings = settings.clone();
+            spawn_local(async move {
+                let result = invoke("pick_directory", JsValue::NULL).await;
+                if let Some(path) = result.as_string() {
+                    let mut s = (*settings).clone();
+                    s.output_directory = path;
+                    settings.set(s);
+                }
+            });
+        })
+    };
+
+    let on_open_directory = {
+        let settings = settings.clone();
+        Callback::from(move |_| {
+            let path = (*settings).output_directory.clone();
+            spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({ "path": path })).unwrap();
+                invoke("open_directory", args).await;
+            });
         })
     };
 
@@ -122,7 +140,7 @@ pub fn settings_page() -> Html {
                     <div class="input-group">
                         <input id="out-dir" readonly=true value={settings.output_directory.clone()} oninput={on_dir_input} />
                         <button type="button" onclick={on_pick_directory}>{"Browse"}</button>
-                        <button type="button" class="icon-btn">
+                        <button type="button" class="icon-btn" onclick={on_open_directory}>
                             <Icon icon_id={IconId::LucideFolder} width={"18"} height={"18"} />
                         </button>
                     </div>

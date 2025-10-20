@@ -1,0 +1,119 @@
+/* Settings Form Styles */
+.settings-form {
+  width: 100%;
+  max-width: 500px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.form-group.row {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  justify-content: flex-start;
+}
+
+.form-group.row label {
+    margin-bottom: 0;
+}
+
+.settings-form .input-group {
+  align-items: center;
+}
+
+.settings-form .input-group input, .settings-form .input-group button {
+    height: 44px;
+    box-sizing: border-box;
+}
+
+.settings-form .input-group .icon-btn {
+    width: 44px;
+    min-width: 44px;
+}
+
+.form-group label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.input-group {
+  display: flex;
+}
+
+.input-group input {
+  flex-grow: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.input-group button {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.settings-form button,
+.settings-form select {
+  width: fit-content;
+}
+
+.settings-form .form-group.center {
+  align-items: center;
+}
+
+select {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  color: #0f0f0f;
+  background-color: #ffffff;
+  transition: border-color 0.25s;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+select:focus {
+  outline: none;
+}
+
+/* Shared icon button */
+.icon-btn {
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #e5e7eb;
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-btn:hover { color: #ffffff; border-color: #ffffff; }
+
+@media (prefers-color-scheme: dark) {
+  select {
+    color: #ffffff;
+    background-color: #0f0f0f98;
+  }
+}

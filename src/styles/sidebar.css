@@ -1,0 +1,41 @@
+/* Sidebar navigation */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  z-index: 10;
+  background: transparent;
+}
+
+.sidebar .nav-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid transparent;
+}
+
+.sidebar .nav-btn img,
+.sidebar .nav-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
+.sidebar .nav-btn:hover,
+.sidebar .nav-btn:active,
+.sidebar .nav-btn:focus,
+.sidebar .nav-btn:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}

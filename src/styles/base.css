@@ -75,11 +75,8 @@ button {
   cursor: pointer;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
 button:active {
-  border-color: #396cd8;
+  border-color: #ffffff;
   background-color: #e8e8e8;
 }
 
@@ -99,7 +96,7 @@ button {
   }
 
   a:hover {
-    color: #24c8db;
+    color: #ffffff;
   }
 
   input,

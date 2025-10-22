@@ -87,7 +87,7 @@
     box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 2px 8px rgba(0,0,0,0.35);
 }
 
-.btn:hover:not(:disabled) {
+.new-project-form .btn:hover:not(:disabled) {
     background: #2b2b2b;
     transform: translateY(-1px);
     border-color: #f6f6f6;
@@ -210,9 +210,10 @@
 }
 
 .alert-success {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
+    background-color: transparent;
+    color: #f6f6f6;
+    border: 1px solid #555;
+    text-align: center;
 }
 
 .form-actions {

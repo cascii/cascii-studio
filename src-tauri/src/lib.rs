@@ -48,7 +48,7 @@ fn open_directory(path: String) -> Result<(), String> {
 async fn pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::{DialogExt, FilePath};
 
-    let picked = app.dialog().file().add_filter("Images and Videos", &["jpg", "jpeg", "png", "gif", "mp4", "mov", "avi", "webm"]).blocking_pick_files();
+    let picked = app.dialog().file().add_filter("Images and Videos", &["jpg", "jpeg", "webp", "png","gif", "mp4", "mkv", "mov", "avi", "webm"]).blocking_pick_files();
     
     match picked {
         Some(files) => {
@@ -122,27 +122,38 @@ fn create_project(request: CreateProjectRequest) -> Result<database::Project, St
     } else {
         database::ProjectType::Image
     };
+
+    // Create and save the project FIRST (with initial size/frame values)
+    let now = Utc::now();
+    let mut project = database::Project {
+        id: project_id.clone(),
+        project_name: request.project_name.clone(),
+        project_type,
+        project_path: project_folder_name,
+        size: 0,
+        frames: 0,
+        creation_date: now,
+        last_modified: now,
+    };
+    database::create_project(&project).map_err(|e| e.to_string())?;
     
     let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
     
-    // Process files
+    // Process and save source files
     let mut total_size = 0i64;
     let mut frame_count = 0;
     
-    for (_idx, file_path) in request.file_paths.iter().enumerate() {
-        // Calculate file size
+    for file_path in request.file_paths.iter() {
         let file_size = calculate_file_size(file_path)?;
         total_size += file_size;
         
-        // Copy or move file to project directory
         let dest_path = copy_or_move_file(file_path, project_dir.to_str().unwrap(), use_move)?;
         
-        // Create source content entry
         let source_type = if is_video_file(file_path) {
             database::SourceType::Video
         } else {
             database::SourceType::Image
-            };
+        };
         
         let source = database::SourceContent {
             id: Uuid::new_v4().to_string(),
@@ -157,20 +168,13 @@ fn create_project(request: CreateProjectRequest) -> Result<database::Project, St
         frame_count += 1;
     }
     
-    // Create project
-    let now = Utc::now();
-    let project = database::Project {
-        id: project_id,
-        project_name: request.project_name,
-        project_type,
-        project_path: project_folder_name,
-        size: total_size,
-        frames: frame_count,
-        creation_date: now,
-        last_modified: now,
-    };
-    
-    database::create_project(&project).map_err(|e| e.to_string())?;
+    // Update the project with the final size and frame count
+    if frame_count > 0 {
+        database::update_project_size_and_frames(&project_id, total_size, frame_count).map_err(|e| e.to_string())?;
+        project.size = total_size;
+        project.frames = frame_count;
+        project.last_modified = Utc::now();
+    }
     
     Ok(project)
 }

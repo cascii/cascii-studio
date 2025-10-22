@@ -1,6 +1,7 @@
 use yew::prelude::*;
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
+use yew_icons::{Icon, IconId};
 
 #[wasm_bindgen]
 extern "C" {
@@ -12,6 +13,11 @@ extern "C" {
 struct CreateProjectRequest {
     project_name: String,
     file_paths: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct CreateProjectInvokeArgs {
+    request: CreateProjectRequest,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -99,12 +105,14 @@ pub fn new_page() -> Html {
             success_message.set(None);
             
             wasm_bindgen_futures::spawn_local(async move {
-                let request = CreateProjectRequest {
-                    project_name: name.clone(),
-                    file_paths: files,
+                let invoke_args = CreateProjectInvokeArgs {
+                    request: CreateProjectRequest {
+                        project_name: name.clone(),
+                        file_paths: files,
+                    }
                 };
                 
-                let args = serde_wasm_bindgen::to_value(&request).unwrap();
+                let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 
                 let result = invoke("create_project", args).await;
                 is_creating.set(false);
@@ -145,15 +153,7 @@ pub fn new_page() -> Html {
                 // Project Name Input
                 <div class="form-group">
                     <label for="project-name">{"Project Title"}</label>
-                    <input
-                        id="project-name"
-                        type="text"
-                        class="form-input"
-                        placeholder="Enter project name"
-                        value={(*project_name).clone()}
-                        oninput={on_name_input}
-                        disabled={*is_creating}
-                    />
+                    <input id="project-name" type="text" class="form-input" placeholder="Enter project name" value={(*project_name).clone()} oninput={on_name_input} disabled={*is_creating} />
                 </div>
 
                 // File Picker
@@ -165,7 +165,8 @@ pub fn new_page() -> Html {
                         onclick={on_pick_files}
                         disabled={*is_creating}
                     >
-                        {"📁 Select Images/Videos"}
+                        <Icon icon_id={IconId::LucideFolderOpen} width="20" height="20" />
+                        <span>{"Select Images/Videos"}</span>
                     </button>
                     <p class="form-hint">{"Supported formats: JPG, PNG, GIF, MP4, MOV, AVI, WEBM"}</p>
                 </div>

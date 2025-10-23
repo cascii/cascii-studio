@@ -1,0 +1,43 @@
+/* Open Project Page Styles */
+
+.open-page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    color: #f6f6f6;
+}
+
+.open-page h1 {
+    margin-bottom: 2rem;
+    color: #f6f6f6;
+    font-size: 2rem;
+    font-weight: 300;
+    opacity: 0.8;
+}
+
+.project-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.project-table th, .project-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #555;
+}
+
+.project-table th {
+    font-weight: 600;
+    color: #aaa;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+}
+
+.project-table tbody tr {
+    transition: background-color 0.2s;
+}
+
+.project-table tbody tr:hover {
+    background-color: #3a3a3a;
+    cursor: pointer;
+}

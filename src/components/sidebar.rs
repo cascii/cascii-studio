@@ -16,6 +16,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
 
     html! {
         <aside class="sidebar">
+            <button class="nav-btn" title="Project" type="button" onclick={nav("project")}>   <Icon icon_id={IconId::LucideBrush}        width={"28"} height={"28"} /></button>
             <button class="nav-btn" title="Home" type="button" onclick={nav("home")}>      <Icon icon_id={IconId::LucideHome}         width={"28"} height={"28"} /></button>
             <button class="nav-btn" title="New" type="button" onclick={nav("new")}>        <Icon icon_id={IconId::LucidePlus}         width={"28"} height={"28"} /></button>
             <button class="nav-btn" title="Open" type="button" onclick={nav("open")}>      <Icon icon_id={IconId::LucideFolderOpen}  width={"28"} height={"28"} /></button>

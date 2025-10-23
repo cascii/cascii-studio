@@ -185,6 +185,11 @@ fn get_all_projects() -> Result<Vec<database::Project>, String> {
 }
 
 #[tauri::command]
+fn get_project(project_id: String) -> Result<database::Project, String> {
+    database::get_project(&project_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_project_sources(project_id: String) -> Result<Vec<database::SourceContent>, String> {
     database::get_project_sources(&project_id).map_err(|e| e.to_string())
 }
@@ -208,6 +213,7 @@ pub fn run() {
             pick_files,
             create_project,
             get_all_projects,
+            get_project,
             get_project_sources,
             delete_project
         ])

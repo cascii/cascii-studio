@@ -196,6 +196,35 @@ pub fn get_all_projects() -> SqlResult<Vec<Project>> {
     Ok(projects)
 }
 
+pub fn get_project(project_id: &str) -> SqlResult<Project> {
+    let conn = init_database()?;
+    conn.query_row(
+        "SELECT id, project_name, project_type, project_path, size, frames, creation_date, last_modified 
+         FROM projects 
+         WHERE id = ?1",
+        [project_id],
+        |row| {
+            let creation_str: String = row.get(6)?;
+            let modified_str: String = row.get(7)?;
+            
+            Ok(Project {
+                id: row.get(0)?,
+                project_name: row.get(1)?,
+                project_type: ProjectType::from_string(&row.get::<_, String>(2)?),
+                project_path: row.get(3)?,
+                size: row.get(4)?,
+                frames: row.get(5)?,
+                creation_date: DateTime::parse_from_rfc3339(&creation_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                last_modified: DateTime::parse_from_rfc3339(&modified_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+            })
+        },
+    )
+}
+
 pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(

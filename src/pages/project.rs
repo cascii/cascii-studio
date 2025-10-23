@@ -3,11 +3,15 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
-// Assuming Project struct is defined in open.rs or a shared module
 use super::open::Project;
+use crate::components::video_player::VideoPlayer;
 
 #[wasm_bindgen]
 extern "C" {
+    // Tauri v2: window.__TAURI__.core.convertFileSrc(path)
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = convertFileSrc)]
+    fn convert_file_src(path: &str) -> String;
+
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
     async fn invoke(cmd: &str, args: JsValue) -> JsValue;
 }
@@ -31,6 +35,8 @@ pub struct ProjectPageProps {
 pub fn project_page(props: &ProjectPageProps) -> Html {
     let project = use_state(|| None::<Project>);
     let source_files = use_state(|| Vec::<SourceContent>::new());
+    let selected_source = use_state(|| None::<SourceContent>);
+    let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
 
     {
@@ -70,7 +76,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             || ()
         });
     }
-    
+
+    let on_select_source = {
+        let selected_source = selected_source.clone();
+        let asset_url = asset_url.clone();
+        Callback::from(move |source: SourceContent| {
+            let selected_source = selected_source.clone();
+            let asset_url = asset_url.clone();
+
+            let url = convert_file_src(&source.file_path);
+            selected_source.set(Some(source));
+            asset_url.set(Some(url));
+        })
+    };
+
     html! {
         <div class="container project-page">
             if let Some(p) = &*project {
@@ -93,8 +112,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     .file_name()
                                     .and_then(|n| n.to_str())
                                     .unwrap_or(&file.file_path);
+
+                                let on_select = on_select_source.clone();
+                                let file_clone = file.clone();
+                                let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
+
                                 html! {
-                                    <div class="source-item" key={file.id.clone()}>
+                                    <div class="source-item" key={file.id.clone()} {onclick}>
                                         { file_name }
                                     </div>
                                 }
@@ -102,9 +126,24 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }
                     </div>
                 </div>
+
                 <div class="main-content">
                     <div class="square-container">
-                        <div class="square"><span>{"Source"}</span></div>
+                        <div class="square">
+                            {
+                                if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
+                                    if source.content_type == "Image" {
+                                        html! { <img src={url.clone()} alt="Source Image" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" /> }
+                                    } else if source.content_type == "Video" {
+                                        html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }
+                                    } else {
+                                        html! { <span>{"Unsupported file type"}</span> }
+                                    }
+                                } else {
+                                    html! { <span>{"Source"}</span> }
+                                }
+                            }
+                        </div>
                         <div class="square"><span>{"Preview"}</span></div>
                     </div>
                 </div>

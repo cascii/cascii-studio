@@ -25,7 +25,11 @@ pub fn app() -> Html {
 
     html! {
         <>
-            <Sidebar on_navigate={on_nav} />
+            <Sidebar
+                on_navigate={on_nav}
+                current_page={(*current_page).clone()}
+                has_active_project={active_project_id.is_some()}
+            />
             <main class="container">
                 {
                     match current_page.as_str() {

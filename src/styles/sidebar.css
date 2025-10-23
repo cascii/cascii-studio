@@ -9,19 +9,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 16px;
+  gap: 1rem;
   padding: 12px 0;
-  z-index: 10;
+  z-index: 1000;
   background: transparent;
 }
 
 .sidebar .nav-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
-  background: transparent;
+  width: 56px;
+  height: 56px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s;
   box-shadow: none;
-  border: 1px solid transparent;
+  position: relative; /* Needed for tooltip positioning */
 }
 
 .sidebar .nav-btn img,
@@ -38,5 +46,49 @@
   background: transparent;
   outline: none;
   box-shadow: none;
+}
+
+.nav-btn {
+    position: relative; /* Needed for tooltip positioning */
+    width: 56px;
+    height: 56px;
+}
+
+.nav-btn:hover:not(.active) {
+    background-color: #4a4a4a; /* Brighter than active state */
+    border-radius: 16px;
+    color: #f6f6f6;
+}
+
+.nav-btn.active, .nav-btn.active:hover {
+    background-color: #3A3A3A;
+    color: #f6f6f6;
+    border-radius: 16px;
+}
+
+/* Custom Tooltip */
+.nav-btn::after {
+    content: attr(title);
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 12px;
+    padding: 6px 10px;
+    background-color: #1C1C1C;
+    color: #f6f6f6;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
+
+.nav-btn:hover::after {
+    opacity: 1;
+    visibility: visible;
 }
 

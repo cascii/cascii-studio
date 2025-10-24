@@ -33,12 +33,12 @@ pub fn app() -> Html {
             <main class="container">
                 {
                     match current_page.as_str() {
-                        "home" => html! { <pages::home::HomePage /> },
-                        "new" => html! { <pages::new::NewPage /> },
-                        "open" => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} /> },
-                        "settings" => html! { <pages::settings::SettingsPage /> },
-                        "library" => html! { <pages::library::LibraryPage /> },
-                        "sponsor" => html! { <pages::sponsor::SponsorPage /> },
+                        "home"      => html! { <pages::home::HomePage /> },
+                        "new"       => html! { <pages::new::NewPage on_open_project={on_open_project.clone()} /> },
+                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} /> },
+                        "settings"  => html! { <pages::settings::SettingsPage /> },
+                        "library"   => html! { <pages::library::LibraryPage /> },
+                        "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
                         "project" => {
                             if let Some(id) = &*active_project_id {
                                 html! { <pages::project::ProjectPage project_id={id.clone()} /> }

@@ -199,6 +199,14 @@ fn delete_project(project_id: String) -> Result<(), String> {
     database::delete_project(&project_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn convert_file_path_to_asset_url(path: String) -> Result<String, String> {
+    let url = url::Url::from_file_path(&path).map_err(|_| "Invalid file path".to_string())?;
+    // The asset protocol expects a URL starting with `asset://`
+    // The `from_file_path` method creates a `file://` URL, so we replace the scheme.
+    Ok(url.to_string().replace("file://", "asset://"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -215,7 +223,8 @@ pub fn run() {
             get_all_projects,
             get_project,
             get_project_sources,
-            delete_project
+            delete_project,
+            convert_file_path_to_asset_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,10 +3,23 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use yew_icons::{Icon, IconId};
 
-#[wasm_bindgen]
+#[wasm_bindgen(inline_js = r#"
+export async function invoke(cmd, args) {
+  const g = globalThis.__TAURI__;
+  if (g?.core?.invoke) return g.core.invoke(cmd, args);   // Tauri v2
+  if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args); // Tauri v1
+  throw new Error('Tauri invoke is not available on this page');
+}
+"#)]
 extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
     async fn invoke(cmd: &str, args: JsValue) -> JsValue;
+}
+
+#[derive(Properties, PartialEq)]
+pub struct NewPageProps {
+    /// Called with the new project's ID after successful creation,
+    /// to navigate to the Project page.
+    pub on_open_project: Callback<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -20,6 +33,8 @@ struct CreateProjectInvokeArgs {
     request: CreateProjectRequest,
 }
 
+// Minimal shape we need back to navigate.
+// Extra fields from backend will be ignored by Serde.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Project {
     id: String,
@@ -31,7 +46,7 @@ struct Project {
 }
 
 #[function_component(NewPage)]
-pub fn new_page() -> Html {
+pub fn new_page(props: &NewPageProps) -> Html {
     let project_name = use_state(|| String::new());
     let selected_files = use_state(|| Vec::<String>::new());
     let is_creating = use_state(|| false);
@@ -76,6 +91,7 @@ pub fn new_page() -> Html {
         let is_creating = is_creating.clone();
         let error_message = error_message.clone();
         let success_message = success_message.clone();
+        let on_open_project = props.on_open_project.clone();
         
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -99,6 +115,7 @@ pub fn new_page() -> Html {
             let success_message = success_message.clone();
             let project_name = project_name.clone();
             let selected_files = selected_files.clone();
+            let on_open_project = on_open_project.clone();
             
             is_creating.set(true);
             error_message.set(None);
@@ -119,7 +136,11 @@ pub fn new_page() -> Html {
                 
                 // Try to parse as successful project response first
                 if let Ok(project) = serde_wasm_bindgen::from_value::<Project>(result.clone()) {
+                    // optional toast
                     success_message.set(Some(format!("Project '{}' created successfully!", project.project_name)));
+                    // navigate to the new project page
+                    on_open_project.emit(project.id.clone());
+                    // clear local state
                     project_name.set(String::new());
                     selected_files.set(Vec::new());
                 } else {
@@ -168,7 +189,7 @@ pub fn new_page() -> Html {
                         <Icon icon_id={IconId::LucideFolderOpen} width="20" height="20" />
                         <span>{"Select Images/Videos"}</span>
                     </button>
-                    <p class="form-hint">{"Supported formats: JPG, PNG, GIF, MP4, MOV, AVI, WEBM"}</p>
+                    <p class="form-hint">{"Supported formats: JPG, PNG, GIF, MP4, MOV, AVI, WEBM, MKV (will be converted to MP4)"}</p>
                 </div>
 
                 // Selected Files List

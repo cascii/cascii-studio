@@ -4,7 +4,7 @@ use yew_icons::{Icon, IconId};
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct VideoPlayerProps {
-    /// A `convertFileSrc`-style URL (asset-friendly) pointing to the local file.
+    /// A convertFileSrc-safe URL (local file via Tauri).
     pub src: String,
     #[prop_or_default]
     pub class: Classes,
@@ -15,9 +15,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let video_ref = use_node_ref();
 
     let is_playing = use_state(|| false);
+    let is_muted = use_state(|| false);
     let duration = use_state(|| 0.0f64);
     let current_time = use_state(|| 0.0f64);
-    let volume = use_state(|| 1.0f64); // 0.0..1.0
+    let volume = use_state(|| 1.0f64);
+    let error_text = use_state(|| None::<String>);
 
     // Toggle play/pause
     let on_toggle = {
@@ -36,7 +38,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Time update (progress)
+    // Time update
     let on_time_update = {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
@@ -47,7 +49,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Loaded metadata (duration)
+    // Metadata (duration)
     let on_loaded_metadata = {
         let video_ref = video_ref.clone();
         let duration = duration.clone();
@@ -58,7 +60,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Play & pause events (keep icon in sync even if user clicks on video)
+    // Keep icon in sync
     let on_play = {
         let is_playing = is_playing.clone();
         Callback::from(move |_| is_playing.set(true))
@@ -68,7 +70,15 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         Callback::from(move |_| is_playing.set(false))
     };
 
-    // Seek by range input
+    // Error overlay
+    let on_error = {
+        let error_text = error_text.clone();
+        Callback::from(move |_| {
+            error_text.set(Some("Cannot play this video in the system webview (try MP4/H.264 or WebM).".into()));
+        })
+    };
+
+    // Seek
     let on_seek_input = {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
@@ -83,10 +93,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Volume change (slider)
+    // Volume slider
     let on_volume_input = {
         let video_ref = video_ref.clone();
         let volume_state = volume.clone();
+        let is_muted = is_muted.clone();
         Callback::from(move |e: InputEvent| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                 let val = e.target_unchecked_into::<web_sys::HtmlInputElement>().value_as_number();
@@ -94,13 +105,31 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     let clamped = val.clamp(0.0, 1.0);
                     v.set_volume(clamped);
                     volume_state.set(clamped);
+                    if clamped > 0.0 && v.muted() {
+                        v.set_muted(false);
+                        is_muted.set(false);
+                    }
                 }
             }
         })
     };
 
-    // Choose an icon for current volume
-    let vol_icon = if *volume == 0.0 {
+    // Mute toggle
+    let on_toggle_mute = {
+        let video_ref = video_ref.clone();
+        let is_muted = is_muted.clone();
+        Callback::from(move |_| {
+            if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                let new_state = !v.muted();
+                v.set_muted(new_state);
+                is_muted.set(new_state);
+            }
+        })
+    };
+
+    // Icon choices
+    let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
+    let vol_icon = if *is_muted || *volume == 0.0 {
         IconId::LucideVolumeX
     } else if *volume < 0.5 {
         IconId::LucideVolume1
@@ -110,28 +139,25 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     html! {
         <div class={classes!("video-player", props.class.clone())}>
-            <video
-                ref={video_ref.clone()}
-                class="video"
-                src={props.src.clone()}
-                ontimeupdate={on_time_update}
-                onloadedmetadata={on_loaded_metadata}
-                onplay={on_play}
-                onpause={on_pause}
-                // Allow clicking the video to toggle play/pause
-                onclick={on_toggle.clone()}
-            />
-            <div class="controls">
-                <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
-                    {
-                        if *is_playing {
-                            html! { <Icon icon_id={IconId::LucidePause} width={"20"} height={"20"} /> }
-                        } else {
-                            html! { <Icon icon_id={IconId::LucidePlay} width={"20"} height={"20"} /> }
-                        }
-                    }
-                </button>
+            <div class="video-wrap">
+                <video
+                    ref={video_ref.clone()}
+                    class="video"
+                    src={props.src.clone()}
+                    ontimeupdate={on_time_update}
+                    onloadedmetadata={on_loaded_metadata}
+                    onplay={on_play}
+                    onpause={on_pause}
+                    onerror={on_error}
+                    onclick={on_toggle.clone()}
+                />
+                if let Some(msg) = &*error_text {
+                    <div class="error-overlay">{ msg }</div>
+                }
+            </div>
 
+            <div class="controls">
+                // ORDER: progress → play/pause → volume slider → mute
                 <input
                     class="progress"
                     type="range"
@@ -140,20 +166,27 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     max={duration.to_string()}
                     value={current_time.to_string()}
                     oninput={on_seek_input}
+                    title="Seek"
                 />
 
-                <div class="volume">
-                    <Icon icon_id={vol_icon} width={"18"} height={"18"} />
-                    <input
-                        class="volume-bar"
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={volume.to_string()}
-                        oninput={on_volume_input}
-                    />
-                </div>
+                <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
+                    <Icon icon_id={play_icon} width={"20"} height={"20"} />
+                </button>
+
+                <input
+                    class="volume-bar"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume.to_string()}
+                    oninput={on_volume_input}
+                    title="Volume"
+                />
+
+                <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title="Mute/Unmute">
+                    <Icon icon_id={vol_icon} width={"20"} height={"20"} />
+                </button>
             </div>
         </div>
     }

@@ -10,8 +10,10 @@ use crate::components::video_player::VideoPlayer;
 #[wasm_bindgen(inline_js = r#"
 export function bestConvertFileSrc(path) {
   const g = globalThis.__TAURI__;
-  if (g?.core?.convertFileSrc) return g.core.convertFileSrc(path);   // Tauri v2
-  if (g?.tauri?.convertFileSrc) return g.tauri.convertFileSrc(path); // Tauri v1
+  // Tauri v2:
+  if (g?.core?.convertFileSrc) return g.core.convertFileSrc(path);
+  // Tauri v1:
+  if (g?.tauri?.convertFileSrc) return g.tauri.convertFileSrc(path);
   return path;
 }
 export async function tauriInvoke(cmd, args) {
@@ -90,13 +92,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         });
     }
 
+    // When a source is selected, convert the filesystem path into an asset:// URL
+    // using Tauri's convertFileSrc (via best_convert_file_src).
     let on_select_source = {
         let selected_source = selected_source.clone();
         let asset_url = asset_url.clone();
-        Callback::from(move |source: SourceContent| {
-            let selected_source = selected_source.clone();
-            let asset_url = asset_url.clone();
 
+        Callback::from(move |source: SourceContent| {
             let url = best_convert_file_src(&source.file_path);
             selected_source.set(Some(source));
             asset_url.set(Some(url));

@@ -143,7 +143,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 <video
                     ref={video_ref.clone()}
                     class="video"
-                    src={props.src.clone()}
+                    src={props.src.clone()}          // <-- set src directly; no <source> child and no r#type
+                    preload="metadata"
+                    playsinline=true
                     ontimeupdate={on_time_update}
                     onloadedmetadata={on_loaded_metadata}
                     onplay={on_play}
@@ -157,7 +159,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             </div>
 
             <div class="controls">
-                // ORDER: progress → play/pause → volume slider → mute
                 <input
                     class="progress"
                     type="range"

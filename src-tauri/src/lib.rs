@@ -2,7 +2,8 @@ mod settings;
 mod database;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -78,6 +79,40 @@ fn is_video_file(path: &str) -> bool {
     }
 }
 
+fn file_stem_str(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video")
+        .to_string()
+}
+
+/// Convert a video into H.264/AAC MP4 suitable for the webview.
+/// Requires `ffmpeg` on PATH.
+fn ffmpeg_convert_to_mp4(input: &Path, output: &Path) -> Result<(), String> {
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",                 // overwrite
+            "-i", input.to_str().ok_or("Bad input path")?,
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            output.to_str().ok_or("Bad output path")?,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("ffmpeg exited with status: {status}"))
+    }
+}
+
 fn copy_or_move_file(source: &str, dest_dir: &str, use_move: bool) -> Result<String, String> {
     let source_path = PathBuf::from(source);
     let file_name = source_path.file_name()
@@ -144,17 +179,46 @@ fn create_project(request: CreateProjectRequest) -> Result<database::Project, St
     let mut frame_count = 0;
     
     for file_path in request.file_paths.iter() {
-        let file_size = calculate_file_size(file_path)?;
-        total_size += file_size;
-        
+        let p = PathBuf::from(file_path);
+        let is_video = is_video_file(file_path);
+        let ext_lower = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+
+        if is_video && ext_lower != "mp4" {
+            // Convert non-mp4 videos to H.264/AAC mp4 in the project folder.
+            let stem = file_stem_str(&p);
+            let dest_mp4 = project_dir.join(format!("{stem}.mp4"));
+
+            ffmpeg_convert_to_mp4(&p, &dest_mp4)?;
+            let converted_size = calculate_file_size(dest_mp4.to_str().unwrap())?;
+            total_size += converted_size;
+
+            let source = database::SourceContent {
+                id: Uuid::new_v4().to_string(),
+                content_type: database::SourceType::Video,
+                project_id: project_id.clone(),
+                date_added: Utc::now(),
+                size: converted_size,
+                file_path: dest_mp4.display().to_string(),
+            };
+            database::add_source_content(&source).map_err(|e| e.to_string())?;
+            frame_count += 1;
+
+            // If the user prefers Move, we can optionally move the original file into the project folder.
+            // (Not referenced by the project; just archived alongside.)
+            if use_move {
+                let _ = copy_or_move_file(file_path, project_dir.to_str().unwrap(), true);
+            }
+
+            continue;
+        }
+
+        // Images and mp4s: copy or move as-is into the project folder.
         let dest_path = copy_or_move_file(file_path, project_dir.to_str().unwrap(), use_move)?;
-        
-        let source_type = if is_video_file(file_path) {
-            database::SourceType::Video
-        } else {
-            database::SourceType::Image
-        };
-        
+
+        let file_size = calculate_file_size(&dest_path)?;
+        total_size += file_size;
+
+        let source_type = if is_video { database::SourceType::Video } else { database::SourceType::Image };
         let source = database::SourceContent {
             id: Uuid::new_v4().to_string(),
             content_type: source_type,
@@ -163,7 +227,6 @@ fn create_project(request: CreateProjectRequest) -> Result<database::Project, St
             size: file_size,
             file_path: dest_path,
         };
-        
         database::add_source_content(&source).map_err(|e| e.to_string())?;
         frame_count += 1;
     }
@@ -199,14 +262,6 @@ fn delete_project(project_id: String) -> Result<(), String> {
     database::delete_project(&project_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn convert_file_path_to_asset_url(path: String) -> Result<String, String> {
-    let url = url::Url::from_file_path(&path).map_err(|_| "Invalid file path".to_string())?;
-    // The asset protocol expects a URL starting with `asset://`
-    // The `from_file_path` method creates a `file://` URL, so we replace the scheme.
-    Ok(url.to_string().replace("file://", "asset://"))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -223,8 +278,7 @@ pub fn run() {
             get_all_projects,
             get_project,
             get_project_sources,
-            delete_project,
-            convert_file_path_to_asset_url
+            delete_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

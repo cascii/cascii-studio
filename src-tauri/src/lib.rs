@@ -342,7 +342,24 @@ fn get_project_sources(project_id: String) -> Result<Vec<database::SourceContent
 
 #[tauri::command]
 fn delete_project(project_id: String) -> Result<(), String> {
-    database::delete_project(&project_id).map_err(|e| e.to_string())
+    // First, get the project details to find the project path
+    let project = database::get_project(&project_id).map_err(|e| e.to_string())?;
+    
+    // Load settings to get the output directory
+    let settings = settings::load();
+    
+    // Construct the full path to the project directory
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    
+    // Delete the project from the database first
+    database::delete_project(&project_id).map_err(|e| e.to_string())?;
+    
+    // Then delete the physical directory if it exists
+    if project_dir.exists() {
+        fs::remove_dir_all(&project_dir).map_err(|e| format!("Failed to delete project directory: {}", e))?;
+    }
+    
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

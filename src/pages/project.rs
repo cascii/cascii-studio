@@ -69,9 +69,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
-    
-    // URL cache to avoid recomputing asset URLs
-    let url_cache = use_state(|| HashMap::<String, String>::new());
+        let url_cache = use_state(|| HashMap::<String, String>::new());    // URL cache to avoid recomputing asset URLs
 
     {
         let project_id = props.project_id.clone();
@@ -187,9 +185,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                                 let on_select = on_select_source.clone();
                                 let file_clone = file.clone();
-                                let is_selected = selected_source.as_ref()
-                                    .map(|s| s.id == file.id)
-                                    .unwrap_or(false);
+                                let is_selected = selected_source.as_ref().map(|s| s.id == file.id).unwrap_or(false);
                                 let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
 
                                 let class_name = if is_selected { "source-item selected" } else { "source-item" };
@@ -213,13 +209,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
                                     if source.content_type == "Image" {
                                         html! {
-                                            <img
-                                                src={url.clone()}
-                                                alt="Source Image"
-                                                loading="lazy"
-                                                decoding="async"
-                                                style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;"
-                                            />
+                                            <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
                                         }
                                     } else if source.content_type == "Video" {
                                         html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }

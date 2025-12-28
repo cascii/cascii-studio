@@ -21,4 +21,3 @@ export function convertFileSrc(path) {
 
 // Expose to window for easy access from WASM
 window.__APP__convertFileSrc = convertFileSrc;
-

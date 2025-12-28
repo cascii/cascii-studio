@@ -1,7 +1,7 @@
 /* Open Project Page Styles */
 
 .open-page {
-    max-width: 800px;
+    max-width: 900px;
     margin: 0 auto;
     padding: 2rem;
     color: #f6f6f6;
@@ -33,11 +33,59 @@
     font-size: 0.85rem;
 }
 
+.project-table th.actions-column {
+    width: 60px;
+}
+
 .project-table tbody tr {
     transition: background-color 0.2s;
+    position: relative;
 }
 
 .project-table tbody tr:hover {
     background-color: #3a3a3a;
     cursor: pointer;
+}
+
+.project-table tbody tr.deleting {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.actions-cell {
+    text-align: center;
+    padding: 0.5rem !important;
+}
+
+.delete-btn {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: opacity 0.2s, background-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none;
+}
+
+.project-table tbody tr:hover .delete-btn {
+    opacity: 1;
+}
+
+.delete-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.delete-btn:active {
+    transform: scale(0.95);
+}
+
+.delete-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
 }

@@ -3,19 +3,13 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use serde_json::json;
+use std::collections::HashMap;
 
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
 
+// Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
-export function bestConvertFileSrc(path) {
-  const g = globalThis.__TAURI__;
-  // Tauri v2:
-  if (g?.core?.convertFileSrc) return g.core.convertFileSrc(path);
-  // Tauri v1:
-  if (g?.tauri?.convertFileSrc) return g.tauri.convertFileSrc(path);
-  return path;
-}
 export async function tauriInvoke(cmd, args) {
   const g = globalThis.__TAURI__;
   if (g?.core?.invoke) return g.core.invoke(cmd, args);   // v2
@@ -24,11 +18,32 @@ export async function tauriInvoke(cmd, args) {
 }
 "#)]
 extern "C" {
-    #[wasm_bindgen(js_name = bestConvertFileSrc)]
-    fn best_convert_file_src(path: &str) -> String;
-
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+}
+
+// Wasm binding to our custom JS shim for convertFileSrc
+#[wasm_bindgen(inline_js = r#"
+export function appConvertFileSrc(path) {
+  if (window.__APP__convertFileSrc) {
+    return window.__APP__convertFileSrc(path);
+  }
+  console.error('__APP__convertFileSrc not found');
+  return path;
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = appConvertFileSrc)]
+    fn app_convert_file_src(path: &str) -> String;
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PreparedMedia {
+    pub cached_abs_path: String,
+    pub media_kind: String,
+    pub mime_type: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -53,6 +68,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let selected_source = use_state(|| None::<SourceContent>);
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
+    let is_loading_media = use_state(|| false);
+    
+    // URL cache to avoid recomputing asset URLs
+    let url_cache = use_state(|| HashMap::<String, String>::new());
 
     {
         let project_id = props.project_id.clone();
@@ -92,16 +111,58 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         });
     }
 
-    // When a source is selected, convert the filesystem path into an asset:// URL
-    // using Tauri's convertFileSrc (via best_convert_file_src).
+    // When a source is selected, prepare the media and convert to asset:// URL
     let on_select_source = {
         let selected_source = selected_source.clone();
         let asset_url = asset_url.clone();
+        let error_message = error_message.clone();
+        let is_loading_media = is_loading_media.clone();
+        let url_cache = url_cache.clone();
 
         Callback::from(move |source: SourceContent| {
-            let url = best_convert_file_src(&source.file_path);
-            selected_source.set(Some(source));
-            asset_url.set(Some(url));
+            let file_path = source.file_path.clone();
+            
+            // Check cache first
+            if let Some(cached_url) = url_cache.get(&file_path) {
+                selected_source.set(Some(source));
+                asset_url.set(Some(cached_url.clone()));
+                return;
+            }
+            
+            // Not in cache, prepare media
+            let selected_source = selected_source.clone();
+            let asset_url = asset_url.clone();
+            let error_message = error_message.clone();
+            let is_loading_media = is_loading_media.clone();
+            let url_cache = url_cache.clone();
+            let source_clone = source.clone();
+            
+            is_loading_media.set(true);
+            
+            wasm_bindgen_futures::spawn_local(async move {
+                // Call prepare_media to get cached path
+                let args = serde_wasm_bindgen::to_value(&json!({ "path": file_path })).unwrap();
+                match tauri_invoke("prepare_media", args).await {
+                    result => {
+                        if let Ok(prepared) = serde_wasm_bindgen::from_value::<PreparedMedia>(result) {
+                            // Convert cached path to asset:// URL
+                            let asset_url_str = app_convert_file_src(&prepared.cached_abs_path);
+                            
+                            // Store in cache
+                            let mut cache = (*url_cache).clone();
+                            cache.insert(file_path, asset_url_str.clone());
+                            url_cache.set(cache);
+                            
+                            // Update state
+                            selected_source.set(Some(source_clone));
+                            asset_url.set(Some(asset_url_str));
+                        } else {
+                            error_message.set(Some("Failed to prepare media file.".to_string()));
+                        }
+                        is_loading_media.set(false);
+                    }
+                }
+            });
         })
     };
 
@@ -126,10 +187,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                                 let on_select = on_select_source.clone();
                                 let file_clone = file.clone();
+                                let is_selected = selected_source.as_ref()
+                                    .map(|s| s.id == file.id)
+                                    .unwrap_or(false);
                                 let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
 
+                                let class_name = if is_selected { "source-item selected" } else { "source-item" };
+
                                 html! {
-                                    <div class="source-item" key={file.id.clone()} {onclick}>
+                                    <div class={class_name} key={file.id.clone()} {onclick}>
                                         { file_name }
                                     </div>
                                 }
@@ -142,16 +208,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     <div class="square-container">
                         <div class="square">
                             {
-                                if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
+                                if *is_loading_media {
+                                    html! { <div class="loading">{"Loading media..."}</div> }
+                                } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
                                     if source.content_type == "Image" {
-                                        html! { <img src={url.clone()} alt="Source Image" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" /> }
+                                        html! {
+                                            <img
+                                                src={url.clone()}
+                                                alt="Source Image"
+                                                loading="lazy"
+                                                decoding="async"
+                                                style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;"
+                                            />
+                                        }
                                     } else if source.content_type == "Video" {
                                         html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }
                                     } else {
                                         html! { <span>{"Unsupported file type"}</span> }
                                     }
                                 } else {
-                                    html! { <span>{"Source"}</span> }
+                                    html! { <span>{"Select a source file to preview"}</span> }
                                 }
                             }
                         </div>

@@ -7,6 +7,89 @@ use std::process::{Command, Stdio};
 use chrono::Utc;
 use uuid::Uuid;
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct PreparedMedia {
+    pub cached_abs_path: String,
+    pub media_kind: String,  // "image" or "video"
+    pub mime_type: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
+fn get_media_cache_dir() -> Result<PathBuf, String> {
+    let cache_dir = dirs::data_dir()
+        .or_else(|| dirs::config_dir())
+        .ok_or_else(|| "Cannot determine app data directory".to_string())?
+        .join("cascii_studio")
+        .join("media");
+    
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("Failed to create media cache dir: {}", e))?;
+    Ok(cache_dir)
+}
+
+fn guess_mime_type(path: &Path) -> Option<String> {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg"  => Some("image/jpeg".to_string()),
+        "png"           => Some("image/png".to_string()),
+        "gif"           => Some("image/gif".to_string()),
+        "webp"          => Some("image/webp".to_string()),
+        "mp4"           => Some("video/mp4".to_string()),
+        "webm"          => Some("video/webm".to_string()),
+        "mov"           => Some("video/quicktime".to_string()),
+        "avi"           => Some("video/x-msvideo".to_string()),
+        "mkv"           => Some("video/x-matroska".to_string()),
+        _ => None,
+    }
+}
+
+fn determine_media_kind(path: &Path) -> String {
+    if is_video_file(path.to_str().unwrap_or("")) {
+        "video".to_string()
+    } else {
+        "image".to_string()
+    }
+}
+
+#[tauri::command]
+fn prepare_media(path: String) -> Result<PreparedMedia, String> {
+    // 1. Canonicalize the input path
+    let source_path = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("Invalid source path: {}", e))?;
+    
+    // 2. Get media cache directory
+    let cache_dir = get_media_cache_dir()?;
+    
+    // 3. Create a unique filename based on source path hash or use original name
+    let file_name = source_path.file_name()
+        .ok_or_else(|| "Invalid file name".to_string())?;
+    let cached_path = cache_dir.join(file_name);
+    
+    // 4. Try hard link first, fall back to copy
+    if !cached_path.exists() {
+        // Try hard link
+        match fs::hard_link(&source_path, &cached_path) {
+            Ok(_) => {},
+            Err(_) => {
+                // Fall back to copy
+                fs::copy(&source_path, &cached_path).map_err(|e| format!("Failed to copy file to cache: {}", e))?;
+            }
+        }
+    }
+    
+    // 5. Build PreparedMedia response
+    let media_kind = determine_media_kind(&source_path);
+    let mime_type = guess_mime_type(&source_path);
+    let cached_abs_path = cached_path
+        .to_str()
+        .ok_or_else(|| "Invalid cached path".to_string())?
+        .to_string();
+    
+    // For images, we could extract dimensions using an image library, but keeping it simple for now
+    Ok(PreparedMedia {cached_abs_path, media_kind, mime_type, width: None, height: None})
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -278,7 +361,8 @@ pub fn run() {
             get_all_projects,
             get_project,
             get_project_sources,
-            delete_project
+            delete_project,
+            prepare_media
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

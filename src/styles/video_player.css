@@ -107,12 +107,16 @@
     background: #2a2a2a;
 }
   
+  /* Range slider styling - flat design */
   .video-player .progress,
   .video-player .volume-bar {
     flex: 1;
     width: 100%;
-    accent-color: #f6f6f6;
+    height: 16px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #3A3A3A;
     cursor: pointer;
+    margin: 0;
+    padding: 0;
 }
-
-

@@ -49,13 +49,17 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Metadata (duration)
+    // Metadata (duration) - also seek to first frame to show preview
     let on_loaded_metadata = {
         let video_ref = video_ref.clone();
         let duration = duration.clone();
         Callback::from(move |_| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                 duration.set(v.duration());
+                // Seek to first frame (0.1s) to show preview instead of black screen
+                if v.current_time() == 0.0 {
+                    v.set_current_time(0.1);
+                }
             }
         })
     };
@@ -137,13 +141,30 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         IconId::LucideVolume2
     };
 
+    // Format timestamp with milliseconds for accuracy
+    let format_time = |seconds: f64| -> String {
+        if seconds.is_finite() && seconds >= 0.0 {
+            let total_secs = seconds.floor() as u32;
+            let millis = ((seconds - seconds.floor()) * 100.0).floor() as u32;
+            let mins = total_secs / 60;
+            let secs = total_secs % 60;
+            format!("{:02}:{:02}.{:02}", mins, secs, millis)
+        } else {
+            "00:00.00".to_string()
+        }
+    };
+
+    let current_time_str = format_time(*current_time);
+    let duration_str = format_time(*duration);
+    let timestamp = format!("{} / {}", current_time_str, duration_str);
+
     html! {
         <div class={classes!("video-player", props.class.clone())}>
             <div class="video-wrap">
                 <video
                     ref={video_ref.clone()}
                     class="video"
-                    src={props.src.clone()}          // <-- set src directly; no <source> child and no r#type
+                    src={props.src.clone()}
                     preload="metadata"
                     playsinline=true
                     ontimeupdate={on_time_update}
@@ -156,38 +177,41 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 if let Some(msg) = &*error_text {
                     <div class="error-overlay">{ msg }</div>
                 }
+                <div class="timestamp-overlay">{ timestamp }</div>
             </div>
 
             <div class="controls">
-                <input
-                    class="progress"
-                    type="range"
-                    min="0"
-                    step="0.01"
-                    max={duration.to_string()}
-                    value={current_time.to_string()}
-                    oninput={on_seek_input}
-                    title="Seek"
-                />
+                <div class="control-row">
+                    <input
+                        class="progress"
+                        type="range"
+                        min="0"
+                        step="0.01"
+                        max={duration.to_string()}
+                        value={current_time.to_string()}
+                        oninput={on_seek_input}
+                        title="Seek"
+                    />
+                    <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
+                        <Icon icon_id={play_icon} width={"20"} height={"20"} />
+                    </button>
+                </div>
 
-                <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
-                    <Icon icon_id={play_icon} width={"20"} height={"20"} />
-                </button>
-
-                <input
-                    class="volume-bar"
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={volume.to_string()}
-                    oninput={on_volume_input}
-                    title="Volume"
-                />
-
-                <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title="Mute/Unmute">
-                    <Icon icon_id={vol_icon} width={"20"} height={"20"} />
-                </button>
+                <div class="control-row">
+                    <input
+                        class="volume-bar"
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={volume.to_string()}
+                        oninput={on_volume_input}
+                        title="Volume"
+                    />
+                    <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title="Mute/Unmute">
+                        <Icon icon_id={vol_icon} width={"20"} height={"20"} />
+                    </button>
+                </div>
             </div>
         </div>
     }

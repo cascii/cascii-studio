@@ -73,8 +73,6 @@ This will build a debug version for your current platform and ensure all assets 
 - Project management (create, open, delete)
 - Local file caching with asset protocol for secure media loading
 - Settings configuration
-<<<<<<< HEAD
-=======
 - Automatic MKV to MP4 conversion with real-time progress
 
 ## Development
@@ -97,5 +95,3 @@ git commit -m "release(v1): first stable release"
 ```
 
 See [scripts/README.md](scripts/README.md) for more details.
-
->>>>>>> 9afbb28 (feature(version): add versioning)

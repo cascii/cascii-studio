@@ -125,7 +125,8 @@ def main():
     
     # Paths
     root_dir = Path(__file__).parent.parent
-    cargo_toml = root_dir / 'src-tauri' / 'Cargo.toml'
+    src_tauri_cargo_toml = root_dir / 'src-tauri' / 'Cargo.toml'
+    root_cargo_toml = root_dir / 'Cargo.toml'
     tauri_conf = root_dir / 'src-tauri' / 'tauri.conf.json'
     
     # Get current version from tauri.conf.json
@@ -141,13 +142,18 @@ def main():
         sys.exit(0)
     
     # Update files with same 3-component version format
-    cargo_updated = update_cargo_toml(cargo_toml, new_version)
+    src_tauri_updated = update_cargo_toml(src_tauri_cargo_toml, new_version)
+    root_updated = update_cargo_toml(root_cargo_toml, new_version)
     tauri_updated = update_tauri_conf(tauri_conf, new_version)
     
-    if cargo_updated or tauri_updated:
+    if src_tauri_updated or root_updated or tauri_updated:
         print(f"Version bumped: {current_version} -> {new_version} ({bump_type})")
-        print(f"Updated: {cargo_toml.relative_to(root_dir)}")
-        print(f"Updated: {tauri_conf.relative_to(root_dir)}")
+        if src_tauri_updated:
+            print(f"Updated: {src_tauri_cargo_toml.relative_to(root_dir)}")
+        if root_updated:
+            print(f"Updated: {root_cargo_toml.relative_to(root_dir)}")
+        if tauri_updated:
+            print(f"Updated: {tauri_conf.relative_to(root_dir)}")
         sys.exit(0)
     else:
         print(f"No changes made for version: {current_version}")

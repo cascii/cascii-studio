@@ -4,3 +4,6 @@
 - font
 - player
 - type
+
+versioning
+add dependenci with cascii

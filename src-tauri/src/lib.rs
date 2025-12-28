@@ -3,9 +3,11 @@ mod database;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use chrono::Utc;
 use uuid::Uuid;
+use tauri::Emitter;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PreparedMedia {
@@ -162,38 +164,102 @@ fn is_video_file(path: &str) -> bool {
     }
 }
 
-fn file_stem_str(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("video")
-        .to_string()
+fn is_mkv_file(path: &str) -> bool {
+    if let Some(ext) = PathBuf::from(path).extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        ext_lower == "mkv"
+    } else {
+        false
+    }
 }
 
-/// Convert a video into H.264/AAC MP4 suitable for the webview.
-/// Requires `ffmpeg` on PATH.
-fn ffmpeg_convert_to_mp4(input: &Path, output: &Path) -> Result<(), String> {
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",                 // overwrite
-            "-i", input.to_str().ok_or("Bad input path")?,
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
-            output.to_str().ok_or("Bad output path")?,
+fn get_video_duration(input_path: &str) -> Result<f32, String> {
+    use std::process::Command;
+    
+    let output = Command::new("ffprobe")
+        .args(&[
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path
         ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("ffmpeg exited with status: {status}"))
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("Failed to get video duration".to_string());
     }
+    
+    let duration_str = String::from_utf8_lossy(&output.stdout);
+    duration_str.trim()
+        .parse::<f32>()
+        .map_err(|e| format!("Failed to parse duration: {}", e))
+}
+
+fn ffmpeg_convert_to_mp4(input_path: &str, output_dir: &str, app: &tauri::AppHandle, file_name: &str) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    use std::io::{BufRead, BufReader};
+    
+    let input = PathBuf::from(input_path);
+    let file_stem = input.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input filename")?;
+    
+    let output_path = PathBuf::from(output_dir).join(format!("{}.mp4", file_stem));
+    
+    // Get video duration first
+    let duration = get_video_duration(input_path).unwrap_or(0.0);
+    
+    // Run ffmpeg with progress monitoring
+    let mut child = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(input_path)
+        .arg("-c:v").arg("libx264")
+        .arg("-c:a").arg("aac")
+        .arg("-movflags").arg("+faststart")
+        .arg("-progress").arg("pipe:2")
+        .arg("-y")  // Overwrite without asking
+        .arg(&output_path)
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e))?;
+    
+    // Parse progress from stderr
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                // Look for "out_time_ms=" or "time=" in the progress output
+                if line.starts_with("out_time_ms=") {
+                    if let Some(time_us) = line.strip_prefix("out_time_ms=") {
+                        if let Ok(microseconds) = time_us.parse::<f32>() {
+                            let current_time = microseconds / 1_000_000.0;
+                            if duration > 0.0 {
+                                let percentage = (current_time / duration * 100.0).min(99.0);
+                                let _ = app.emit("file-progress", FileProgress {
+                                    file_name: file_name.to_string(),
+                                    status: "processing".to_string(),
+                                    message: format!("Converting MKV to MP4... {:.0}%", percentage),
+                                    percentage: Some(percentage),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let status = child.wait()
+        .map_err(|e| format!("Failed to wait for ffmpeg: {}", e))?;
+    
+    if !status.success() {
+        return Err(format!("ffmpeg conversion failed with status: {}", status));
+    }
+    
+    Ok(output_path.to_str()
+        .ok_or("Invalid output path")?
+        .to_string())
 }
 
 fn copy_or_move_file(source: &str, dest_dir: &str, use_move: bool) -> Result<String, String> {
@@ -218,8 +284,23 @@ struct CreateProjectRequest {
     file_paths: Vec<String>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct FileProgress {
+    file_name: String,
+    status: String, // "pending", "processing", "completed", "error"
+    message: String,
+    percentage: Option<f32>,
+}
+
 #[tauri::command]
-fn create_project(request: CreateProjectRequest) -> Result<database::Project, String> {
+async fn create_project(request: CreateProjectRequest, app: tauri::AppHandle) -> Result<database::Project, String> {
+    // Spawn the actual work in a blocking task to prevent UI freeze
+    tokio::task::spawn_blocking(move || {
+        create_project_blocking(request, app)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle) -> Result<database::Project, String> {
     // Load settings to get output directory and default behavior
     let settings = settings::load();
     
@@ -257,61 +338,92 @@ fn create_project(request: CreateProjectRequest) -> Result<database::Project, St
     
     let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
     
-    // Process and save source files
+    // Process and save source files with progress tracking
     let mut total_size = 0i64;
     let mut frame_count = 0;
+    let total_files = request.file_paths.len();
     
-    for file_path in request.file_paths.iter() {
+    for (index, file_path) in request.file_paths.iter().enumerate() {
         let p = PathBuf::from(file_path);
+        let file_name = p.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        // Emit processing event
+        if let Err(e) = app.emit("file-progress", FileProgress {
+            file_name: file_name.clone(),
+            status: "processing".to_string(),
+            message: format!("Processing {} of {}...", index + 1, total_files),
+            percentage: None,
+        }) {
+            eprintln!("Failed to emit progress event: {}", e);
+        }
+        
+        // Small delay to ensure event is sent
+        thread::sleep(Duration::from_millis(10));
+        
         let is_video = is_video_file(file_path);
-        let ext_lower = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let is_mkv = is_mkv_file(file_path);
 
-        if is_video && ext_lower != "mp4" {
-            // Convert non-mp4 videos to H.264/AAC mp4 in the project folder.
-            let stem = file_stem_str(&p);
-            let dest_mp4 = project_dir.join(format!("{stem}.mp4"));
+        let result = (|| -> Result<(), String> {
+            let dest_path = if is_mkv {
+                // Convert MKV to MP4
+                let _ = app.emit("file-progress", FileProgress {
+                    file_name: file_name.clone(),
+                    status: "processing".to_string(),
+                    message: "Converting MKV to MP4... 0%".to_string(),
+                    percentage: Some(0.0),
+                });
+                thread::sleep(Duration::from_millis(10));
+                
+                ffmpeg_convert_to_mp4(file_path, project_dir.to_str().unwrap(), &app, &file_name)?
+            } else {
+                // Copy or move all other files as-is
+                copy_or_move_file(file_path, project_dir.to_str().unwrap(), use_move)?
+            };
 
-            ffmpeg_convert_to_mp4(&p, &dest_mp4)?;
-            let converted_size = calculate_file_size(dest_mp4.to_str().unwrap())?;
-            total_size += converted_size;
+            let file_size = calculate_file_size(&dest_path)?;
+            total_size += file_size;
 
+            let source_type = if is_video { database::SourceType::Video } else { database::SourceType::Image };
             let source = database::SourceContent {
                 id: Uuid::new_v4().to_string(),
-                content_type: database::SourceType::Video,
+                content_type: source_type,
                 project_id: project_id.clone(),
                 date_added: Utc::now(),
-                size: converted_size,
-                file_path: dest_mp4.display().to_string(),
+                size: file_size,
+                file_path: dest_path,
             };
             database::add_source_content(&source).map_err(|e| e.to_string())?;
             frame_count += 1;
-
-            // If the user prefers Move, we can optionally move the original file into the project folder.
-            // (Not referenced by the project; just archived alongside.)
-            if use_move {
-                let _ = copy_or_move_file(file_path, project_dir.to_str().unwrap(), true);
+            
+            Ok(())
+        })();
+        
+        // Emit completion or error
+        match result {
+            Ok(_) => {
+                let _ = app.emit("file-progress", FileProgress {
+                    file_name: file_name.clone(),
+                    status: "completed".to_string(),
+                    message: "Completed".to_string(),
+                    percentage: Some(100.0),
+                });
             }
-
-            continue;
+            Err(e) => {
+                let _ = app.emit("file-progress", FileProgress {
+                    file_name: file_name.clone(),
+                    status: "error".to_string(),
+                    message: format!("Error: {}", e),
+                    percentage: None,
+                });
+                return Err(e);
+            }
         }
-
-        // Images and mp4s: copy or move as-is into the project folder.
-        let dest_path = copy_or_move_file(file_path, project_dir.to_str().unwrap(), use_move)?;
-
-        let file_size = calculate_file_size(&dest_path)?;
-        total_size += file_size;
-
-        let source_type = if is_video { database::SourceType::Video } else { database::SourceType::Image };
-        let source = database::SourceContent {
-            id: Uuid::new_v4().to_string(),
-            content_type: source_type,
-            project_id: project_id.clone(),
-            date_added: Utc::now(),
-            size: file_size,
-            file_path: dest_path,
-        };
-        database::add_source_content(&source).map_err(|e| e.to_string())?;
-        frame_count += 1;
+        
+        // Small delay to allow UI to update
+        thread::sleep(Duration::from_millis(50));
     }
     
     // Update the project with the final size and frame count

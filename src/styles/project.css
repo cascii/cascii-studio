@@ -61,6 +61,11 @@
     border-color: #f6f6f6;
 }
 
+.source-item.selected {
+    background-color: #5a7a9f;
+    border-color: #7ba3cc;
+}
+
 .main-content {
     flex-grow: 1;
     display: flex;
@@ -84,4 +89,15 @@
     font-size: 2rem;
     color: #888;
     font-weight: 300;
+}
+
+.loading {
+    font-size: 1.2rem;
+    color: #aaa;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
 }

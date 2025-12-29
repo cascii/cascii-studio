@@ -3,6 +3,9 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use yew_icons::{Icon, IconId};
+use gloo_timers::callback::Timeout;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
@@ -38,7 +41,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let is_playing = use_state(|| false);
     let is_loading = use_state(|| true);
     let error_message = use_state(|| None::<String>);
-    let interval_handle = use_state(|| None::<gloo_timers::callback::Interval>);
+    // Store timeout handle to allow cancellation
+    let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
 
     // Load frames when directory_path changes
     {
@@ -47,16 +51,18 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let is_loading = is_loading.clone();
         let error_message = error_message.clone();
         let current_index = current_index.clone();
-        let interval_handle_clone = interval_handle.clone();
+        let timeout_handle_clone = timeout_handle.clone();
+        let is_playing = is_playing.clone();
 
         use_effect_with(directory_path.clone(), move |_| {
             is_loading.set(true);
             error_message.set(None);
             frames.set(Vec::new());
             current_index.set(0);
+            is_playing.set(false); // Stop playback when loading new frames
             
-            // Stop any playing animation when loading new frames
-            interval_handle_clone.set(None);
+            // Cancel any pending timeout
+            timeout_handle_clone.borrow_mut().take();
 
             wasm_bindgen_futures::spawn_local(async move {
                 // Get list of frame files
@@ -100,45 +106,52 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 }
             });
 
-            move || {
-                // Cleanup: stop any playing animation by setting to None (will drop and auto-cancel)
-                interval_handle_clone.set(None);
-            }
+            || ()
         });
     }
 
-    // Animation loop
+    // Animation loop - schedule next frame when playing
     {
         let current_index = current_index.clone();
         let is_playing = is_playing.clone();
         let frames = frames.clone();
-        let interval_handle = interval_handle.clone();
+        let timeout_handle = timeout_handle.clone();
         let fps = props.fps;
 
-        use_effect_with((*is_playing, frames.len()), move |_| {
-            let playing = *is_playing;
-            let frame_count = frames.len();
+        use_effect_with((*is_playing, *current_index, frames.len(), fps), move |(playing, _current, frame_count, fps)| {
+            let playing = *playing;
+            let frame_count = *frame_count;
+            let fps = *fps;
             
-            // Clear existing interval by setting to None (will drop and auto-cancel)
-            interval_handle.set(None);
+            // Cancel any pending timeout first
+            timeout_handle.borrow_mut().take();
 
+            // Only schedule next frame if playing and we have frames
             if playing && frame_count > 0 {
                 let interval_ms = (1000.0 / fps as f64).max(1.0) as u32;
                 let current_index_clone = current_index.clone();
-                let handle = gloo_timers::callback::Interval::new(interval_ms, move || {
-                    let next = *current_index_clone + 1;
-                    if next >= frame_count {
-                        current_index_clone.set(0); // Loop back to start
+                let frame_count_clone = frame_count;
+                
+                // Schedule the next frame advance
+                let handle = Timeout::new(interval_ms, move || {
+                    let current = *current_index_clone;
+                    let next = if current + 1 >= frame_count_clone {
+                        0 // Loop back to start
                     } else {
-                        current_index_clone.set(next);
-                    }
+                        current + 1
+                    };
+                    current_index_clone.set(next);
+                    // After setting, Yew will re-render, which will trigger this effect again
+                    // to schedule the next frame (because current_index is in dependencies)
                 });
-                interval_handle.set(Some(handle));
+                
+                *timeout_handle.borrow_mut() = Some(handle);
             }
 
+            let timeout_handle_cleanup = timeout_handle.clone();
             move || {
-                // Cleanup: set to None (will drop and auto-cancel)
-                interval_handle.set(None);
+                // Cleanup: cancel pending timeout on unmount or dependency change
+                timeout_handle_cleanup.borrow_mut().take();
             }
         });
     }
@@ -154,6 +167,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Seek to specific frame
     let on_seek = {
         let current_index = current_index.clone();
+        let is_playing = is_playing.clone();
         let frames_len = frames.len();
         Callback::from(move |e: web_sys::InputEvent| {
             if let Some(target) = e.target() {
@@ -162,6 +176,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     if val.is_finite() {
                         let idx = val as usize;
                         if idx < frames_len {
+                            // Pause when seeking
+                            is_playing.set(false);
                             current_index.set(idx);
                         }
                     }
@@ -217,28 +233,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         disabled={frame_count == 0}
                     >
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
-                    </button>
-                </div>
-                <div class="control-row">
-                    <input
-                        class="volume-bar"
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value="1"
-                        title="Volume"
-                        disabled={true}
-                        style="opacity: 0.5;"
-                    />
-                    <button 
-                        class="ctrl-btn" 
-                        type="button" 
-                        title="Volume"
-                        disabled={true}
-                        style="opacity: 0.5;"
-                    >
-                        <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
                     </button>
                 </div>
             </div>

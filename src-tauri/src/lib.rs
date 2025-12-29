@@ -452,6 +452,135 @@ fn get_project_sources(project_id: String) -> Result<Vec<database::SourceContent
     database::get_project_sources(&project_id).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct FrameDirectory {
+    pub name: String,           // Display name like "Notan Nigres - Frames"
+    pub directory_path: String, // Full path to the frames directory
+    pub source_file_name: String, // Original source file name
+}
+
+#[tauri::command]
+fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String> {
+    // Get project details
+    let project = database::get_project(&project_id).map_err(|e| e.to_string())?;
+    
+    // Load settings to get output directory
+    let settings = settings::load();
+    
+    // Construct the full path to the project directory
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    
+    if !project_dir.exists() {
+        return Ok(Vec::new());
+    }
+    
+    // Scan for directories ending with "_ascii"
+    let mut frames = Vec::new();
+    
+    match fs::read_dir(&project_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                        if dir_name.ends_with("_ascii") {
+                            // Extract source file name (remove "_ascii" suffix)
+                            let source_name = dir_name.strip_suffix("_ascii").unwrap_or(dir_name);
+                            
+                            // Create display name: "{Source Name} - Frames"
+                            let display_name = format!("{} - Frames", source_name);
+                            
+                            frames.push(FrameDirectory {
+                                name: display_name,
+                                directory_path: path.to_str().unwrap_or("").to_string(),
+                                source_file_name: source_name.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            return Err(format!("Failed to read project directory: {}", e));
+        }
+    }
+    
+    // Sort by name for consistent ordering
+    frames.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    Ok(frames)
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct FrameFile {
+    pub path: String,
+    pub name: String,
+    pub index: u32,
+}
+
+#[tauri::command]
+fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
+    let dir = PathBuf::from(&directory_path);
+    
+    if !dir.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+    
+    let mut frames = Vec::new();
+    
+    match fs::read_dir(&dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if ext == "txt" {
+                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                                // Extract frame index from filename (e.g., "frame_0001.txt" -> 1)
+                                let index = if file_name.starts_with("frame_") {
+                                    file_name
+                                        .strip_prefix("frame_")
+                                        .and_then(|s| s.strip_suffix(".txt"))
+                                        .and_then(|s| s.parse::<u32>().ok())
+                                        .unwrap_or(0)
+                                } else {
+                                    // Try to extract number from filename
+                                    file_name
+                                        .chars()
+                                        .filter(|c| c.is_ascii_digit())
+                                        .collect::<String>()
+                                        .parse::<u32>()
+                                        .unwrap_or(0)
+                                };
+                                
+                                frames.push(FrameFile {
+                                    path: path.to_str().unwrap_or("").to_string(),
+                                    name: file_name.to_string(),
+                                    index,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            return Err(format!("Failed to read directory: {}", e));
+        }
+    }
+    
+    // Sort by index
+    frames.sort_by(|a, b| a.index.cmp(&b.index));
+    
+    Ok(frames)
+}
+
+#[tauri::command]
+fn read_frame_file(file_path: String) -> Result<String, String> {
+    fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read frame file: {}", e))
+}
+
 #[tauri::command]
 fn delete_project(project_id: String) -> Result<(), String> {
     // First, get the project details to find the project path
@@ -572,6 +701,9 @@ pub fn run() {
             get_all_projects,
             get_project,
             get_project_sources,
+            get_project_frames,
+            get_frame_files,
+            read_frame_file,
             delete_project,
             prepare_media,
             convert_to_ascii

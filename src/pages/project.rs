@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
+use crate::components::ascii_frames_viewer::AsciiFramesViewer;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -56,6 +57,13 @@ pub struct SourceContent {
     pub file_path: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FrameDirectory {
+    pub name: String,
+    pub directory_path: String,
+    pub source_file_name: String,
+}
+
 #[derive(Serialize, Deserialize)]
 struct ConvertToAsciiRequest {
     file_path: String,
@@ -77,9 +85,12 @@ pub struct ProjectPageProps {
 
 #[function_component(ProjectPage)]
 pub fn project_page(props: &ProjectPageProps) -> Html {
+    let project_id = props.project_id.clone();
     let project = use_state(|| None::<Project>);
     let source_files = use_state(|| Vec::<SourceContent>::new());
+    let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
     let selected_source = use_state(|| None::<SourceContent>);
+    let selected_frame_dir = use_state(|| None::<FrameDirectory>);
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
@@ -97,6 +108,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let project_id = props.project_id.clone();
         let project = project.clone();
         let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
         let error_message = error_message.clone();
 
         use_effect_with(project_id.clone(), move |id| {
@@ -122,6 +134,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             source_files.set(s);
                         } else {
                             error_message.set(Some("Failed to fetch source files.".to_string()));
+                        }
+                    }
+                }
+
+                // Fetch frame directories
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                match tauri_invoke("get_project_frames", args).await {
+                    result => {
+                        if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
+                            frame_directories.set(frames);
+                        } else {
+                            // Not critical, just log silently
                         }
                     }
                 }
@@ -219,6 +243,45 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         </div>
                                     }
                                 }).collect::<Html>()
+                            }
+                        </div>
+                    </div>
+                    
+                    <div class="frames-column">
+                        <h2>{"Available Frames"}</h2>
+                        <div class="source-list">
+                            {
+                                if frame_directories.is_empty() {
+                                    html! {
+                                        <div class="frames-empty">
+                                            {"No frames generated yet"}
+                                        </div>
+                                    }
+                                } else {
+                                    {
+                                        let selected_frame_dir = selected_frame_dir.clone();
+                                        frame_directories.iter().map(|frame_dir| {
+                                            let frame_clone = frame_dir.clone();
+                                            let is_selected = selected_frame_dir.as_ref()
+                                                .map(|s| s.directory_path == frame_dir.directory_path)
+                                                .unwrap_or(false);
+                                            let onclick = Callback::from({
+                                                let selected_frame_dir = selected_frame_dir.clone();
+                                                move |_| {
+                                                    selected_frame_dir.set(Some(frame_clone.clone()));
+                                                }
+                                            });
+
+                                            let class_name = if is_selected { "source-item selected" } else { "source-item" };
+
+                                            html! {
+                                                <div class={class_name} key={frame_dir.directory_path.clone()} {onclick}>
+                                                    { frame_dir.name.clone() }
+                                                </div>
+                                            }
+                                        }).collect::<Html>()
+                                    }
+                                }
                             }
                         </div>
                     </div>
@@ -341,6 +404,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 let is_converting = is_converting.clone();
                                 let conversion_message = conversion_message.clone();
                                 let error_message = error_message.clone();
+                                let frame_directories = frame_directories.clone();
+                                let project_id_clone = project_id.clone();
                                 
                                 Callback::from(move |_e: yew::MouseEvent| {
                                     if let Some(source) = &*selected_source {
@@ -356,6 +421,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         let is_converting = is_converting.clone();
                                         let conversion_message = conversion_message.clone();
                                         let error_message = error_message.clone();
+                                        let frame_directories = frame_directories.clone();
+                                        let project_id_clone = project_id_clone.clone();
                                         
                                         wasm_bindgen_futures::spawn_local(async move {
                                             let invoke_args = ConvertToAsciiInvokeArgs {
@@ -377,6 +444,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         Ok(msg) => {
                                                             conversion_message.set(Some(msg));
                                                             error_message.set(None);
+                                                            
+                                                            // Refresh frame directories after conversion
+                                                            let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id_clone })).unwrap();
+                                                            match tauri_invoke("get_project_frames", args).await {
+                                                                result => {
+                                                                    if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
+                                                                        frame_directories.set(frames);
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                         Err(_) => {
                                                             error_message.set(Some("Failed to convert to ASCII. Please check the file path and try again.".to_string()));
@@ -404,27 +481,49 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 </div>
 
                 <div class="main-content">
-                    <div class="square-container">
-                        <div class="square">
-                            {
-                                if *is_loading_media {
-                                    html! { <div class="loading">{"Loading media..."}</div> }
-                                } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
-                                    if source.content_type == "Image" {
-                                        html! {
-                                            <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
+                    <div class="preview-container">
+                        <div class="preview-column">
+                            <div class="preview-label">{"Source Video"}</div>
+                            <div class="square">
+                                {
+                                    if *is_loading_media {
+                                        html! { <div class="loading">{"Loading media..."}</div> }
+                                    } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
+                                        if source.content_type == "Image" {
+                                            html! {
+                                                <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
+                                            }
+                                        } else if source.content_type == "Video" {
+                                            html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }
+                                        } else {
+                                            html! { <span>{"Unsupported file type"}</span> }
                                         }
-                                    } else if source.content_type == "Video" {
-                                        html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }
                                     } else {
-                                        html! { <span>{"Unsupported file type"}</span> }
+                                        html! { <span>{"Select a source file to preview"}</span> }
                                     }
-                                } else {
-                                    html! { <span>{"Select a source file to preview"}</span> }
                                 }
-                            }
+                            </div>
                         </div>
-                        <div class="square"><span>{"Preview"}</span></div>
+                        
+                        <div class="preview-column">
+                            <div class="preview-label">{"Frames"}</div>
+                            <div class="square">
+                                {
+                                    if frame_directories.is_empty() {
+                                        html! { <span>{"No frames generated yet"}</span> }
+                                    } else if let Some(frame_dir) = &*selected_frame_dir {
+                                        html! {
+                                            <AsciiFramesViewer 
+                                                directory_path={frame_dir.directory_path.clone()}
+                                                fps={*fps}
+                                            />
+                                        }
+                                    } else {
+                                        html! { <span>{"Select a frame directory to preview"}</span> }
+                                    }
+                                }
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -452,6 +452,16 @@ fn get_project_sources(project_id: String) -> Result<Vec<database::SourceContent
     database::get_project_sources(&project_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_project_conversions(project_id: String) -> Result<Vec<database::AsciiConversion>, String> {
+    database::get_project_conversions(&project_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_conversion_by_folder_path(folder_path: String) -> Result<Option<database::AsciiConversion>, String> {
+    database::get_conversion_by_folder_path(&folder_path).map_err(|e| e.to_string())
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct FrameDirectory {
     pub name: String,           // Display name like "Notan Nigres - Frames"
@@ -610,6 +620,8 @@ struct ConvertToAsciiRequest {
     font_ratio: f32,
     columns: u32,
     fps: Option<u32>,
+    project_id: String,
+    source_file_id: String,
 }
 
 #[tauri::command]
@@ -629,13 +641,14 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
         .unwrap_or(false);
     
     // Create output directory next to the input file
+    let folder_name = format!("{}_ascii", 
+        input_path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output")
+    );
     let output_dir = input_path.parent()
         .ok_or("Cannot determine parent directory")?
-        .join(format!("{}_ascii", 
-            input_path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("output")
-        ));
+        .join(&folder_name);
     
     fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
@@ -644,8 +657,9 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
     let input_path_clone = input_path.clone();
     let output_dir_clone = output_dir.clone();
     let request_clone = request.clone();
+    let fps = request.fps.unwrap_or(30);
     
-    tokio::task::spawn_blocking(move || {
+    let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
         let converter = AsciiConverter::new();
         
         let conv_opts = ConversionOptions::default()
@@ -664,10 +678,9 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
             converter.convert_image(&input_path_clone, &output_file, &conv_opts)
                 .map_err(|e| format!("Failed to convert image: {}", e))?;
             
-            Ok(format!("ASCII art saved to: {}", output_file.display()))
+            Ok(output_dir_clone)
         } else {
             // Convert video
-            let fps = request_clone.fps.unwrap_or(30);
             let video_opts = VideoOptions {
                 fps,
                 start: None,
@@ -678,11 +691,62 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
             converter.convert_video(&input_path_clone, &output_dir_clone, &video_opts, &conv_opts, false)
                 .map_err(|e| format!("Failed to convert video: {}", e))?;
             
-            Ok(format!("ASCII frames saved to: {}", output_dir_clone.display()))
+            Ok(output_dir_clone)
         }
     })
     .await
-    .map_err(|e| format!("Conversion task failed: {}", e))?
+    .map_err(|e| format!("Conversion task failed: {}", e))??;
+    
+    // Count frames and calculate total size
+    let (frame_count, total_size) = count_frames_and_size(&conversion_result)?;
+    
+    // Create database entry for the conversion
+    let conversion = database::AsciiConversion {
+        id: Uuid::new_v4().to_string(),
+        folder_name: folder_name.clone(),
+        folder_path: conversion_result.to_str().unwrap_or("").to_string(),
+        frame_count,
+        source_file_id: request.source_file_id,
+        project_id: request.project_id,
+        settings: database::ConversionSettings {
+            luminance: request.luminance,
+            font_ratio: request.font_ratio,
+            columns: request.columns,
+            fps,
+        },
+        creation_date: Utc::now(),
+        total_size,
+    };
+    
+    database::add_ascii_conversion(&conversion)
+        .map_err(|e| format!("Failed to save conversion to database: {}", e))?;
+    
+    Ok(format!("ASCII frames saved to: {} ({} frames, {} bytes)", 
+        conversion_result.display(), frame_count, total_size))
+}
+
+fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
+    let mut frame_count = 0i32;
+    let mut total_size = 0i64;
+    
+    let entries = fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+    
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if ext == "txt" {
+                    frame_count += 1;
+                    if let Ok(metadata) = fs::metadata(&path) {
+                        total_size += metadata.len() as i64;
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok((frame_count, total_size))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -701,6 +765,8 @@ pub fn run() {
             get_all_projects,
             get_project,
             get_project_sources,
+            get_project_conversions,
+            get_conversion_by_folder_path,
             get_project_frames,
             get_frame_files,
             read_frame_file,

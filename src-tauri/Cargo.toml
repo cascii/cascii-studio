@@ -25,6 +25,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 url = "2.5.0"
 tokio = { version = "1", features = ["full"] }
+cascii = "0.2"
 
 [features]
 custom-protocol = [ "tauri/custom-protocol" ]

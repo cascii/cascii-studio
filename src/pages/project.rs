@@ -56,6 +56,20 @@ pub struct SourceContent {
     pub file_path: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct ConvertToAsciiRequest {
+    file_path: String,
+    luminance: u8,
+    font_ratio: f32,
+    columns: u32,
+    fps: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConvertToAsciiInvokeArgs {
+    request: ConvertToAsciiRequest,
+}
+
 #[derive(Properties, PartialEq)]
 pub struct ProjectPageProps {
     pub project_id: String,
@@ -69,7 +83,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
-        let url_cache = use_state(|| HashMap::<String, String>::new());    // URL cache to avoid recomputing asset URLs
+    let url_cache = use_state(|| HashMap::<String, String>::new());    // URL cache to avoid recomputing asset URLs
+    
+    // ASCII conversion settings
+    let luminance = use_state(|| 1u8);
+    let font_ratio = use_state(|| 0.7f32);
+    let columns = use_state(|| 200u32);
+    let fps = use_state(|| 30u32);
+    let is_converting = use_state(|| false);
+    let conversion_message = use_state(|| Option::<String>::None);
 
     {
         let project_id = props.project_id.clone();
@@ -173,29 +195,210 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             }
 
             <div class="project-layout">
-                <div class="source-files-column">
-                    <h2>{"Source Files"}</h2>
-                    <div class="source-list">
-                        {
-                            source_files.iter().map(|file| {
-                                let file_name = std::path::Path::new(&file.file_path)
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or(&file.file_path);
+                <div class="left-sidebar">
+                    <div class="source-files-column">
+                        <h2>{"Source Files"}</h2>
+                        <div class="source-list">
+                            {
+                                source_files.iter().map(|file| {
+                                    let file_name = std::path::Path::new(&file.file_path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or(&file.file_path);
 
-                                let on_select = on_select_source.clone();
-                                let file_clone = file.clone();
-                                let is_selected = selected_source.as_ref().map(|s| s.id == file.id).unwrap_or(false);
-                                let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
+                                    let on_select = on_select_source.clone();
+                                    let file_clone = file.clone();
+                                    let is_selected = selected_source.as_ref().map(|s| s.id == file.id).unwrap_or(false);
+                                    let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
 
-                                let class_name = if is_selected { "source-item selected" } else { "source-item" };
+                                    let class_name = if is_selected { "source-item selected" } else { "source-item" };
 
-                                html! {
-                                    <div class={class_name} key={file.id.clone()} {onclick}>
-                                        { file_name }
-                                    </div>
+                                    html! {
+                                        <div class={class_name} key={file.id.clone()} {onclick}>
+                                            { file_name }
+                                        </div>
+                                    }
+                                }).collect::<Html>()
+                            }
+                        </div>
+                    </div>
+                    
+                    <div class="ascii-conversion-column">
+                        <h2>{"Convert to ASCII"}</h2>
+                        
+                        <div class="conversion-settings">
+                            <div class="setting-row">
+                                <label>{"Luminance:"}</label>
+                                <input 
+                                    type="number" 
+                                    class="setting-input"
+                                    value={(*luminance).to_string()}
+                                    min="0"
+                                    max="255"
+                                    oninput={Callback::from({
+                                        let luminance = luminance.clone();
+                                        move |e: web_sys::InputEvent| {
+                                            if let Some(target) = e.target() {
+                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                    if let Ok(val) = input.value().parse::<u8>() {
+                                                        luminance.set(val);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    })}
+                                />
+                            </div>
+                            
+                            <div class="setting-row">
+                                <label>{"Font Ratio:"}</label>
+                                <input 
+                                    type="number" 
+                                    class="setting-input"
+                                    value={(*font_ratio).to_string()}
+                                    min="0.1"
+                                    max="2.0"
+                                    step="0.1"
+                                    oninput={Callback::from({
+                                        let font_ratio = font_ratio.clone();
+                                        move |e: web_sys::InputEvent| {
+                                            if let Some(target) = e.target() {
+                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                    if let Ok(val) = input.value().parse::<f32>() {
+                                                        font_ratio.set(val);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    })}
+                                />
+                            </div>
+                            
+                            <div class="setting-row">
+                                <label>{"Columns:"}</label>
+                                <input 
+                                    type="number" 
+                                    class="setting-input"
+                                    value={(*columns).to_string()}
+                                    min="1"
+                                    max="2000"
+                                    oninput={Callback::from({
+                                        let columns = columns.clone();
+                                        move |e: web_sys::InputEvent| {
+                                            if let Some(target) = e.target() {
+                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                    if let Ok(val) = input.value().parse::<u32>() {
+                                                        columns.set(val);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    })}
+                                />
+                            </div>
+                            
+                            {
+                                if selected_source.as_ref().map(|s| s.content_type == "Video").unwrap_or(false) {
+                                    html! {
+                                        <div class="setting-row">
+                                            <label>{"FPS:"}</label>
+                                            <input 
+                                                type="number" 
+                                                class="setting-input"
+                                                value={(*fps).to_string()}
+                                                min="1"
+                                                max="120"
+                                                oninput={Callback::from({
+                                                    let fps = fps.clone();
+                                                    move |e: web_sys::InputEvent| {
+                                                        if let Some(target) = e.target() {
+                                                            if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                                if let Ok(val) = input.value().parse::<u32>() {
+                                                                    fps.set(val);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                })}
+                                            />
+                                        </div>
+                                    }
+                                } else {
+                                    html! { <></> }
                                 }
-                            }).collect::<Html>()
+                            }
+                        </div>
+                        
+                        <button 
+                            class="btn-convert"
+                            disabled={*is_converting || selected_source.is_none()}
+                            onclick={{
+                                let selected_source = selected_source.clone();
+                                let luminance = luminance.clone();
+                                let font_ratio = font_ratio.clone();
+                                let columns = columns.clone();
+                                let fps = fps.clone();
+                                let is_converting = is_converting.clone();
+                                let conversion_message = conversion_message.clone();
+                                let error_message = error_message.clone();
+                                
+                                Callback::from(move |_e: yew::MouseEvent| {
+                                    if let Some(source) = &*selected_source {
+                                        let file_path = source.file_path.clone();
+                                        let luminance_val = *luminance;
+                                        let font_ratio_val = *font_ratio;
+                                        let columns_val = *columns;
+                                        let fps_val = *fps;
+                                        
+                                        is_converting.set(true);
+                                        conversion_message.set(None);
+                                        
+                                        let is_converting = is_converting.clone();
+                                        let conversion_message = conversion_message.clone();
+                                        let error_message = error_message.clone();
+                                        
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            let invoke_args = ConvertToAsciiInvokeArgs {
+                                                request: ConvertToAsciiRequest {
+                                                    file_path,
+                                                    luminance: luminance_val,
+                                                    font_ratio: font_ratio_val,
+                                                    columns: columns_val,
+                                                    fps: Some(fps_val),
+                                                }
+                                            };
+                                            
+                                            let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
+                                            
+                                            match tauri_invoke("convert_to_ascii", args).await {
+                                                result => {
+                                                    is_converting.set(false);
+                                                    match serde_wasm_bindgen::from_value::<String>(result) {
+                                                        Ok(msg) => {
+                                                            conversion_message.set(Some(msg));
+                                                            error_message.set(None);
+                                                        }
+                                                        Err(_) => {
+                                                            error_message.set(Some("Failed to convert to ASCII. Please check the file path and try again.".to_string()));
+                                                            conversion_message.set(None);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                })
+                            }}
+                        >
+                            if *is_converting {
+                                {"Converting..."}
+                            } else {
+                                {"Convert to ASCII"}
+                            }
+                        </button>
+                        
+                        if let Some(msg) = &*conversion_message {
+                            <div class="conversion-success">{msg}</div>
                         }
                     </div>
                 </div>

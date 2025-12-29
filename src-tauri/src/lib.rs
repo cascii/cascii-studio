@@ -474,6 +474,88 @@ fn delete_project(project_id: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Deserialize, Clone)]
+struct ConvertToAsciiRequest {
+    file_path: String,
+    luminance: u8,
+    font_ratio: f32,
+    columns: u32,
+    fps: Option<u32>,
+}
+
+#[tauri::command]
+async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, String> {
+    use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
+    
+    let input_path = PathBuf::from(&request.file_path);
+    
+    if !input_path.exists() {
+        return Err(format!("File not found: {}", request.file_path));
+    }
+    
+    // Determine if it's an image or video
+    let is_image = input_path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp"))
+        .unwrap_or(false);
+    
+    // Create output directory next to the input file
+    let output_dir = input_path.parent()
+        .ok_or("Cannot determine parent directory")?
+        .join(format!("{}_ascii", 
+            input_path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("output")
+        ));
+    
+    fs::create_dir_all(&output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+    
+    // Move conversion work to a blocking thread to prevent UI freeze
+    let input_path_clone = input_path.clone();
+    let output_dir_clone = output_dir.clone();
+    let request_clone = request.clone();
+    
+    tokio::task::spawn_blocking(move || {
+        let converter = AsciiConverter::new();
+        
+        let conv_opts = ConversionOptions::default()
+            .with_columns(request_clone.columns)
+            .with_font_ratio(request_clone.font_ratio)
+            .with_luminance(request_clone.luminance);
+        
+        if is_image {
+            // Convert single image
+            let output_file = output_dir_clone.join(format!("{}.txt",
+                input_path_clone.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("output")
+            ));
+            
+            converter.convert_image(&input_path_clone, &output_file, &conv_opts)
+                .map_err(|e| format!("Failed to convert image: {}", e))?;
+            
+            Ok(format!("ASCII art saved to: {}", output_file.display()))
+        } else {
+            // Convert video
+            let fps = request_clone.fps.unwrap_or(30);
+            let video_opts = VideoOptions {
+                fps,
+                start: None,
+                end: None,
+                columns: request_clone.columns,
+            };
+            
+            converter.convert_video(&input_path_clone, &output_dir_clone, &video_opts, &conv_opts, false)
+                .map_err(|e| format!("Failed to convert video: {}", e))?;
+            
+            Ok(format!("ASCII frames saved to: {}", output_dir_clone.display()))
+        }
+    })
+    .await
+    .map_err(|e| format!("Conversion task failed: {}", e))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -491,7 +573,8 @@ pub fn run() {
             get_project,
             get_project_sources,
             delete_project,
-            prepare_media
+            prepare_media,
+            convert_to_ascii
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

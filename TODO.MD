@@ -5,5 +5,4 @@
 - player
 - type
 
-versioning
-add dependenci with cascii
+don't create project if not all files are saved/converted

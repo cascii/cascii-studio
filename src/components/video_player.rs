@@ -8,6 +8,9 @@ pub struct VideoPlayerProps {
     pub src: String,
     #[prop_or_default]
     pub class: Classes,
+    /// External control: when Some(true), play; when Some(false), pause; when None, no external control
+    #[prop_or_default]
+    pub should_play: Option<bool>,
 }
 
 #[function_component(VideoPlayer)]
@@ -157,6 +160,45 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let current_time_str = format_time(*current_time);
     let duration_str = format_time(*duration);
     let timestamp = format!("{} / {}", current_time_str, duration_str);
+
+    // External play/pause control
+    {
+        let video_ref = video_ref.clone();
+        let is_playing = is_playing.clone();
+        let current_time = current_time.clone();
+        let should_play = props.should_play;
+        let prev_should_play = use_mut_ref(|| None::<bool>);
+        
+        use_effect_with(should_play, move |should_play| {
+            let current = *should_play;
+            let prev = *prev_should_play.borrow();
+            
+            // Only act on changes
+            if current != prev {
+                if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                    match current {
+                        Some(true) => {
+                            // Start playing from beginning
+                            v.set_current_time(0.0);
+                            current_time.set(0.0);
+                            let _ = v.play();
+                            is_playing.set(true);
+                        }
+                        Some(false) => {
+                            // Pause
+                            v.pause().ok();
+                            is_playing.set(false);
+                        }
+                        None => {
+                            // No external control - do nothing
+                        }
+                    }
+                }
+                *prev_should_play.borrow_mut() = current;
+            }
+            || ()
+        });
+    }
 
     html! {
         <div class={classes!("video-player", props.class.clone())}>

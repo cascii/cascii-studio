@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
-use crate::components::ascii_frames_viewer::AsciiFramesViewer;
+use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -71,6 +71,8 @@ struct ConvertToAsciiRequest {
     font_ratio: f32,
     columns: u32,
     fps: Option<u32>,
+    project_id: String,
+    source_file_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,6 +93,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
     let selected_source = use_state(|| None::<SourceContent>);
     let selected_frame_dir = use_state(|| None::<FrameDirectory>);
+    let selected_frame_settings = use_state(|| None::<ConversionSettings>);
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
@@ -260,6 +263,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 } else {
                                     {
                                         let selected_frame_dir = selected_frame_dir.clone();
+                                        let selected_frame_settings = selected_frame_settings.clone();
                                         frame_directories.iter().map(|frame_dir| {
                                             let frame_clone = frame_dir.clone();
                                             let is_selected = selected_frame_dir.as_ref()
@@ -267,8 +271,32 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 .unwrap_or(false);
                                             let onclick = Callback::from({
                                                 let selected_frame_dir = selected_frame_dir.clone();
+                                                let selected_frame_settings = selected_frame_settings.clone();
+                                                let directory_path = frame_dir.directory_path.clone();
                                                 move |_| {
                                                     selected_frame_dir.set(Some(frame_clone.clone()));
+                                                    
+                                                    // Fetch conversion settings for this frame directory
+                                                    let selected_frame_settings = selected_frame_settings.clone();
+                                                    let directory_path = directory_path.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        let args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
+                                                        match tauri_invoke("get_conversion_by_folder_path", args).await {
+                                                            result => {
+                                                                if let Ok(Some(conversion)) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
+                                                                    // Extract settings from the conversion
+                                                                    if let Some(settings) = conversion.get("settings") {
+                                                                        if let Ok(conv_settings) = serde_json::from_value::<ConversionSettings>(settings.clone()) {
+                                                                            selected_frame_settings.set(Some(conv_settings));
+                                                                            return;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                // No conversion found or failed to parse
+                                                                selected_frame_settings.set(None);
+                                                            }
+                                                        }
+                                                    });
                                                 }
                                             });
 
@@ -410,6 +438,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 Callback::from(move |_e: yew::MouseEvent| {
                                     if let Some(source) = &*selected_source {
                                         let file_path = source.file_path.clone();
+                                        let source_file_id = source.id.clone();
                                         let luminance_val = *luminance;
                                         let font_ratio_val = *font_ratio;
                                         let columns_val = *columns;
@@ -432,6 +461,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     font_ratio: font_ratio_val,
                                                     columns: columns_val,
                                                     fps: Some(fps_val),
+                                                    project_id: project_id_clone.clone(),
+                                                    source_file_id,
                                                 }
                                             };
                                             
@@ -515,7 +546,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         html! {
                                             <AsciiFramesViewer 
                                                 directory_path={frame_dir.directory_path.clone()}
-                                                fps={*fps}
+                                                fps={selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)}
+                                                settings={(*selected_frame_settings).clone()}
                                             />
                                         }
                                     } else {

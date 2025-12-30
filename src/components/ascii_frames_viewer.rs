@@ -27,11 +27,21 @@ struct FrameFile {
     index: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ConversionSettings {
+    pub fps: u32,
+    pub font_ratio: f32,
+    pub luminance: u8,
+    pub columns: u32,
+}
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct AsciiFramesViewerProps {
     pub directory_path: String,
     #[prop_or(24)]
     pub fps: u32,
+    #[prop_or(None)]
+    pub settings: Option<ConversionSettings>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -235,6 +245,27 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
+                
+                if let Some(settings) = &props.settings {
+                    <div class="settings-info">
+                        <div class="settings-row">
+                            <span class="settings-label">{"FPS:"}</span>
+                            <span class="settings-value">{settings.fps}</span>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"Font Ratio:"}</span>
+                            <span class="settings-value">{format!("{:.2}", settings.font_ratio)}</span>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"Luminance:"}</span>
+                            <span class="settings-value">{settings.luminance}</span>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"Columns:"}</span>
+                            <span class="settings-value">{settings.columns}</span>
+                        </div>
+                    </div>
+                }
             </div>
         </div>
     }

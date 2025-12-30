@@ -42,6 +42,9 @@ pub struct AsciiFramesViewerProps {
     pub fps: u32,
     #[prop_or(None)]
     pub settings: Option<ConversionSettings>,
+    /// External control: when Some(true), play; when Some(false), pause; when None, no external control
+    #[prop_or_default]
+    pub should_play: Option<bool>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -163,6 +166,39 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 // Cleanup: cancel pending timeout on unmount or dependency change
                 timeout_handle_cleanup.borrow_mut().take();
             }
+        });
+    }
+
+    // External play/pause control
+    {
+        let is_playing = is_playing.clone();
+        let current_index = current_index.clone();
+        let should_play = props.should_play;
+        let prev_should_play = use_mut_ref(|| None::<bool>);
+        
+        use_effect_with(should_play, move |should_play| {
+            let current = *should_play;
+            let prev = *prev_should_play.borrow();
+            
+            // Only act on changes
+            if current != prev {
+                match current {
+                    Some(true) => {
+                        // Reset to first frame and play
+                        current_index.set(0);
+                        is_playing.set(true);
+                    }
+                    Some(false) => {
+                        // Pause
+                        is_playing.set(false);
+                    }
+                    None => {
+                        // No external control - do nothing
+                    }
+                }
+                *prev_should_play.borrow_mut() = current;
+            }
+            || ()
         });
     }
 

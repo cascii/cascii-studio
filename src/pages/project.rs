@@ -106,6 +106,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let fps = use_state(|| 30u32);
     let is_converting = use_state(|| false);
     let conversion_message = use_state(|| Option::<String>::None);
+    let is_comparing = use_state(|| false);
 
     {
         let project_id = props.project_id.clone();
@@ -509,6 +510,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             <div class="conversion-success">{msg}</div>
                         }
                     </div>
+                    
+                    <div class="controls-column">
+                        <h2>{"Controls"}</h2>
+                        <button 
+                            class="btn-compare"
+                            disabled={selected_source.is_none() || selected_frame_dir.is_none()}
+                            onclick={{
+                                let is_comparing = is_comparing.clone();
+                                Callback::from(move |_| {
+                                    is_comparing.set(!*is_comparing);
+                                })
+                            }}
+                        >
+                            if *is_comparing {
+                                {"Stop Compare"}
+                            } else {
+                                {"Compare"}
+                            }
+                        </button>
+                    </div>
                 </div>
 
                 <div class="main-content">
@@ -525,7 +546,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
                                             }
                                         } else if source.content_type == "Video" {
-                                            html! { <VideoPlayer src={url.clone()} class={classes!("source-video")} /> }
+                                            html! { 
+                                                <VideoPlayer 
+                                                    src={url.clone()} 
+                                                    class={classes!("source-video")}
+                                                    should_play={if *is_comparing { Some(true) } else { Some(false) }}
+                                                /> 
+                                            }
                                         } else {
                                             html! { <span>{"Unsupported file type"}</span> }
                                         }
@@ -548,6 +575,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 directory_path={frame_dir.directory_path.clone()}
                                                 fps={selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)}
                                                 settings={(*selected_frame_settings).clone()}
+                                                should_play={if *is_comparing { Some(true) } else { Some(false) }}
                                             />
                                         }
                                     } else {

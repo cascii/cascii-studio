@@ -17,6 +17,14 @@
   -webkit-text-size-adjust: 100%;
 }
 
+html,
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
 .container {
   margin: 0;
   margin-left: 80px; /* space for sidebar */
@@ -69,6 +77,14 @@ button {
   background-color: #ffffff;
   transition: border-color 0.25s;
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
 }
 
 button {

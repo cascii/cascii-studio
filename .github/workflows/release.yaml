@@ -164,6 +164,22 @@ jobs:
           echo "---- Bundles ----"
           ls -R "$BUNDLE_DIR" || true
 
+      - name: Verify icon files exist (Windows)
+        if: startsWith(matrix.os, 'windows')
+        shell: powershell
+        run: |
+          Write-Host "Checking for icon files..."
+          $iconPath = "src-tauri\icons\icon.ico"
+          if (Test-Path $iconPath) {
+            Write-Host "✓ Found icon.ico at $iconPath"
+            Get-Item $iconPath | Format-List
+          } else {
+            Write-Host "✗ icon.ico NOT FOUND at $iconPath"
+            Write-Host "Contents of src-tauri\icons\:"
+            Get-ChildItem "src-tauri\icons\" | Format-Table Name, Length
+            exit 1
+          }
+
       - name: Build Tauri app (Windows)
         if: startsWith(matrix.os, 'windows')
         shell: powershell

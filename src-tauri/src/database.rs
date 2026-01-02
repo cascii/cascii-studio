@@ -438,38 +438,3 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
     }
 }
 
-pub fn get_source_conversions(source_file_id: &str) -> SqlResult<Vec<AsciiConversion>> {
-    let conn = init_database()?;
-    let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, creation_date, total_size 
-         FROM ascii_conversions 
-         WHERE source_file_id = ?1 
-         ORDER BY creation_date DESC"
-    )?;
-
-    let conversions = stmt.query_map([source_file_id], |row| {
-        let date_str: String = row.get(10)?;
-        
-        Ok(AsciiConversion {
-            id: row.get(0)?,
-            folder_name: row.get(1)?,
-            folder_path: row.get(2)?,
-            frame_count: row.get(3)?,
-            source_file_id: row.get(4)?,
-            project_id: row.get(5)?,
-            settings: ConversionSettings {
-                luminance: row.get(6)?,
-                font_ratio: row.get(7)?,
-                columns: row.get(8)?,
-                fps: row.get(9)?,
-            },
-            creation_date: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            total_size: row.get(11)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
-
-    Ok(conversions)
-}
-

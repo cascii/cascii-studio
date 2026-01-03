@@ -1,92 +1,65 @@
-name: Release on PR merge or [release] commit
+name: Release (merge to master)
 
 on:
-  # 1) Run when a PR into main/master is merged (any branch → main/master)
   pull_request:
     types: [closed]
     branches: [master]
-  # 2) Run on every push to any branch (so PR branch commits fire),
-  #    but jobs below will only run if the commit message contains "[release]"
-  push:
-    branches:
-      - "**"
 
 permissions:
   contents: write
 
-concurrency:
-  group: release-${{ github.head_ref || github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
-
 jobs:
-  build:
-    # PR merge → main/master OR push commit contains "[release]"
-    if: |
-      (github.event_name == 'pull_request' &&
-       github.event.action == 'closed' &&
-       github.event.pull_request.merged == true &&
-       !contains(github.event.pull_request.title, '[no-release]')) ||
-      (github.event_name == 'push' &&
-       contains(github.event.head_commit.message, '[release]'))
+  release:
+    if: github.event.pull_request.merged == true
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-14
             label: macos-arm64
-            triple: aarch64-apple-darwin
           - os: macos-13
             label: macos-x86_64
-            triple: x86_64-apple-darwin
           - os: windows-latest
             label: windows-x86_64
-            triple: x86_64-pc-windows-msvc
           - os: ubuntu-22.04
             label: linux-x86_64
-            triple: x86_64-unknown-linux-gnu
+
     runs-on: ${{ matrix.os }}
 
     env:
-      CARGO_TERM_COLOR: always
       BUNDLE_DIR: target/release/bundle
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Rust toolchain
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
       - name: Cache cargo binaries
-        id: cache-cargo-binaries
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-binaries-v1-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-binaries-v1-
+          key: ${{ runner.os }}-cargo-bin-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install cargo tools (if not cached)
-        if: runner.os != 'Windows'
+      - name: Install cargo tools
+        shell: bash
         run: |
-          if ! command -v trunk &> /dev/null; then cargo install --locked trunk; fi
-          if ! command -v wasm-bindgen &> /dev/null; then cargo install --locked wasm-bindgen-cli; fi
-          if ! command -v cargo-tauri &> /dev/null; then cargo install --locked tauri-cli --version "^2.0.0-beta"; fi
+          command -v trunk || cargo install --locked trunk
+          command -v cargo-tauri || cargo install --locked tauri-cli --version "^2.0.0-beta"
 
-      - name: Install cargo tools (if not cached) (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          if (-not (Get-Command trunk -ErrorAction SilentlyContinue)) { cargo install --locked trunk }
-          if (-not (Get-Command wasm-bindgen -ErrorAction SilentlyContinue)) { cargo install --locked wasm-bindgen-cli }
-          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) { cargo install --locked tauri-cli --version "^2.0.0-beta" }
-
-      # Platform dependencies
       - name: Linux dependencies
-        if: startsWith(matrix.os, 'ubuntu')
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -96,204 +69,42 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      # ---------- macOS signing prerequisites (COMMENTED OUT) ----------
-      # - name: Import Apple Developer certificate (macOS)
-      #   if: startsWith(matrix.os, 'macos')
-      #   shell: bash
-      #   env:
-      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}             # base64 of .p12
-      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #     KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      #   run: |
-      #     set -euxo pipefail
-      #
-      #     echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-      #
-      #     # Create & select a temporary keychain (explicit path helps downstream tools)
-      #     KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
-      #     echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-      #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-      #     security list-keychains -d user -s "$KEYCHAIN_PATH"
-      #     security default-keychain -s "$KEYCHAIN_PATH"
-      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-      #     security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
-      #
-      #     # Import certificate and allow codesign/xcrun without interactive prompts
-      #     security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
-      #       -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/xcrun
-      #     security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-      #
-      #     echo "== Identities (codesigning) =="
-      #     security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
-      #
-      #     CERT_ID=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
-      #       awk -F\" '/Developer ID Application|Mac Developer ID Application/ {print $2; exit}')
-      #     if [[ -z "$CERT_ID" ]]; then
-      #       echo "::error::Developer ID Application identity not found in the imported .p12."
-      #       exit 1
-      #     fi
-      #     echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
-      #
-      #     # Help codesign find its allocator on CI (avoids some rare hangs)
-      #     echo "CODESIGN_ALLOCATE=$(xcrun -f codesign_allocate)" >> "$GITHUB_ENV"
-
-      - name: Build frontend (Trunk)
+      - name: Build frontend
         run: trunk build --release
 
-      # Build the Tauri app (signed + notarized on macOS when creds are present)
-      - name: Build Tauri app (macOS/Linux)
-        if: startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu')
-        shell: bash
-        env:
-          RUST_LOG: tauri_bundler=debug
-          # macOS signing (COMMENTED OUT)
-          # APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          # KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
-          # CODESIGN_ALLOCATE: ${{ env.CODESIGN_ALLOCATE }}
-          # App Store Connect API key auth (preferred for CI) (COMMENTED OUT)
-          # APPLE_API_ISSUER:   ${{ secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_ISSUER || '' }}
-          # APPLE_API_KEY:      ${{ secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY    || '' }}
-          # APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_P8 != '' && './AuthKey.p8' || '' }}
-          # Apple ID fallback (supported by Tauri; leave empty if unused) (COMMENTED OUT)
-          # APPLE_ID:           ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD:     ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID:      ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euxo pipefail
-          cargo tauri build --ci
-          echo "---- Bundles ----"
-          ls -R "$BUNDLE_DIR" || true
-
-      - name: Verify icon files exist (Windows)
-        if: startsWith(matrix.os, 'windows')
-        shell: powershell
-        run: |
-          Write-Host "Checking for icon files..."
-          $iconPath = "src-tauri\icons\icon.ico"
-          if (Test-Path $iconPath) {
-            Write-Host "✓ Found icon.ico at $iconPath"
-            Get-Item $iconPath | Format-List
-          } else {
-            Write-Host "✗ icon.ico NOT FOUND at $iconPath"
-            Write-Host "Contents of src-tauri\icons\:"
-            Get-ChildItem "src-tauri\icons\" | Format-Table Name, Length
-            exit 1
-          }
-
-      - name: Build Tauri app (Windows)
-        if: startsWith(matrix.os, 'windows')
-        shell: powershell
-        env:
-          RUST_LOG: tauri_bundler=debug
-        run: |
-          $ErrorActionPreference = "Stop"
-          cargo tauri build --ci
-          Write-Host "---- Bundles ----"
-          if (Test-Path "$env:BUNDLE_DIR") {
-            Get-ChildItem -Recurse "$env:BUNDLE_DIR" | ForEach-Object { $_.FullName }
-          }
-
-      # Verify whole app and (best-effort) staple (COMMENTED OUT)
-      # - name: Verify & Staple (macOS)
-      #   if: startsWith(matrix.os, 'macos')
-      #   shell: bash
-      #   run: |
-      #     set -euxo pipefail
-      #     APP_PATH=$(find "$BUNDLE_DIR" -name "*.app" -type d | head -n1 || true)
-      #     if [[ -n "$APP_PATH" ]]; then
-      #       /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP_PATH"
-      #       xcrun stapler staple -v "$APP_PATH" || true
-      #       find "$BUNDLE_DIR" -name "*.dmg" -type f -print0 | xargs -0 -I{} sh -c 'xcrun stapler staple -v "{}" || true'
-      #     fi
-
-      # - name: Cleanup keychain (macOS)
-      #   if: startsWith(matrix.os, 'macos')
-      #   run: |
-      #     security delete-keychain "$KEYCHAIN_PATH" || true
+      - name: Build Tauri app
+        run: cargo tauri build --ci
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bundles-${{ matrix.label }}
           path: ${{ env.BUNDLE_DIR }}/**/*
-          if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   publish:
-    needs: [build]
-    if: |
-      always() && (
-        (github.event_name == 'pull_request' &&
-         github.event.action == 'closed' &&
-         github.event.pull_request.merged == true &&
-         !contains(github.event.pull_request.title, '[no-release]')) ||
-        (github.event_name == 'push' &&
-         contains(github.event.head_commit.message, '[release]'))
-      )
+    needs: release
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check build job conclusion
-        if: needs.build.result != 'success'
-        run: |
-          echo "One or more build jobs failed. Skipping release."
-          exit 1
-
-      - name: Find Pull Request
-        id: find_pr
-        if: github.event_name == 'push'
-        uses: jwalton/gh-find-current-pr@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive release metadata
-        id: meta
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "tag=vpr-${{ github.event.pull_request.number }}-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-            echo "name=PR #${{ github.event.pull_request.number }} — ${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "draft=false" >> $GITHUB_OUTPUT
-          elif [ -n "${{ steps.find_pr.outputs.number }}" ]; then
-            PR_NUMBER="${{ steps.find_pr.outputs.number }}"
-            COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | xargs)
-            echo "tag=vpr-${PR_NUMBER}-commit-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-            echo "name=PR #${PR_NUMBER} — $COMMIT_MSG" >> $GITHUB_OUTPUT
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "draft=false" >> $GITHUB_OUTPUT
-          else
-            COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | xargs)
-            echo "tag=v$(date +'%Y.%m.%d')-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-            echo "name=$COMMIT_MSG" >> $GITHUB_OUTPUT
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "draft=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Download all build artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
 
-      - name: Find and list artifacts
-        run: |
-          echo "Looking for artifacts in dist/"
-          find dist -type f -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -20
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.name }}
-          draft: ${{ steps.meta.outputs.draft }}
-          prerelease: ${{ steps.meta.outputs.prerelease }}
-          generate_release_notes: true
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          draft: false
+          prerelease: false
           files: |
             dist/**/*.dmg
             dist/**/*.msi
-            dist/**/*-setup.exe
             dist/**/*.exe
             dist/**/*.AppImage
             dist/**/*.deb
             dist/**/*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

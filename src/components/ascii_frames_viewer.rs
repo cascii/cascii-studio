@@ -58,6 +58,9 @@ pub struct AsciiFramesViewerProps {
     /// External control: when Some(true), play; when Some(false), pause; when None, no external control
     #[prop_or_default]
     pub should_play: Option<bool>,
+    /// External control: when true, reset to beginning
+    #[prop_or(false)]
+    pub should_reset: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -215,9 +218,15 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             if current != prev {
                 match current {
                     Some(true) => {
-                        // Reset to first frame and play
-                        current_index.set(0);
-                        is_playing.set(true);
+                        // Check if this is resuming from pause or starting fresh
+                        if prev == Some(false) {
+                            // Resuming from pause - continue from current frame
+                            is_playing.set(true);
+                        } else {
+                            // Fresh start - reset to first frame
+                            current_index.set(0);
+                            is_playing.set(true);
+                        }
                     }
                     Some(false) => {
                         // Pause
@@ -230,6 +239,18 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 *prev_should_play.borrow_mut() = current;
             }
             || ()
+        });
+    }
+
+    // Handle reset
+    {
+        let current_index = current_index.clone();
+        let should_reset = props.should_reset;
+
+        use_effect_with(should_reset, move |should_reset| {
+            if *should_reset {
+                current_index.set(0);
+            }
         });
     }
 
@@ -276,7 +297,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let (loaded, total) = *loading_progress;
         if total > 0 {
             let percentage = if total > 0 { (loaded as f32 / total as f32 * 100.0) as i32 } else { 0 };
-            format!("Loading frames...\n {} / {} ({}%)", loaded, total, percentage)
+            format!("Loading frames... {} / {} ({}%)", loaded, total, percentage)
         } else {
             "Loading frames...".to_string()
         }

@@ -11,6 +11,9 @@ pub struct VideoPlayerProps {
     /// External control: when Some(true), play; when Some(false), pause; when None, no external control
     #[prop_or_default]
     pub should_play: Option<bool>,
+    /// External control: when true, reset to beginning
+    #[prop_or(false)]
+    pub should_reset: bool,
 }
 
 #[function_component(VideoPlayer)]
@@ -178,10 +181,16 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                     match current {
                         Some(true) => {
-                            // Start playing from beginning
-                            v.set_current_time(0.0);
-                            current_time.set(0.0);
-                            let _ = v.play();
+                            // Check if this is resuming from pause or starting fresh
+                            if prev == Some(false) {
+                                // Resuming from pause - continue from current position
+                                let _ = v.play();
+                            } else {
+                                // Fresh start - reset to beginning
+                                v.set_current_time(0.0);
+                                current_time.set(0.0);
+                                let _ = v.play();
+                            }
                             is_playing.set(true);
                         }
                         Some(false) => {
@@ -197,6 +206,22 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 *prev_should_play.borrow_mut() = current;
             }
             || ()
+        });
+    }
+
+    // Handle reset
+    {
+        let video_ref = video_ref.clone();
+        let current_time = current_time.clone();
+        let should_reset = props.should_reset;
+
+        use_effect_with(should_reset, move |should_reset| {
+            if *should_reset {
+                if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                    v.set_current_time(0.0);
+                    current_time.set(0.0);
+                }
+            }
         });
     }
 

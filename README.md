@@ -39,6 +39,16 @@ cargo tauri dev
 cargo tauri build
 ```
 
+### Testing the Build Locally
+
+To test that the build works correctly (including icon bundling):
+
+```bash
+cargo tauri build --debug
+```
+
+This will build a debug version for your current platform and ensure all assets (including icons) are properly bundled. For production builds, use `cargo tauri build` without the `--debug` flag.
+
 ## Application Data Locations
 
 ### Database

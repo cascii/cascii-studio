@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "cascii_studio",
-  "version": "0.16.11",
-  "identifier": "com.hjoncour.cascii_studio",
+  "version": "0.29.0",
+  "identifier": "com.hjoncour.cascii-studio",
   "build": {
     "beforeDevCommand": "trunk serve",
     "devUrl": "http://localhost:8765",
-    "beforeBuildCommand": "trunk build",
+    "beforeBuildCommand": "node ./build-frontend.js",
     "frontendDist": "../dist"
   },
   "app": {
@@ -32,7 +32,9 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
     ]
   }
 }

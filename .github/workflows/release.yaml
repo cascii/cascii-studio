@@ -4,7 +4,7 @@ on:
   # 1) Run when a PR into main/master is merged (any branch → main/master)
   pull_request:
     types: [closed]
-    branches: [main, master]
+    branches: [master]
   # 2) Run on every push to any branch (so PR branch commits fire),
   #    but jobs below will only run if the commit message contains "[release]"
   push:

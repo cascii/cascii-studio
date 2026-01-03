@@ -645,7 +645,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             }}
                                             title="Reset to beginning"
                                         >
-                                            <span class="reset-icon">{"⟲"}</span>
+                                            <span class="reset-icon">{"↺"}</span>
                                         </button>
                                     </div>
                                 }

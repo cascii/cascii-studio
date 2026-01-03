@@ -308,18 +308,21 @@
     cursor: not-allowed;
 }
 
-.ctrl-btn .reset-icon {
-    font-size: 40px;
-    line-height: 1;
-    display: block;
-    transform: translateY(-10px); /* Adjust vertical alignment */
-}
 
 .controls-buttons {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: 8px;
+}
+
+.ctrl-btn {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.reset-icon {
+    transform: rotate(-90deg) translateX(-2px) translateY(-2px);
 }
 
 .conversion-success {

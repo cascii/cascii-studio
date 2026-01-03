@@ -316,6 +316,11 @@
     gap: 8px;
 }
 
+.synced-progress {
+    flex: 1;
+    margin: 0;
+}
+
 .ctrl-btn {
     font-size: 28px;
     font-weight: bold;

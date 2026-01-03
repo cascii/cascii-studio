@@ -64,6 +64,9 @@ pub struct AsciiFramesViewerProps {
     /// External control: seek to percentage (0.0-1.0)
     #[prop_or_default]
     pub seek_percentage: Option<f64>,
+    /// Callback to report loading state to parent
+    #[prop_or_default]
+    pub on_loading_changed: Option<Callback<bool>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -76,6 +79,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let loading_progress = use_state(|| (0, 0)); // (loaded, total)
     // Store timeout handle to allow cancellation
     let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
+    let on_loading_changed = props.on_loading_changed.clone();
 
     // Load frames when directory_path changes
     {
@@ -91,6 +95,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         use_effect_with(directory_path.clone(), move |_| {
             loading_progress_clone.set((0, 0));
             is_loading.set(true);
+            if let Some(callback) = &on_loading_changed {
+                callback.emit(true);
+            }
             error_message.set(None);
             frames.set(Vec::new());
             current_index.set(0);
@@ -99,6 +106,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             // Cancel any pending timeout
             timeout_handle_clone.borrow_mut().take();
 
+            let on_loading_changed_async = on_loading_changed.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 // First, try to get conversion info to get the total frame count
                 let conversion_args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
@@ -146,10 +154,16 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                     frames.set(loaded_frames);
                                 }
                                 is_loading.set(false);
+                                if let Some(callback) = on_loading_changed_async {
+                                    callback.emit(false);
+                                }
                             }
                             Err(e) => {
                                 error_message.set(Some(format!("Failed to list frames: {:?}", e)));
                                 is_loading.set(false);
+                                if let Some(callback) = on_loading_changed_async {
+                                    callback.emit(false);
+                                }
                             }
                         }
                     }

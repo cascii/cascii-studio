@@ -9,33 +9,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        os: [macos-latest, ubuntu-22.04, windows-latest]
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust stable
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
-      - name: Add WebAssembly target (wasm32-unknown-unknown)
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Install Trunk (for Yew build)
-        run: cargo install trunk
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0.0-beta"
-
-      - name: Rust cache
+      - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: |
+            . -> target
+            src-tauri -> target
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Cache cargo binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo tools (if missing)
+        shell: bash
+        run: |
+          command -v trunk || cargo install --locked trunk
+          command -v cargo-tauri || cargo install --locked tauri-cli --version "^2.0.0-beta"
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -45,23 +51,8 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Build frontend (Trunk)
+      - name: Build frontend
         run: trunk build --release
 
       - name: Build Tauri app
         run: cargo tauri build --ci
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: bundles-${{ matrix.platform }}
-          path: |
-            target/release/bundle/**/*.dmg
-            target/release/bundle/**/*.msi
-            target/release/bundle/**/*-setup.exe
-            target/release/bundle/**/*.AppImage
-            target/release/bundle/**/*.deb
-            target/release/bundle/**/*.rpm
-          if-no-files-found: ignore
-          retention-days: 7
-

@@ -111,6 +111,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let should_reset = use_state(|| false);
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
     let seek_percentage = use_state(|| None::<f64>);
+    let frames_loading = use_state(|| false);
     
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -617,14 +618,14 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         <>
                                             <button
                                             class="ctrl-btn"
-                                            disabled={selected_source.is_none() || selected_frame_dir.is_none()}
+                                            disabled={selected_source.is_none() || selected_frame_dir.is_none() || *frames_loading}
                                             onclick={{
                                                 let is_playing = is_playing.clone();
                                                 Callback::from(move |_| {
                                                     is_playing.set(!*is_playing);
                                                 })
                                             }}
-                                            title={if *is_playing {"Pause"} else {"Play"}}
+                                            title={if *is_playing {"Pause"} else if *frames_loading {"Loading frames..."} else {"Play"}}
                                         >
                                             <Icon
                                                 icon_id={if *is_playing {IconId::LucidePause} else {IconId::LucidePlay}}
@@ -634,7 +635,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         </button>
                                         <button
                                             class="ctrl-btn"
-                                            disabled={selected_source.is_none() && selected_frame_dir.is_none()}
+                                            disabled={selected_source.is_none() && selected_frame_dir.is_none() || *frames_loading}
                                             onclick={{
                                                 let should_reset = should_reset.clone();
                                                 Callback::from(move |_| {
@@ -736,9 +737,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 directory_path={frame_dir.directory_path.clone()}
                                                 fps={selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)}
                                                 settings={(*selected_frame_settings).clone()}
-                                                should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                should_play={if *is_playing && !*frames_loading {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
                                                 seek_percentage={*seek_percentage}
+                                                on_loading_changed={{
+                                                    let frames_loading = frames_loading.clone();
+                                                    Callback::from(move |is_loading: bool| {
+                                                        frames_loading.set(is_loading);
+                                                    })
+                                                }}
                                             />
                                         }
                                     } else {

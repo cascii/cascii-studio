@@ -61,6 +61,9 @@ pub struct AsciiFramesViewerProps {
     /// External control: when true, reset to beginning
     #[prop_or(false)]
     pub should_reset: bool,
+    /// External control: seek to percentage (0.0-1.0)
+    #[prop_or_default]
+    pub seek_percentage: Option<f64>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -250,6 +253,24 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         use_effect_with(should_reset, move |should_reset| {
             if *should_reset {
                 current_index.set(0);
+            }
+        });
+    }
+
+    // Handle seek percentage
+    {
+        let current_index = current_index.clone();
+        let frames = frames.clone();
+        let seek_percentage = props.seek_percentage;
+
+        use_effect_with(seek_percentage, move |seek_percentage| {
+            if let Some(percentage) = seek_percentage {
+                let frame_count = frames.len();
+                if frame_count > 0 {
+                    let target_frame = ((frame_count - 1) as f64 * percentage).round() as usize;
+                    let clamped_frame = target_frame.min(frame_count - 1);
+                    current_index.set(clamped_frame);
+                }
             }
         });
     }

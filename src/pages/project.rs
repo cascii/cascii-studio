@@ -109,6 +109,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let conversion_message = use_state(|| Option::<String>::None);
     let is_playing = use_state(|| false);
     let should_reset = use_state(|| false);
+    let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
+    let seek_percentage = use_state(|| None::<f64>);
     
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -612,7 +614,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             if !*controls_collapsed {
                                 html! {
                                     <div class="controls-buttons">
-                                        <button
+                                        <>
+                                            <button
                                             class="ctrl-btn"
                                             disabled={selected_source.is_none() || selected_frame_dir.is_none()}
                                             onclick={{
@@ -647,6 +650,32 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         >
                                             <span class="reset-icon">{"↺"}</span>
                                         </button>
+
+                                        <div class="control-row">
+                                        <input
+                                            class="progress synced-progress"
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={(*synced_progress).to_string()}
+                                            oninput={{
+                                                let synced_progress = synced_progress.clone();
+                                                let seek_percentage = seek_percentage.clone();
+                                                Callback::from(move |e: web_sys::InputEvent| {
+                                                    if let Some(target) = e.target() {
+                                                        if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                                                            let percentage = input.value_as_number();
+                                                            synced_progress.set(percentage);
+                                                            seek_percentage.set(Some(percentage / 100.0));
+                                                        }
+                                                    }
+                                                })
+                                            }}
+                                            title="Synced progress control"
+                                            disabled={selected_source.is_none() || selected_frame_dir.is_none()}
+                                        />
+                                        </div>
+                                        </>
                                     </div>
                                 }
                             } else {
@@ -682,7 +711,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     class={classes!("source-video")}
                                                     should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                     should_reset={*should_reset}
-                                                /> 
+                                                    seek_percentage={*seek_percentage}
+                                                />
                                             }
                                         } else {
                                             html! { <span>{"Unsupported file type"}</span> }
@@ -708,6 +738,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 settings={(*selected_frame_settings).clone()}
                                                 should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
+                                                seek_percentage={*seek_percentage}
                                             />
                                         }
                                     } else {

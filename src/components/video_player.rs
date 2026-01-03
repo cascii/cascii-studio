@@ -14,6 +14,9 @@ pub struct VideoPlayerProps {
     /// External control: when true, reset to beginning
     #[prop_or(false)]
     pub should_reset: bool,
+    /// External control: seek to percentage (0.0-1.0)
+    #[prop_or_default]
+    pub seek_percentage: Option<f64>,
 }
 
 #[function_component(VideoPlayer)]
@@ -220,6 +223,26 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                     v.set_current_time(0.0);
                     current_time.set(0.0);
+                }
+            }
+        });
+    }
+
+    // Handle seek percentage
+    {
+        let video_ref = video_ref.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        let seek_percentage = props.seek_percentage;
+
+        use_effect_with(seek_percentage, move |seek_percentage| {
+            if let Some(percentage) = seek_percentage {
+                if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                    let seek_time = v.duration() * percentage;
+                    if seek_time.is_finite() {
+                        v.set_current_time(seek_time);
+                        current_time.set(seek_time);
+                    }
                 }
             }
         });

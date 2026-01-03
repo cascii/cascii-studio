@@ -1,6 +1,6 @@
 [package]
 name = "cascii_studio"
-version = "0.35.3"
+version = "0.35.12"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

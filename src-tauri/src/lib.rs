@@ -462,6 +462,17 @@ fn get_conversion_by_folder_path(folder_path: String) -> Result<Option<database:
     database::get_conversion_by_folder_path(&folder_path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn update_conversion_frame_speed(conversion_id: String, frame_speed: u32) -> Result<(), String> {
+    println!("🔄 Tauri: Updating frame_speed for conversion {} to {}", conversion_id, frame_speed);
+    let result = database::update_conversion_frame_speed(&conversion_id, frame_speed);
+    match &result {
+        Ok(_) => println!("✅ Tauri: Database update successful"),
+        Err(e) => println!("❌ Tauri: Database update failed: {}", e),
+    }
+    result.map_err(|e| e.to_string())
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct FrameDirectory {
     pub name: String,           // Display name like "Notan Nigres - Frames"
@@ -713,6 +724,7 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
             font_ratio: request.font_ratio,
             columns: request.columns,
             fps,
+            frame_speed: fps, // Initially set to same as fps
         },
         creation_date: Utc::now(),
         total_size,
@@ -772,7 +784,8 @@ pub fn run() {
             read_frame_file,
             delete_project,
             prepare_media,
-            convert_to_ascii
+            convert_to_ascii,
+            update_conversion_frame_speed
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

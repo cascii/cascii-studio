@@ -75,6 +75,7 @@ pub struct ConversionSettings {
     pub font_ratio: f32,
     pub columns: u32,
     pub fps: u32,
+    pub frame_speed: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +157,7 @@ pub fn init_database() -> SqlResult<Connection> {
             font_ratio REAL NOT NULL,
             columns INTEGER NOT NULL,
             fps INTEGER NOT NULL,
+            frame_speed INTEGER NOT NULL DEFAULT 0,
             creation_date TEXT NOT NULL,
             total_size INTEGER NOT NULL,
             FOREIGN KEY (source_file_id) REFERENCES source_content(id) ON DELETE CASCADE,
@@ -163,6 +165,27 @@ pub fn init_database() -> SqlResult<Connection> {
         )",
         [],
     )?;
+
+    // Check if frame_speed column exists, if not add it
+    let column_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='frame_speed'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+
+    if !column_exists {
+        // Add frame_speed column for existing databases
+        conn.execute(
+            "ALTER TABLE ascii_conversions ADD COLUMN frame_speed INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+
+        // Update existing records to set frame_speed = fps
+        conn.execute(
+            "UPDATE ascii_conversions SET frame_speed = fps",
+            [],
+        )?;
+    }
 
     // Create indexes for ascii_conversions
     conn.execute(
@@ -345,8 +368,8 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
     let conn = init_database()?;
     
     conn.execute(
-        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, creation_date, total_size)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             conversion.id,
             conversion.folder_name,
@@ -358,6 +381,7 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
             conversion.settings.font_ratio,
             conversion.settings.columns,
             conversion.settings.fps,
+            conversion.settings.frame_speed,
             conversion.creation_date.to_rfc3339(),
             conversion.total_size,
         ],
@@ -369,9 +393,9 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
 pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, creation_date, total_size 
-         FROM ascii_conversions 
-         WHERE project_id = ?1 
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size
+         FROM ascii_conversions
+         WHERE project_id = ?1
          ORDER BY creation_date DESC"
     )?;
 
@@ -390,31 +414,50 @@ pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversio
                 font_ratio: row.get(7)?,
                 columns: row.get(8)?,
                 fps: row.get(9)?,
+                frame_speed: row.get(10)?,
             },
             creation_date: DateTime::parse_from_rfc3339(&date_str)
                 .unwrap_or_else(|_| Utc::now().into())
                 .with_timezone(&Utc),
-            total_size: row.get(11)?,
+            total_size: row.get(12)?,
         })
     })?.collect::<SqlResult<Vec<_>>>()?;
 
     Ok(conversions)
 }
 
+pub fn update_conversion_frame_speed(conversion_id: &str, frame_speed: u32) -> SqlResult<()> {
+    println!("📝 DB: Updating frame_speed for conversion {} to {}", conversion_id, frame_speed);
+    let conn = init_database()?;
+
+    let result = conn.execute(
+        "UPDATE ascii_conversions SET frame_speed = ?1 WHERE id = ?2",
+        params![frame_speed, conversion_id],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("📝 DB: Update successful, {} rows affected", rows_affected),
+        Err(e) => println!("📝 DB: Update failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
 pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, creation_date, total_size 
-         FROM ascii_conversions 
-         WHERE folder_path = ?1 
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size
+         FROM ascii_conversions
+         WHERE folder_path = ?1
          LIMIT 1"
     )?;
 
     let mut rows = stmt.query([folder_path])?;
     
     if let Some(row) = rows.next()? {
-        let date_str: String = row.get(10)?;
-        
+        let date_str: String = row.get(11)?;
+
         Ok(Some(AsciiConversion {
             id: row.get(0)?,
             folder_name: row.get(1)?,
@@ -427,11 +470,12 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
                 font_ratio: row.get(7)?,
                 columns: row.get(8)?,
                 fps: row.get(9)?,
+                frame_speed: row.get(10)?,
             },
             creation_date: DateTime::parse_from_rfc3339(&date_str)
                 .unwrap_or_else(|_| Utc::now().into())
                 .with_timezone(&Utc),
-            total_size: row.get(11)?,
+            total_size: row.get(12)?,
         }))
     } else {
         Ok(None)

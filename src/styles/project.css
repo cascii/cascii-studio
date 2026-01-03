@@ -268,27 +268,61 @@
     cursor: not-allowed;
 }
 
-.btn-compare {
-    width: 100%;
-    padding: 0.75rem;
-    background-color: #7a5a9f;
-    color: #f6f6f6;
-    border: 1px solid #9a7acc;
+.ctrl-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    min-height: 38px;
     border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
+    background: #3a3a3a;
+    color: #f6f6f6;
+    border: 1px solid #555;
+    box-shadow: none;
     cursor: pointer;
     transition: background-color 0.2s, border-color 0.2s;
+    padding: 0;
+    margin: 0 4px;
 }
 
-.btn-compare:hover:not(:disabled) {
-    background-color: #8a6aaf;
-    border-color: #aa8adc;
+.ctrl-btn svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
 }
 
-.btn-compare:disabled {
+.ctrl-btn:hover:not(:disabled) {
+    background: #4a4a4a;
+    border-color: #777;
+}
+
+.ctrl-btn:active {
+    background: #2a2a2a;
+}
+
+.ctrl-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+
+.controls-buttons {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.ctrl-btn {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.reset-icon {
+    transform: rotate(-90deg) translateX(-2px) translateY(-2px);
 }
 
 .conversion-success {

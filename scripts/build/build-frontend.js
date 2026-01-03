@@ -5,18 +5,16 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-console.log('Current working directory:', process.cwd());
-console.log('Script directory:', __dirname);
-
 // Remove NO_COLOR from environment
 const env = { ...process.env };
 delete env.NO_COLOR;
 
-// Run trunk build
+// Run trunk build from project root (parent directory of scripts/)
+const projectRoot = path.resolve(__dirname, '../..');
 const trunk = spawn('trunk', ['build'], {
   stdio: 'inherit',
   env: env,
-  cwd: path.dirname(__filename)
+  cwd: projectRoot
 });
 
 trunk.on('close', (code) => {

@@ -27,6 +27,19 @@ struct FrameFile {
     index: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct AsciiConversion {
+    id: String,
+    folder_name: String,
+    folder_path: String,
+    frame_count: i32,
+    source_file_id: String,
+    project_id: String,
+    settings: ConversionSettings,
+    creation_date: String,
+    total_size: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConversionSettings {
     pub fps: u32,
@@ -45,6 +58,9 @@ pub struct AsciiFramesViewerProps {
     /// External control: when Some(true), play; when Some(false), pause; when None, no external control
     #[prop_or_default]
     pub should_play: Option<bool>,
+    /// External control: when true, reset to beginning
+    #[prop_or(false)]
+    pub should_reset: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -54,6 +70,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let is_playing = use_state(|| false);
     let is_loading = use_state(|| true);
     let error_message = use_state(|| None::<String>);
+    let loading_progress = use_state(|| (0, 0)); // (loaded, total)
     // Store timeout handle to allow cancellation
     let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
 
@@ -67,32 +84,49 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let timeout_handle_clone = timeout_handle.clone();
         let is_playing = is_playing.clone();
 
+        let loading_progress_clone = loading_progress.clone();
         use_effect_with(directory_path.clone(), move |_| {
+            loading_progress_clone.set((0, 0));
             is_loading.set(true);
             error_message.set(None);
             frames.set(Vec::new());
             current_index.set(0);
             is_playing.set(false); // Stop playback when loading new frames
-            
+
             // Cancel any pending timeout
             timeout_handle_clone.borrow_mut().take();
 
             wasm_bindgen_futures::spawn_local(async move {
+                // First, try to get conversion info to get the total frame count
+                let conversion_args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
+                let total_frames = match tauri_invoke("get_conversion_by_folder_path", conversion_args).await {
+                    result => {
+                        match serde_wasm_bindgen::from_value::<Option<AsciiConversion>>(result) {
+                            Ok(Some(conversion)) => conversion.frame_count as usize,
+                            _ => 0
+                        }
+                    }
+                };
+
                 // Get list of frame files
                 let args = serde_wasm_bindgen::to_value(&json!({ "directoryPath": directory_path })).unwrap();
                 match tauri_invoke("get_frame_files", args).await {
                     result => {
                         match serde_wasm_bindgen::from_value::<Vec<FrameFile>>(result) {
                             Ok(frame_files) => {
+                                let total_count = if total_frames > 0 { total_frames } else { frame_files.len() };
+                                loading_progress_clone.set((0, total_count));
+
                                 // Load all frame contents
                                 let mut loaded_frames = Vec::new();
-                                for frame_file in frame_files {
+                                for (i, frame_file) in frame_files.into_iter().enumerate() {
                                     let args = serde_wasm_bindgen::to_value(&json!({ "filePath": frame_file.path })).unwrap();
                                     match tauri_invoke("read_frame_file", args).await {
                                         result => {
                                             match serde_wasm_bindgen::from_value::<String>(result) {
                                                 Ok(content) => {
                                                     loaded_frames.push(content);
+                                                    loading_progress_clone.set((i + 1, total_count));
                                                 }
                                                 Err(e) => {
                                                     error_message.set(Some(format!("Failed to read frame {}: {:?}", frame_file.name, e)));
@@ -102,7 +136,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                         }
                                     }
                                 }
-                                
+
                                 if loaded_frames.is_empty() {
                                     error_message.set(Some("No frames found in directory".to_string()));
                                 } else {
@@ -184,9 +218,15 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             if current != prev {
                 match current {
                     Some(true) => {
-                        // Reset to first frame and play
-                        current_index.set(0);
-                        is_playing.set(true);
+                        // Check if this is resuming from pause or starting fresh
+                        if prev == Some(false) {
+                            // Resuming from pause - continue from current frame
+                            is_playing.set(true);
+                        } else {
+                            // Fresh start - reset to first frame
+                            current_index.set(0);
+                            is_playing.set(true);
+                        }
                     }
                     Some(false) => {
                         // Pause
@@ -199,6 +239,18 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 *prev_should_play.borrow_mut() = current;
             }
             || ()
+        });
+    }
+
+    // Handle reset
+    {
+        let current_index = current_index.clone();
+        let should_reset = props.should_reset;
+
+        use_effect_with(should_reset, move |should_reset| {
+            if *should_reset {
+                current_index.set(0);
+            }
         });
     }
 
@@ -240,11 +292,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         format!("Frame {} / {}", idx + 1, total)
     };
 
+    // Compute loading message
+    let loading_message = {
+        let (loaded, total) = *loading_progress;
+        if total > 0 {
+            let percentage = if total > 0 { (loaded as f32 / total as f32 * 100.0) as i32 } else { 0 };
+            format!("Loading frames... {} / {} ({}%)", loaded, total, percentage)
+        } else {
+            "Loading frames...".to_string()
+        }
+    };
+
     html! {
         <div class="ascii-frames-viewer">
             <div class="frames-display">
                 if *is_loading {
-                    <div class="loading-frames">{"Loading frames..."}</div>
+                    <div class="loading-frames">{loading_message.clone()}</div>
                 } else if let Some(error) = &*error_message {
                     <div class="error-frames">{error}</div>
                 } else if frames.is_empty() {

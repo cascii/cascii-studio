@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::collections::HashMap;
+use yew_icons::{Icon, IconId};
 
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
@@ -106,7 +107,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let fps = use_state(|| 30u32);
     let is_converting = use_state(|| false);
     let conversion_message = use_state(|| Option::<String>::None);
-    let is_comparing = use_state(|| false);
+    let is_playing = use_state(|| false);
+    let should_reset = use_state(|| false);
     
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -609,22 +611,43 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         {
                             if !*controls_collapsed {
                                 html! {
-                                    <button 
-                                        class="btn-compare"
-                                        disabled={selected_source.is_none() || selected_frame_dir.is_none()}
-                                        onclick={{
-                                            let is_comparing = is_comparing.clone();
-                                            Callback::from(move |_| {
-                                                is_comparing.set(!*is_comparing);
-                                            })
-                                        }}
-                                    >
-                                        if *is_comparing {
-                                            {"Stop Compare"}
-                                        } else {
-                                            {"Compare"}
-                                        }
-                                    </button>
+                                    <div class="controls-buttons">
+                                        <button
+                                            class="ctrl-btn"
+                                            disabled={selected_source.is_none() || selected_frame_dir.is_none()}
+                                            onclick={{
+                                                let is_playing = is_playing.clone();
+                                                Callback::from(move |_| {
+                                                    is_playing.set(!*is_playing);
+                                                })
+                                            }}
+                                            title={if *is_playing {"Pause"} else {"Play"}}
+                                        >
+                                            <Icon
+                                                icon_id={if *is_playing {IconId::LucidePause} else {IconId::LucidePlay}}
+                                                width={"20"}
+                                                height={"20"}
+                                            />
+                                        </button>
+                                        <button
+                                            class="ctrl-btn"
+                                            disabled={selected_source.is_none() && selected_frame_dir.is_none()}
+                                            onclick={{
+                                                let should_reset = should_reset.clone();
+                                                Callback::from(move |_| {
+                                                    should_reset.set(true);
+                                                    // Reset immediately, then set back to false
+                                                    let should_reset_clone = should_reset.clone();
+                                                    gloo_timers::callback::Timeout::new(100, move || {
+                                                        should_reset_clone.set(false);
+                                                    }).forget();
+                                                })
+                                            }}
+                                            title="Reset to beginning"
+                                        >
+                                            <span class="reset-icon">{"↺"}</span>
+                                        </button>
+                                    </div>
                                 }
                             } else {
                                 html! {<></>}
@@ -654,10 +677,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             }
                                         } else if source.content_type == "Video" {
                                             html! { 
-                                                <VideoPlayer 
-                                                    src={url.clone()} 
+                                                <VideoPlayer
+                                                    src={url.clone()}
                                                     class={classes!("source-video")}
-                                                    should_play={if *is_comparing {Some(true)} else {Some(false)}}
+                                                    should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                    should_reset={*should_reset}
                                                 /> 
                                             }
                                         } else {
@@ -678,11 +702,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         html! { <span>{"No frames generated yet"}</span> }
                                     } else if let Some(frame_dir) = &*selected_frame_dir {
                                         html! {
-                                            <AsciiFramesViewer 
+                                            <AsciiFramesViewer
                                                 directory_path={frame_dir.directory_path.clone()}
                                                 fps={selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)}
                                                 settings={(*selected_frame_settings).clone()}
-                                                should_play={if *is_comparing {Some(true)} else {Some(false)}}
+                                                should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                should_reset={*should_reset}
                                             />
                                         }
                                     } else {

@@ -99,7 +99,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let frames_loading = use_state(|| false);
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
-    let speed_mode = use_state(|| crate::components::ascii_frames_viewer::SpeedMode::CustomFrameSpeed);
+    let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
 
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -431,13 +431,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             <AsciiFramesViewer
                                                 directory_path={frame_dir.directory_path.clone()}
                                                 fps={{
-                                                    // Use speed mode to determine which FPS to use
-                                                    match *speed_mode {
-                                                        crate::components::ascii_frames_viewer::SpeedMode::BaseFps => {
-                                                            selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)
-                                                        }
-                                                        crate::components::ascii_frames_viewer::SpeedMode::CustomFrameSpeed => {
+                                                    match *selected_speed {
+                                                        crate::components::ascii_frames_viewer::SpeedSelection::Custom => {
                                                             (*frame_speed).unwrap_or(selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps))
+                                                        }
+                                                        crate::components::ascii_frames_viewer::SpeedSelection::Base => {
+                                                            selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)
                                                         }
                                                     }
                                                 }}
@@ -478,11 +477,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         }
                                                     })
                                                 }}
-                                                speed_mode={(*speed_mode).clone()}
-                                                on_speed_mode_change={{
-                                                    let speed_mode = speed_mode.clone();
-                                                    Callback::from(move |mode: crate::components::ascii_frames_viewer::SpeedMode| {
-                                                        speed_mode.set(mode);
+                                                selected_speed={(*selected_speed).clone()}
+                                                on_speed_selection_change={{
+                                                    let selected_speed = selected_speed.clone();
+                                                    Callback::from(move |selection: crate::components::ascii_frames_viewer::SpeedSelection| {
+                                                        selected_speed.set(selection);
                                                     })
                                                 }}
                                             />

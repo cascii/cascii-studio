@@ -200,6 +200,7 @@ fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHand
                 date_added: Utc::now(),
                 file_path: dest_path,
                 size: file_size,
+                custom_name: None,
             };
 
             database::add_source_content(&source).map_err(|e| e.to_string())?;
@@ -505,6 +506,7 @@ fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle)
                 date_added: Utc::now(),
                 size: file_size,
                 file_path: dest_path,
+                custom_name: None,
             };
             database::add_source_content(&source).map_err(|e| e.to_string())?;
             frame_count += 1;
@@ -735,6 +737,12 @@ fn delete_project(project_id: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn rename_source_file(source_id: String, custom_name: Option<String>) -> Result<(), String> {
+    database::update_source_custom_name(&source_id, custom_name)
+        .map_err(|e| format!("Failed to rename source file: {}", e))
+}
+
 #[derive(serde::Deserialize, Clone)]
 struct ConvertToAsciiRequest {
     file_path: String,
@@ -897,7 +905,8 @@ pub fn run() {
             delete_project,
             prepare_media,
             convert_to_ascii,
-            update_conversion_frame_speed
+            update_conversion_frame_speed,
+            rename_source_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

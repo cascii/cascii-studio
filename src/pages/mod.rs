@@ -5,5 +5,3 @@ pub mod open;
 pub mod settings;
 pub mod sponsor;
 pub mod project;
-
-

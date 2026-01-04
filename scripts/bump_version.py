@@ -18,7 +18,6 @@ import re
 import json
 from pathlib import Path
 
-
 def parse_version(version_str):
     """Parse version string into (major, minor, patch) tuple.
     Supports 3-component SemVer (x.y.z) format.
@@ -32,7 +31,6 @@ def parse_version(version_str):
         return tuple(map(int, match.groups()))
     
     raise ValueError(f"Invalid version format: {version_str}")
-
 
 def bump_version(version_str, bump_type):
     """Bump version based on type: 'major', 'minor', or 'patch'.
@@ -49,7 +47,6 @@ def bump_version(version_str, bump_type):
     else:
         return version_str
 
-
 def get_bump_type_from_commit(commit_msg):
     """Determine bump type from commit message.
     Only fix/feature/release commits will bump version.
@@ -65,7 +62,6 @@ def get_bump_type_from_commit(commit_msg):
     else:
         # Any other commit (cicd, docs, chore, etc.) - no version bump
         return None
-
 
 def update_cargo_toml(file_path, new_version):
     """Update version in Cargo.toml - only the [package] section version."""
@@ -101,7 +97,6 @@ def update_cargo_toml(file_path, new_version):
         return True
     return False
 
-
 def update_tauri_conf(file_path, new_version):
     """Update version in tauri.conf.json."""
     with open(file_path, 'r') as f:
@@ -115,7 +110,6 @@ def update_tauri_conf(file_path, new_version):
         f.write('\n')  # Add trailing newline
     
     return old_version != new_version
-
 
 def main():
     if len(sys.argv) < 2:
@@ -159,7 +153,5 @@ def main():
         print(f"No changes made for version: {current_version}")
         sys.exit(0)
 
-
 if __name__ == '__main__':
     main()
-

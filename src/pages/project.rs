@@ -96,6 +96,8 @@ pub struct SourceContent {
     pub date_added: DateTime<Utc>,
     pub size: i64,
     pub file_path: String,
+    #[serde(default)]
+    pub custom_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -104,7 +106,6 @@ pub struct FrameDirectory {
     pub directory_path: String,
     pub source_file_name: String,
 }
-
 
 #[derive(Properties, PartialEq)]
 pub struct ProjectPageProps {
@@ -384,6 +385,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     web_sys::console::log_1(&format!("❌ Raw result: {:?}", result_clone).into());
                                                     error_message.set(Some("Failed to pick files.".to_string()));
                                                 }
+                                            }
+                                        }
+                                    }
+                                });
+                            }))
+                        }}
+                        on_delete_file={None::<Callback<SourceContent>>}
+                        on_rename_file={{
+                            let source_files = source_files.clone();
+                            let project_id = project_id.clone();
+                            Some(Callback::from(move |_source: SourceContent| {
+                                // Refresh source files list after rename
+                                let source_files = source_files.clone();
+                                let project_id = (*project_id).clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                    match tauri_invoke("get_project_sources", args).await {
+                                        result => {
+                                            if let Ok(s) = serde_wasm_bindgen::from_value(result) {
+                                                source_files.set(s);
                                             }
                                         }
                                     }
@@ -677,10 +698,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         if let Some(conversion_id) = &*current_conversion_id {
                                                             let conversion_id = conversion_id.clone();
                                                             wasm_bindgen_futures::spawn_local(async move {
-                                                                let args = serde_wasm_bindgen::to_value(&serde_json::json!({
-                                                                    "conversionId": conversion_id,
-                                                                    "frameSpeed": speed
-                                                                })).unwrap();
+                                                                let args = serde_wasm_bindgen::to_value(&serde_json::json!({"conversionId": conversion_id, "frameSpeed": speed})).unwrap();
                                                                 let _ = tauri_invoke("update_conversion_frame_speed", args).await;
                                                             });
                                                         }

@@ -165,4 +165,3 @@ mv .git/hooks/prepare-commit-msg.disabled .git/hooks/prepare-commit-msg
 - [scripts/README.md](README.md) - Technical details
 - [Semantic Versioning](https://semver.org/) - Versioning standard
 - [Conventional Commits](https://www.conventionalcommits.org/) - Commit message convention
-

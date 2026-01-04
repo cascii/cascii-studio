@@ -73,4 +73,3 @@ This will build a debug version for your current platform and ensure all assets 
 - Project management (create, open, delete)
 - Local file caching with asset protocol for secure media loading
 - Settings configuration
-

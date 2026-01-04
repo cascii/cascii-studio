@@ -42,7 +42,9 @@ yew_icons = { version = "0.8.0", features = [
     "LucideVolume2",
     "LucideVolumeX",
     "LucideVolume1",
-    "LucideTrash2"
+    "LucideTrash2",
+    "LucideXCircle",
+    "LucidePencil"
 ] }
 
 [build-dependencies]

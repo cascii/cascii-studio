@@ -55,7 +55,6 @@ pub enum SpeedSelection {
     Base,
 }
 
-
 #[derive(Properties, PartialEq, Clone)]
 pub struct AsciiFramesViewerProps {
     pub directory_path: String,
@@ -494,4 +493,3 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         </div>
     }
 }
-

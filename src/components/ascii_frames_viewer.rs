@@ -49,6 +49,13 @@ pub struct ConversionSettings {
     pub frame_speed: u32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum SpeedSelection {
+    Custom,
+    Base,
+}
+
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct AsciiFramesViewerProps {
     pub directory_path: String,
@@ -74,6 +81,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback when frame speed changes
     #[prop_or_default]
     pub on_frame_speed_change: Option<Callback<u32>>,
+    /// Which speed input is currently selected
+    #[prop_or(SpeedSelection::Custom)]
+    pub selected_speed: SpeedSelection,
+    /// Callback when speed selection changes
+    #[prop_or_default]
+    pub on_speed_selection_change: Option<Callback<SpeedSelection>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -190,6 +203,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         // Clone the values we need to avoid lifetime issues
         let frame_speed = props.frame_speed;
         let fps = props.fps;
+        let selected_speed = props.selected_speed.clone();
+        let settings = props.settings.clone();
 
         // Use a simple effect that runs on every render when playing state changes
         // This is simpler than trying to track all the complex dependencies
@@ -202,7 +217,10 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
             // Only schedule next frame if playing and we have frames
             if playing && frame_count > 0 {
-                let current_fps = frame_speed.unwrap_or(fps);
+                let current_fps = match selected_speed {
+                    SpeedSelection::Custom => frame_speed.unwrap_or(fps),
+                    SpeedSelection::Base => settings.as_ref().map(|s| s.fps).unwrap_or(fps),
+                };
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
                     let frame_count_clone = frame_count;
@@ -331,6 +349,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Speed change handler
     let on_speed_change = {
         let on_frame_speed_change = props.on_frame_speed_change.clone();
+        let on_speed_selection_change = props.on_speed_selection_change.clone();
         Callback::from(move |e: web_sys::InputEvent| {
             if let Some(target) = e.target() {
                 if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
@@ -338,11 +357,35 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         if let Some(callback) = &on_frame_speed_change {
                             callback.emit(speed);
                         }
+                        // Auto-select custom speed when user types in it
+                        if let Some(selection_callback) = &on_speed_selection_change {
+                            selection_callback.emit(SpeedSelection::Custom);
+                        }
                     }
                 }
             }
         })
     };
+
+    // Speed selection handlers
+    let on_select_custom = {
+        let on_speed_selection_change = props.on_speed_selection_change.clone();
+        Callback::from(move |_| {
+            if let Some(callback) = &on_speed_selection_change {
+                callback.emit(SpeedSelection::Custom);
+            }
+        })
+    };
+
+    let on_select_base = {
+        let on_speed_selection_change = props.on_speed_selection_change.clone();
+        Callback::from(move |_| {
+            if let Some(callback) = &on_speed_selection_change {
+                callback.emit(SpeedSelection::Base);
+            }
+        })
+    };
+
 
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let frame_count = frames.len();
@@ -409,13 +452,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
                     <input
                         type="number"
-                        class="setting-input"
+                        class={if props.selected_speed == SpeedSelection::Custom {"setting-input selected"} else {"setting-input"}}
                         style="width: 68px;"
                         value={props.frame_speed.unwrap_or(props.fps).to_string()}
                         min="1"
-                        max="120"
                         oninput={on_speed_change}
+                        onclick={on_select_custom}
                         title="Frame playback speed (FPS)"
+                    />
+                    <input
+                        type="number"
+                        class={if props.selected_speed == SpeedSelection::Base {"setting-input selected"} else {"setting-input"}}
+                        style="width: 68px;"
+                        value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()}
+                        readonly=true
+                        onclick={on_select_base}
+                        title="Base conversion FPS (read-only)"
                     />
                 </div>
                 

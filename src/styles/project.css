@@ -355,3 +355,10 @@
     font-size: 0.875rem;
     font-style: italic;
 }
+
+/* Speed input selection */
+.setting-input.selected {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+

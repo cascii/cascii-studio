@@ -99,6 +99,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let frames_loading = use_state(|| false);
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
+    let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
 
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -229,12 +230,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         on_select_source={on_select_source.clone()}
                     />
 
-                    <AvailableFrames
-                        frame_directories={(*frame_directories).clone()}
-                        selected_frame_dir={(*selected_frame_dir).clone()}
-                        selected_frame_settings={(*selected_frame_settings).clone()}
-                        frames_collapsed={*frames_collapsed}
-                        on_toggle_collapsed={{
+                    <AvailableFrames frame_directories={(*frame_directories).clone()} selected_frame_dir={(*selected_frame_dir).clone()} selected_frame_settings={(*selected_frame_settings).clone()} frames_collapsed={*frames_collapsed} on_toggle_collapsed={{
                             let frames_collapsed = frames_collapsed.clone();
                             Callback::from(move |_| {
                                 frames_collapsed.set(!*frames_collapsed);
@@ -267,10 +263,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                     />
 
-                    <ConvertToAscii
-                        selected_source={(*selected_source).clone()}
-                        convert_collapsed={*convert_collapsed}
-                        on_toggle_collapsed={{
+                    <ConvertToAscii selected_source={(*selected_source).clone()} convert_collapsed={*convert_collapsed} on_toggle_collapsed={{
                             let convert_collapsed = convert_collapsed.clone();
                             Callback::from(move |_| {
                                 convert_collapsed.set(!*convert_collapsed);
@@ -438,15 +431,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             <AsciiFramesViewer
                                                 directory_path={frame_dir.directory_path.clone()}
                                                 fps={{
-                                                    // When using sidebar controls (synchronized playback), use original FPS
-                                                    // When frame_speed is set, use it for individual playback
-                                                    let external_control = *is_playing && !*frames_loading;
-                                                    if external_control {
-                                                        // Synchronized playback - use original settings FPS
-                                                        selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)
-                                                    } else {
-                                                        // Individual playback - use frame_speed if set, otherwise original FPS
-                                                        (*frame_speed).unwrap_or(selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps))
+                                                    match *selected_speed {
+                                                        crate::components::ascii_frames_viewer::SpeedSelection::Custom => {
+                                                            (*frame_speed).unwrap_or(selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps))
+                                                        }
+                                                        crate::components::ascii_frames_viewer::SpeedSelection::Base => {
+                                                            selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)
+                                                        }
                                                     }
                                                 }}
                                                 settings={(*selected_frame_settings).clone()}
@@ -484,6 +475,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                                 let _ = tauri_invoke("update_conversion_frame_speed", args).await;
                                                             });
                                                         }
+                                                    })
+                                                }}
+                                                selected_speed={(*selected_speed).clone()}
+                                                on_speed_selection_change={{
+                                                    let selected_speed = selected_speed.clone();
+                                                    Callback::from(move |selection: crate::components::ascii_frames_viewer::SpeedSelection| {
+                                                        selected_speed.set(selection);
                                                     })
                                                 }}
                                             />

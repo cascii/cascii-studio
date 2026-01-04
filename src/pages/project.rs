@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::collections::HashMap;
-use yew_icons::{Icon, IconId};
 
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
+use crate::components::settings::{SourceFiles, AvailableFrames, ConvertToAscii, Controls};
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -65,21 +65,6 @@ pub struct FrameDirectory {
     pub source_file_name: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct ConvertToAsciiRequest {
-    file_path: String,
-    luminance: u8,
-    font_ratio: f32,
-    columns: u32,
-    fps: Option<u32>,
-    project_id: String,
-    source_file_id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ConvertToAsciiInvokeArgs {
-    request: ConvertToAsciiRequest,
-}
 
 #[derive(Properties, PartialEq)]
 pub struct ProjectPageProps {
@@ -112,7 +97,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
     let seek_percentage = use_state(|| None::<f64>);
     let frames_loading = use_state(|| false);
-    
+    let frame_speed = use_state(|| None::<u32>);
+    let current_conversion_id = use_state(|| None::<String>);
+
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
     let frames_collapsed = use_state(|| false);
@@ -229,461 +216,205 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         <div class="container project-page">
             <div class="project-layout">
                 <div class="left-sidebar">
-                    <div class="source-files-column">
-                        <h2 
-                            class="collapsible-header"
-                            onclick={{
-                                let source_files_collapsed = source_files_collapsed.clone();
-                                Callback::from(move |_| {
-                                    source_files_collapsed.set(!*source_files_collapsed);
-                                })
-                            }}
-                        >
-                            <span class="chevron-icon">
-                                {if *source_files_collapsed {
-                                    html! {<span>{"▶"}</span>}
-                                } else {
-                                    html! {<span>{"▼"}</span>}
-                                }}
-                            </span>
-                            <span>{"SOURCE FILES"}</span>
-                        </h2>
-                        {
-                            if !*source_files_collapsed {
-                                html! {
-                                    <div class="source-list">
-                                    {
-                                        source_files.iter().map(|file| {
-                                    let file_name = std::path::Path::new(&file.file_path).file_name().and_then(|n| n.to_str()).unwrap_or(&file.file_path);
+                    <SourceFiles
+                        source_files={(*source_files).clone()}
+                        selected_source={(*selected_source).clone()}
+                        source_files_collapsed={*source_files_collapsed}
+                        on_toggle_collapsed={{
+                            let source_files_collapsed = source_files_collapsed.clone();
+                            Callback::from(move |_| {
+                                source_files_collapsed.set(!*source_files_collapsed);
+                            })
+                        }}
+                        on_select_source={on_select_source.clone()}
+                    />
 
-                                    let on_select = on_select_source.clone();
-                                    let file_clone = file.clone();
-                                    let is_selected = selected_source.as_ref().map(|s| s.id == file.id).unwrap_or(false);
-                                    let onclick = Callback::from(move |_| on_select.emit(file_clone.clone()));
-
-                                    let class_name = if is_selected {"source-item selected"} else {"source-item"};
-
-                                    html! {
-                                        <div class={class_name} key={file.id.clone()} {onclick}>{file_name}</div>
-                                        }
-                                    }).collect::<Html>()
-                                    }
-                                    </div>
-                                }
-                            } else {
-                                html! {<></>}
-                            }
-                        }
-                    </div>
-                    
-                    <div class="frames-column">
-                        <h2 
-                            class="collapsible-header"
-                            onclick={{
-                                let frames_collapsed = frames_collapsed.clone();
-                                Callback::from(move |_| {
-                                    frames_collapsed.set(!*frames_collapsed);
-                                })
-                            }}
-                        >
-                            <span class="chevron-icon">
-                                {if *frames_collapsed {
-                                    html! {<span>{"▶"}</span>}
-                                } else {
-                                    html! {<span>{"▼"}</span>}
-                                }}
-                            </span>
-                            <span>{"AVAILABLE FRAMES"}</span>
-                        </h2>
-                        {
-                            if !*frames_collapsed {
-                                let selected_frame_dir_clone = selected_frame_dir.clone();
-                                let selected_frame_settings_clone = selected_frame_settings.clone();
-                                html! {
-                                    <div class="source-list">
-                                    {
-                                        if frame_directories.is_empty() {
-                                            html! {
-                                                <div class="frames-empty">{"No frames generated yet"}</div>
-                                            }
-                                        } else {
-                                            html! {
-                                                {
-                                                    frame_directories.iter().map(|frame_dir| {
-                                                        let frame_clone = frame_dir.clone();
-                                                        let is_selected = selected_frame_dir_clone.as_ref()
-                                                            .map(|s| s.directory_path == frame_dir.directory_path)
-                                                            .unwrap_or(false);
-                                                        let onclick = Callback::from({
-                                                            let selected_frame_dir = selected_frame_dir_clone.clone();
-                                                            let selected_frame_settings = selected_frame_settings_clone.clone();
-                                                            let directory_path = frame_dir.directory_path.clone();
-                                                            move |_| {
-                                                                selected_frame_dir.set(Some(frame_clone.clone()));
-                                                                
-                                                                // Fetch conversion settings for this frame directory
-                                                                let selected_frame_settings = selected_frame_settings.clone();
-                                                                let directory_path = directory_path.clone();
-                                                                wasm_bindgen_futures::spawn_local(async move {
-                                                                    let args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
-                                                                    match tauri_invoke("get_conversion_by_folder_path", args).await {
-                                                                        result => {
-                                                                            if let Ok(Some(conversion)) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
-                                                                                // Extract settings from the conversion
-                                                                                if let Some(settings) = conversion.get("settings") {
-                                                                                    if let Ok(conv_settings) = serde_json::from_value::<ConversionSettings>(settings.clone()) {
-                                                                                        selected_frame_settings.set(Some(conv_settings));
-                                                                                        return;
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            // No conversion found or failed to parse
-                                                                            selected_frame_settings.set(None);
-                                                                        }
-                                                                    }
-                                                                });
+                    <AvailableFrames
+                        frame_directories={(*frame_directories).clone()}
+                        selected_frame_dir={(*selected_frame_dir).clone()}
+                        selected_frame_settings={(*selected_frame_settings).clone()}
+                        frames_collapsed={*frames_collapsed}
+                        on_toggle_collapsed={{
+                            let frames_collapsed = frames_collapsed.clone();
+                            Callback::from(move |_| {
+                                frames_collapsed.set(!*frames_collapsed);
+                            })
+                        }}
+                        on_select_frame_dir={{
+                            let selected_frame_dir = selected_frame_dir.clone();
+                            Callback::from(move |frame_dir: FrameDirectory| {
+                                selected_frame_dir.set(Some(frame_dir));
+                            })
+                        }}
+                        on_frame_settings_loaded={{
+                            let selected_frame_settings = selected_frame_settings.clone();
+                            let frame_speed = frame_speed.clone();
+                            let current_conversion_id = current_conversion_id.clone();
+                            let selected_frame_dir = selected_frame_dir.clone();
+                            Callback::from(move |settings: Option<ConversionSettings>| {
+                                web_sys::console::log_1(&format!("🎬 on_frame_settings_loaded called with settings: {:?}", settings.as_ref().map(|_| "Some(settings)")).into());
+                                selected_frame_settings.set(settings.clone());
+                                if let Some(settings) = settings {
+                                    frame_speed.set(Some(settings.frame_speed));
+                                    // Fetch the conversion to get the ID for updates
+                                    if let Some(frame_dir) = &*selected_frame_dir {
+                                        web_sys::console::log_1(&format!("🔍 Found selected_frame_dir: {}", frame_dir.directory_path).into());
+                                        let current_conversion_id = current_conversion_id.clone();
+                                        let directory_path = frame_dir.directory_path.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            web_sys::console::log_1(&format!("🚀 Starting async fetch for directory: {}", directory_path).into());
+                                            match tauri_invoke("get_conversion_by_folder_path", serde_wasm_bindgen::to_value(&directory_path).unwrap()).await {
+                                                result => {
+                                                    web_sys::console::log_1(&format!("📥 Raw API result received").into());
+                                                    if let Ok(conversion) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
+                                                        web_sys::console::log_1(&format!("📋 Successfully parsed conversion result").into());
+                                                        if let Some(conversion) = conversion {
+                                                            if let Some(id) = conversion.get("id").and_then(|id| id.as_str()) {
+                                                                web_sys::console::log_1(&format!("✅ Found conversion ID: {}", id).into());
+                                                                current_conversion_id.set(Some(id.to_string()));
+                                                            } else {
+                                                                web_sys::console::log_1(&"❌ Conversion object missing 'id' field".into());
                                                             }
-                                                        });
-
-                                                        let class_name = if is_selected { "source-item selected" } else { "source-item" };
-
-                                                        html! {
-                                                            <div class={class_name} key={frame_dir.directory_path.clone()} {onclick}>
-                                                                { frame_dir.name.clone() }
-                                                            </div>
+                                                        } else {
+                                                            web_sys::console::log_1(&"❌ API returned null conversion".into());
                                                         }
-                                                    }).collect::<Html>()
+                                                    } else {
+                                                        web_sys::console::log_1(&"❌ Failed to deserialize API result".into());
+                                                    }
                                                 }
                                             }
+                                        });
+                                    } else {
+                                        web_sys::console::log_1(&"⚠️ No selected_frame_dir available".into());
+                                    }
+                                } else {
+                                    web_sys::console::log_1(&"ℹ️ No settings provided (clearing state)".into());
+                                    frame_speed.set(None);
+                                    current_conversion_id.set(None);
+                                }
+                            })
+                        }}
+                    />
+
+                    <ConvertToAscii
+                        selected_source={(*selected_source).clone()}
+                        convert_collapsed={*convert_collapsed}
+                        on_toggle_collapsed={{
+                            let convert_collapsed = convert_collapsed.clone();
+                            Callback::from(move |_| {
+                                convert_collapsed.set(!*convert_collapsed);
+                            })
+                        }}
+                        luminance={*luminance}
+                        on_luminance_change={{
+                            let luminance = luminance.clone();
+                            Callback::from(move |val: u8| {
+                                luminance.set(val);
+                            })
+                        }}
+                        font_ratio={*font_ratio}
+                        on_font_ratio_change={{
+                            let font_ratio = font_ratio.clone();
+                            Callback::from(move |val: f32| {
+                                font_ratio.set(val);
+                            })
+                        }}
+                        columns={*columns}
+                        on_columns_change={{
+                            let columns = columns.clone();
+                            Callback::from(move |val: u32| {
+                                columns.set(val);
+                            })
+                        }}
+                        fps={*fps}
+                        on_fps_change={{
+                            let fps = fps.clone();
+                            Callback::from(move |val: u32| {
+                                fps.set(val);
+                            })
+                        }}
+                        is_converting={*is_converting}
+                        on_is_converting_change={{
+                            let is_converting = is_converting.clone();
+                            Callback::from(move |val: bool| {
+                                is_converting.set(val);
+                            })
+                        }}
+                        conversion_message={(*conversion_message).clone()}
+                        on_conversion_message_change={{
+                            let conversion_message = conversion_message.clone();
+                            Callback::from(move |val: Option<String>| {
+                                conversion_message.set(val);
+                            })
+                        }}
+                        error_message={(*error_message).clone()}
+                        on_error_message_change={{
+                            let error_message = error_message.clone();
+                            Callback::from(move |val: Option<String>| {
+                                error_message.set(val);
+                            })
+                        }}
+                        project_id={project_id.clone()}
+                        on_refresh_frames={{
+                            let frame_directories = frame_directories.clone();
+                            let project_id = project_id.clone();
+                            Callback::from(move |_| {
+                                let frame_directories = frame_directories.clone();
+                                let project_id = project_id.clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                    match tauri_invoke("get_project_frames", args).await {
+                                        result => {
+                                            if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
+                                                frame_directories.set(frames);
+                                            }
                                         }
                                     }
-                                    </div>
-                                }
-                            } else {
-                                html! {<></>}
-                            }
-                        }
-                    </div>
-                    
-                    <div class="ascii-conversion-column">
-                        <h2 
-                            class="collapsible-header"
-                            onclick={{
-                                let convert_collapsed = convert_collapsed.clone();
-                                Callback::from(move |_| {
-                                    convert_collapsed.set(!*convert_collapsed);
-                                })
-                            }}
-                        >
-                            <span class="chevron-icon">
-                                {if *convert_collapsed {
-                                    html! {<span>{"▶"}</span>}
-                                } else {
-                                    html! {<span>{"▼"}</span>}
-                                }}
-                            </span>
-                            <span>{"CONVERT TO ASCII"}</span>
-                        </h2>
-                        
-                        {
-                            if !*convert_collapsed {
-                                html! {
-                                    <>
-                                        <div class="conversion-settings">
-                                            <div class="setting-row">
-                                                <label>{"Luminance:"}</label>
-                                                <input 
-                                                    type="number" 
-                                                    class="setting-input"
-                                                    value={(*luminance).to_string()}
-                                                    min="0"
-                                                    max="255"
-                                                    oninput={Callback::from({
-                                                        let luminance = luminance.clone();
-                                                        move |e: web_sys::InputEvent| {
-                                                            if let Some(target) = e.target() {
-                                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                                                    if let Ok(val) = input.value().parse::<u8>() {
-                                                                        luminance.set(val);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    })}
-                                                />
-                                            </div>
-                                            
-                                            <div class="setting-row">
-                                                <label>{"Font Ratio:"}</label>
-                                                <input 
-                                                    type="number" 
-                                                    class="setting-input"
-                                                    value={(*font_ratio).to_string()}
-                                                    min="0.1"
-                                                    max="2.0"
-                                                    step="0.1"
-                                                    oninput={Callback::from({
-                                                        let font_ratio = font_ratio.clone();
-                                                        move |e: web_sys::InputEvent| {
-                                                            if let Some(target) = e.target() {
-                                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                                                    if let Ok(val) = input.value().parse::<f32>() {
-                                                                        font_ratio.set(val);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    })}
-                                                />
-                                            </div>
-                                            
-                                            <div class="setting-row">
-                                                <label>{"Columns:"}</label>
-                                                <input 
-                                                    type="number" 
-                                                    class="setting-input"
-                                                    value={(*columns).to_string()}
-                                                    min="1"
-                                                    max="2000"
-                                                    oninput={Callback::from({
-                                                        let columns = columns.clone();
-                                                        move |e: web_sys::InputEvent| {
-                                                            if let Some(target) = e.target() {
-                                                                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                                                    if let Ok(val) = input.value().parse::<u32>() {
-                                                                        columns.set(val);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    })}
-                                                />
-                                            </div>
-                                            
-                                            {
-                                                if selected_source.as_ref().map(|s| s.content_type == "Video").unwrap_or(false) {
-                                                    html! {
-                                                        <div class="setting-row">
-                                                            <label>{"FPS:"}</label>
-                                                            <input 
-                                                                type="number" 
-                                                                class="setting-input"
-                                                                value={(*fps).to_string()}
-                                                                min="1"
-                                                                max="120"
-                                                                oninput={Callback::from({
-                                                                    let fps = fps.clone();
-                                                                    move |e: web_sys::InputEvent| {
-                                                                        if let Some(target) = e.target() {
-                                                                            if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                                                                if let Ok(val) = input.value().parse::<u32>() {
-                                                                                    fps.set(val);
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                })}
-                                                            />
-                                                        </div>
-                                                    }
-                                                } else {
-                                                    html! {<></>}
-                                                }
-                                            }
-                                        </div>
-                                        
-                                        <button 
-                                            class="btn-convert"
-                                            disabled={*is_converting || selected_source.is_none()}
-                                            onclick={{
-                                                let selected_source = selected_source.clone();
-                                                let luminance = luminance.clone();
-                                                let font_ratio = font_ratio.clone();
-                                                let columns = columns.clone();
-                                                let fps = fps.clone();
-                                                let is_converting = is_converting.clone();
-                                                let conversion_message = conversion_message.clone();
-                                                let error_message = error_message.clone();
-                                                let frame_directories = frame_directories.clone();
-                                                let project_id_clone = project_id.clone();
-                                                
-                                                Callback::from(move |_e: yew::MouseEvent| {
-                                                    if let Some(source) = &*selected_source {
-                                                        let file_path = source.file_path.clone();
-                                                        let source_file_id = source.id.clone();
-                                                        let luminance_val = *luminance;
-                                                        let font_ratio_val = *font_ratio;
-                                                        let columns_val = *columns;
-                                                        let fps_val = *fps;
-                                                        
-                                                        is_converting.set(true);
-                                                        conversion_message.set(None);
-                                                        
-                                                        let is_converting = is_converting.clone();
-                                                        let conversion_message = conversion_message.clone();
-                                                        let error_message = error_message.clone();
-                                                        let frame_directories = frame_directories.clone();
-                                                        let project_id_clone = project_id_clone.clone();
-                                                        
-                                                        wasm_bindgen_futures::spawn_local(async move {
-                                                            let invoke_args = ConvertToAsciiInvokeArgs {
-                                                                request: ConvertToAsciiRequest {
-                                                                    file_path,
-                                                                    luminance: luminance_val,
-                                                                    font_ratio: font_ratio_val,
-                                                                    columns: columns_val,
-                                                                    fps: Some(fps_val),
-                                                                    project_id: project_id_clone.clone(),
-                                                                    source_file_id,
-                                                                }
-                                                            };
-                                                            
-                                                            let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
-                                                            
-                                                            match tauri_invoke("convert_to_ascii", args).await {
-                                                                result => {
-                                                                    is_converting.set(false);
-                                                                    match serde_wasm_bindgen::from_value::<String>(result) {
-                                                                        Ok(msg) => {
-                                                                            conversion_message.set(Some(msg));
-                                                                            error_message.set(None);
-                                                                            
-                                                                            // Refresh frame directories after conversion
-                                                                            let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id_clone })).unwrap();
-                                                                            match tauri_invoke("get_project_frames", args).await {
-                                                                                result => {
-                                                                                    if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
-                                                                                        frame_directories.set(frames);
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        Err(_) => {
-                                                                            error_message.set(Some("Failed to convert to ASCII. Please check the file path and try again.".to_string()));
-                                                                            conversion_message.set(None);
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        });
-                                                    }
-                                                })
-                                            }}
-                                        >
-                                            if *is_converting {
-                                                {"Converting..."}
-                                            } else {
-                                                {"Convert to ASCII"}
-                                            }
-                                        </button>
-                                        
-                                        {
-                                            if let Some(msg) = &*conversion_message {
-                                                html! { <div class="conversion-success">{msg}</div> }
-                                            } else {
-                                                html! {<></>}
-                                            }
-                                        }
-                                    </>
-                                }
-                            } else {
-                                html! {<></>}
-                            }
-                        }
-                    </div>
-                    
-                    <div class="controls-column">
-                        <h2 
-                            class="collapsible-header"
-                            onclick={{
-                                let controls_collapsed = controls_collapsed.clone();
-                                Callback::from(move |_| {
-                                    controls_collapsed.set(!*controls_collapsed);
-                                })
-                            }}
-                        >
-                            <span class="chevron-icon">
-                                {if *controls_collapsed {
-                                    html! {<span>{"▶"}</span>}
-                                } else {
-                                    html! {<span>{"▼"}</span>}
-                                }}
-                            </span>
-                            <span>{"CONTROLS"}</span>
-                        </h2>
-                        {
-                            if !*controls_collapsed {
-                                html! {
-                                    <div class="controls-buttons">
-                                        <>
-                                            <button
-                                            class="ctrl-btn"
-                                            disabled={selected_source.is_none() || selected_frame_dir.is_none() || *frames_loading}
-                                            onclick={{
-                                                let is_playing = is_playing.clone();
-                                                Callback::from(move |_| {
-                                                    is_playing.set(!*is_playing);
-                                                })
-                                            }}
-                                            title={if *is_playing {"Pause"} else if *frames_loading {"Loading frames..."} else {"Play"}}
-                                        >
-                                            <Icon
-                                                icon_id={if *is_playing {IconId::LucidePause} else {IconId::LucidePlay}}
-                                                width={"20"}
-                                                height={"20"}
-                                            />
-                                        </button>
-                                        <button
-                                            class="ctrl-btn"
-                                            disabled={selected_source.is_none() && selected_frame_dir.is_none() || *frames_loading}
-                                            onclick={{
-                                                let should_reset = should_reset.clone();
-                                                Callback::from(move |_| {
-                                                    should_reset.set(true);
-                                                    // Reset immediately, then set back to false
-                                                    let should_reset_clone = should_reset.clone();
-                                                    gloo_timers::callback::Timeout::new(100, move || {
-                                                        should_reset_clone.set(false);
-                                                    }).forget();
-                                                })
-                                            }}
-                                            title="Reset to beginning"
-                                        >
-                                            <span class="reset-icon">{"↺"}</span>
-                                        </button>
+                                });
+                            })
+                        }}
+                    />
 
-                                        <div class="control-row">
-                                        <input
-                                            class="progress synced-progress"
-                                            type="range"
-                                            min="0"
-                                            max="100"
-                                            value={(*synced_progress).to_string()}
-                                            oninput={{
-                                                let synced_progress = synced_progress.clone();
-                                                let seek_percentage = seek_percentage.clone();
-                                                Callback::from(move |e: web_sys::InputEvent| {
-                                                    if let Some(target) = e.target() {
-                                                        if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                                                            let percentage = input.value_as_number();
-                                                            synced_progress.set(percentage);
-                                                            seek_percentage.set(Some(percentage / 100.0));
-                                                        }
-                                                    }
-                                                })
-                                            }}
-                                            title="Synced progress control"
-                                            disabled={selected_source.is_none() || selected_frame_dir.is_none()}
-                                        />
-                                        </div>
-                                        </>
-                                    </div>
-                                }
-                            } else {
-                                html! {<></>}
-                            }
-                        }
-                    </div>
+                    <Controls
+                        selected_source={(*selected_source).clone()}
+                        selected_frame_dir={(*selected_frame_dir).clone()}
+                        controls_collapsed={*controls_collapsed}
+                        on_toggle_collapsed={{
+                            let controls_collapsed = controls_collapsed.clone();
+                            Callback::from(move |_| {
+                                controls_collapsed.set(!*controls_collapsed);
+                            })
+                        }}
+                        is_playing={*is_playing}
+                        on_is_playing_change={{
+                            let is_playing = is_playing.clone();
+                            Callback::from(move |val: bool| {
+                                is_playing.set(val);
+                            })
+                        }}
+                        should_reset={*should_reset}
+                        on_should_reset_change={{
+                            let should_reset = should_reset.clone();
+                            Callback::from(move |val: bool| {
+                                should_reset.set(val);
+                            })
+                        }}
+                        synced_progress={*synced_progress}
+                        on_synced_progress_change={{
+                            let synced_progress = synced_progress.clone();
+                            Callback::from(move |val: f64| {
+                                synced_progress.set(val);
+                            })
+                        }}
+                        seek_percentage={*seek_percentage}
+                        on_seek_percentage_change={{
+                            let seek_percentage = seek_percentage.clone();
+                            Callback::from(move |val: Option<f64>| {
+                                seek_percentage.set(val);
+                            })
+                        }}
+                        frames_loading={*frames_loading}
+                    />
                 </div>
 
                 <div class="main-content">
@@ -735,7 +466,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         html! {
                                             <AsciiFramesViewer
                                                 directory_path={frame_dir.directory_path.clone()}
-                                                fps={selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)}
+                                                fps={{
+                                                    // When using sidebar controls (synchronized playback), use original FPS
+                                                    // When frame_speed is set, use it for individual playback
+                                                    let external_control = *is_playing && !*frames_loading;
+                                                    if external_control {
+                                                        // Synchronized playback - use original settings FPS
+                                                        selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps)
+                                                    } else {
+                                                        // Individual playback - use frame_speed if set, otherwise original FPS
+                                                        (*frame_speed).unwrap_or(selected_frame_settings.as_ref().map(|s| s.fps).unwrap_or(*fps))
+                                                    }
+                                                }}
                                                 settings={(*selected_frame_settings).clone()}
                                                 should_play={if *is_playing && !*frames_loading {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
@@ -744,6 +486,41 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let frames_loading = frames_loading.clone();
                                                     Callback::from(move |is_loading: bool| {
                                                         frames_loading.set(is_loading);
+                                                    })
+                                                }}
+                                                frame_speed={*frame_speed}
+                                                on_frame_speed_change={{
+                                                    let frame_speed = frame_speed.clone();
+                                                    let current_conversion_id = current_conversion_id.clone();
+                                                    let selected_frame_settings = selected_frame_settings.clone();
+                                                    Callback::from(move |speed: u32| {
+                                                        web_sys::console::log_1(&format!("🎯 Speed change callback called with: {}", speed).into());
+                                                        web_sys::console::log_1(&format!("🔍 Current conversion_id: {:?}", (*current_conversion_id).as_ref()).into());
+
+                                                        frame_speed.set(Some(speed));
+
+                                                        // Update the selected_frame_settings to reflect the change
+                                                        if let Some(mut settings) = (*selected_frame_settings).clone() {
+                                                            settings.frame_speed = speed;
+                                                            selected_frame_settings.set(Some(settings));
+                                                            web_sys::console::log_1(&"✅ Updated selected_frame_settings".into());
+                                                        }
+
+                                                        // Update the database if we have a conversion_id
+                                                        if let Some(conversion_id) = &*current_conversion_id {
+                                                            web_sys::console::log_1(&format!("💾 Updating database for conversion_id: {}", conversion_id).into());
+                                                            let conversion_id = conversion_id.clone();
+                                                            wasm_bindgen_futures::spawn_local(async move {
+                                                                let args = serde_wasm_bindgen::to_value(&serde_json::json!({
+                                                                    "conversion_id": conversion_id,
+                                                                    "frame_speed": speed
+                                                                })).unwrap();
+                                                                let result = tauri_invoke("update_conversion_frame_speed", args).await;
+                                                                web_sys::console::log_1(&format!("💾 Database update result: {:?}", result).into());
+                                                            });
+                                                        } else {
+                                                            web_sys::console::log_1(&"⚠️ No conversion_id available - skipping database update".into());
+                                                        }
                                                     })
                                                 }}
                                             />

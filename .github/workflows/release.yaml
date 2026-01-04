@@ -1,23 +1,86 @@
-name: Release (merge to master)
+name: Release
 
 on:
   pull_request:
-    types: [closed]
-    branches: [master]
+    types: [closed, synchronize]
 
 permissions:
   contents: write
 
 jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Debug workflow trigger
+        run: |
+          echo "🔔 Workflow triggered!"
+          echo "Event: ${{ github.event_name }}"
+          echo "Action: ${{ github.event.action }}"
+          echo "PR Number: ${{ github.event.pull_request.number }}"
+          echo "PR Merged: ${{ github.event.pull_request.merged }}"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50  # Fetch enough history to check commits
+
+      - name: Check if this is a merge to master or [release] commit
+        id: check
+        run: |
+          echo "=== Release Check Debug Info ==="
+          echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
+          echo "PR merged: ${{ github.event.pull_request.merged }}"
+          echo "Event action: ${{ github.event.action }}"
+          echo "Head commit message: '${{ github.event.head_commit.message }}'"
+          echo "================================="
+
+          if [ "${{ github.event.pull_request.merged }}" = "true" ] && [ "${{ github.event.pull_request.base.ref }}" = "master" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "✅ Triggering release: PR merged to master"
+          else
+            # For PR synchronize events, check the latest commit message
+            echo "🔍 Checking for [release] in commit message..."
+
+            # Primary method: check recent git commits (most reliable)
+            echo "Checking recent git commits for [release]..."
+            if git log --oneline -n 20 2>/dev/null | grep -q "\[release\]"; then
+              echo "should_release=true" >> $GITHUB_OUTPUT
+              echo "✅ Triggering release: [release] found in recent git commits"
+              echo "Matching commits:"
+              git log --oneline -n 20 2>/dev/null | grep "\[release\]"
+            # Fallback: check head commit message from GitHub event
+            elif echo "${{ github.event.head_commit.message }}" | grep -q "\[release\]"; then
+              echo "should_release=true" >> $GITHUB_OUTPUT
+              echo "✅ Triggering release: [release] found in GitHub event head commit"
+            else
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              echo "❌ No release triggered: not a merge to master or [release] commit found"
+              echo "Recent commits:"
+              git log --oneline -n 10 2>/dev/null || echo "Could not get git log"
+              echo "GitHub head commit message: '${{ github.event.head_commit.message }}'"
+            fi
+          fi
+
+      - name: Extract version from Cargo.toml
+        id: version
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
   release:
-    if: github.event.pull_request.merged == true
+    needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-14
             label: macos-arm64
-          - os: macos-13
+          - os: macos-latest
             label: macos-x86_64
           - os: windows-latest
             label: windows-x86_64
@@ -83,7 +146,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: release
+    needs: [release, check-release]
     runs-on: ubuntu-latest
 
     steps:
@@ -91,12 +154,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }}
+          tag_name: v${{ needs.check-release.outputs.version }}
+          name: Release v${{ needs.check-release.outputs.version }}
           draft: false
           prerelease: false
           files: |

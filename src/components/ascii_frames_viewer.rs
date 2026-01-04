@@ -46,6 +46,7 @@ pub struct ConversionSettings {
     pub font_ratio: f32,
     pub luminance: u8,
     pub columns: u32,
+    pub frame_speed: u32,
 }
 
 #[derive(Properties, PartialEq, Clone)]
@@ -67,6 +68,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback to report loading state to parent
     #[prop_or_default]
     pub on_loading_changed: Option<Callback<bool>>,
+    /// Current frame speed override
+    #[prop_or(None)]
+    pub frame_speed: Option<u32>,
+    /// Callback when frame speed changes
+    #[prop_or_default]
+    pub on_frame_speed_change: Option<Callback<u32>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -180,44 +187,46 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let is_playing = is_playing.clone();
         let frames = frames.clone();
         let timeout_handle = timeout_handle.clone();
+        // Clone the values we need to avoid lifetime issues
+        let frame_speed = props.frame_speed;
         let fps = props.fps;
 
-        use_effect_with((*is_playing, *current_index, frames.len(), fps), move |(playing, _current, frame_count, fps)| {
-            let playing = *playing;
-            let frame_count = *frame_count;
-            let fps = *fps;
-            
+        // Use a simple effect that runs on every render when playing state changes
+        // This is simpler than trying to track all the complex dependencies
+        use_effect(move || {
+            let playing = *is_playing;
+            let frame_count = frames.len();
+
             // Cancel any pending timeout first
             timeout_handle.borrow_mut().take();
 
             // Only schedule next frame if playing and we have frames
             if playing && frame_count > 0 {
-                let interval_ms = (1000.0 / fps as f64).max(1.0) as u32;
-                let current_index_clone = current_index.clone();
-                let frame_count_clone = frame_count;
-                
-                // Schedule the next frame advance
-                let handle = Timeout::new(interval_ms, move || {
-                    let current = *current_index_clone;
-                    let next = if current + 1 >= frame_count_clone {
-                        0 // Loop back to start
-                    } else {
-                        current + 1
-                    };
-                    current_index_clone.set(next);
-                    // After setting, Yew will re-render, which will trigger this effect again
-                    // to schedule the next frame (because current_index is in dependencies)
-                });
-                
-                *timeout_handle.borrow_mut() = Some(handle);
-            }
+                let current_fps = frame_speed.unwrap_or(fps);
+                    let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
+                    let current_index_clone = current_index.clone();
+                    let frame_count_clone = frame_count;
 
-            let timeout_handle_cleanup = timeout_handle.clone();
-            move || {
-                // Cleanup: cancel pending timeout on unmount or dependency change
-                timeout_handle_cleanup.borrow_mut().take();
-            }
-        });
+                    // Schedule the next frame advance
+                    let handle = Timeout::new(interval_ms, move || {
+                        let current = *current_index_clone;
+                        let next = if current + 1 >= frame_count_clone {
+                            0 // Loop back to start
+                        } else {
+                            current + 1
+                        };
+                        current_index_clone.set(next);
+                    });
+
+                    *timeout_handle.borrow_mut() = Some(handle);
+                }
+
+                // Cleanup function
+                let timeout_handle_cleanup = timeout_handle.clone();
+                move || {
+                    timeout_handle_cleanup.borrow_mut().take();
+                }
+            });
     }
 
     // External play/pause control
@@ -319,6 +328,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         })
     };
 
+    // Speed change handler
+    let on_speed_change = {
+        let on_frame_speed_change = props.on_frame_speed_change.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    if let Ok(speed) = input.value().parse::<u32>() {
+                        if let Some(callback) = &on_frame_speed_change {
+                            callback.emit(speed);
+                        }
+                    }
+                }
+            }
+        })
+    };
+
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let frame_count = frames.len();
     let current_frame = (*current_index).min(frame_count.saturating_sub(1));
@@ -369,15 +394,29 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         title="Seek frame"
                         disabled={frame_count == 0}
                     />
-                    <button 
-                        class="ctrl-btn" 
-                        type="button" 
-                        onclick={on_toggle_play} 
+                    <button
+                        class="ctrl-btn"
+                        type="button"
+                        onclick={on_toggle_play}
                         title="Play/Pause"
                         disabled={frame_count == 0}
                     >
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
+                </div>
+
+                <div class="control-row">
+                    <label style="font-size: 0.875rem;">{"Speed:"}</label>
+                    <input
+                        type="number"
+                        class="setting-input"
+                        style="width: 68px;"
+                        value={props.frame_speed.unwrap_or(props.fps).to_string()}
+                        min="1"
+                        max="120"
+                        oninput={on_speed_change}
+                        title="Frame playback speed (FPS)"
+                    />
                 </div>
                 
                 if let Some(settings) = &props.settings {

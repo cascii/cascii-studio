@@ -7,7 +7,6 @@
 
 don't create project if not all files are saved/converted
 - converting progress bar
-- save frames location, & details in table in db
 
 
 cascii dep: autodetect to match framerate. i suspect that generating more frames than in the source files causes

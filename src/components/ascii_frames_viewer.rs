@@ -49,6 +49,12 @@ pub struct ConversionSettings {
     pub frame_speed: u32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum SpeedMode {
+    BaseFps,
+    CustomFrameSpeed,
+}
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct AsciiFramesViewerProps {
     pub directory_path: String,
@@ -74,6 +80,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback when frame speed changes
     #[prop_or_default]
     pub on_frame_speed_change: Option<Callback<u32>>,
+    /// Current speed mode (base fps vs custom frame speed)
+    #[prop_or(SpeedMode::CustomFrameSpeed)]
+    pub speed_mode: SpeedMode,
+    /// Callback when speed mode changes
+    #[prop_or_default]
+    pub on_speed_mode_change: Option<Callback<SpeedMode>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -190,6 +202,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         // Clone the values we need to avoid lifetime issues
         let frame_speed = props.frame_speed;
         let fps = props.fps;
+        let speed_mode = props.speed_mode.clone();
+        let settings = props.settings.clone();
 
         // Use a simple effect that runs on every render when playing state changes
         // This is simpler than trying to track all the complex dependencies
@@ -202,7 +216,10 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
             // Only schedule next frame if playing and we have frames
             if playing && frame_count > 0 {
-                let current_fps = frame_speed.unwrap_or(fps);
+                let current_fps = match speed_mode {
+                    SpeedMode::BaseFps => settings.as_ref().map(|s| s.fps).unwrap_or(fps),
+                    SpeedMode::CustomFrameSpeed => frame_speed.unwrap_or(fps),
+                };
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
                     let frame_count_clone = frame_count;
@@ -344,6 +361,25 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         })
     };
 
+    // Speed mode handlers
+    let on_select_custom_speed = {
+        let on_speed_mode_change = props.on_speed_mode_change.clone();
+        Callback::from(move |_| {
+            if let Some(callback) = &on_speed_mode_change {
+                callback.emit(SpeedMode::CustomFrameSpeed);
+            }
+        })
+    };
+
+    let on_select_base_speed = {
+        let on_speed_mode_change = props.on_speed_mode_change.clone();
+        Callback::from(move |_| {
+            if let Some(callback) = &on_speed_mode_change {
+                callback.emit(SpeedMode::BaseFps);
+            }
+        })
+    };
+
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let frame_count = frames.len();
     let current_frame = (*current_index).min(frame_count.saturating_sub(1));
@@ -417,6 +453,24 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         oninput={on_speed_change}
                         title="Frame playback speed (FPS)"
                     />
+                    <div class="speed-mode-buttons">
+                        <button
+                            type="button"
+                            class={if props.speed_mode == SpeedMode::CustomFrameSpeed {"speed-mode-btn selected"} else {"speed-mode-btn"}}
+                            onclick={on_select_custom_speed}
+                            title="Use custom frame speed"
+                        >
+                            {format!("{} FPS", props.frame_speed.unwrap_or(props.fps))}
+                        </button>
+                        <button
+                            type="button"
+                            class={if props.speed_mode == SpeedMode::BaseFps {"speed-mode-btn selected"} else {"speed-mode-btn"}}
+                            onclick={on_select_base_speed}
+                            title="Use base conversion FPS"
+                        >
+                            {format!("{} FPS (base)", props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps))}
+                        </button>
+                    </div>
                 </div>
                 
                 if let Some(settings) = &props.settings {

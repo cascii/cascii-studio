@@ -355,3 +355,39 @@
     font-size: 0.875rem;
     font-style: italic;
 }
+
+/* Speed mode buttons */
+.speed-mode-buttons {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: 0.5rem;
+}
+
+.speed-mode-btn {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #ccc;
+    background: white;
+    color: #333;
+    font-size: 0.75rem;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 60px;
+    text-align: center;
+}
+
+.speed-mode-btn:hover {
+    background: #f5f5f5;
+    border-color: #999;
+}
+
+.speed-mode-btn.selected {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.speed-mode-btn.selected:hover {
+    background: #0056b3;
+    border-color: #0056b3;
+}

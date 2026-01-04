@@ -26,7 +26,7 @@ pub struct AvailableFramesProps {
     pub frames_collapsed: bool,
     pub on_toggle_collapsed: Callback<()>,
     pub on_select_frame_dir: Callback<FrameDirectory>,
-    pub on_frame_settings_loaded: Callback<Option<ConversionSettings>>,
+    pub on_frame_settings_loaded: Callback<Option<(ConversionSettings, Option<String>)>>,
 }
 
 #[function_component(AvailableFrames)]
@@ -79,37 +79,28 @@ pub fn available_frames(props: &AvailableFramesProps) -> Html {
                                                 let directory_path = frame_dir.directory_path.clone();
 
                                                 Callback::from(move |_| {
-                                                    web_sys::console::log_1(&format!("🎯 Frame directory selected: {}", frame_clone.name).into());
                                                     on_select.emit(frame_clone.clone());
 
                                                     // Fetch conversion settings for this frame directory
                                                     let on_settings_loaded = on_settings_loaded.clone();
                                                     let directory_path = directory_path.clone();
                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                        web_sys::console::log_1(&format!("🔄 Fetching settings for: {}", directory_path).into());
                                                         let args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
                                                         match tauri_invoke("get_conversion_by_folder_path", args).await {
                                                             result => {
-                                                                web_sys::console::log_1(&format!("📄 AvailableFrames got API result").into());
                                                                 if let Ok(Some(conversion)) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
+                                                                    // Extract ID from the conversion
+                                                                    let conversion_id = conversion.get("id").and_then(|id| id.as_str()).map(|s| s.to_string());
+
                                                                     // Extract settings from the conversion
                                                                     if let Some(settings) = conversion.get("settings") {
-                                                                        web_sys::console::log_1(&"📋 Found settings in conversion".into());
                                                                         if let Ok(conv_settings) = serde_json::from_value::<ConversionSettings>(settings.clone()) {
-                                                                            web_sys::console::log_1(&"✅ Successfully parsed settings".into());
-                                                                            on_settings_loaded.emit(Some(conv_settings));
+                                                                            on_settings_loaded.emit(Some((conv_settings, conversion_id)));
                                                                             return;
-                                                                        } else {
-                                                                            web_sys::console::log_1(&"❌ Failed to parse settings JSON".into());
                                                                         }
-                                                                    } else {
-                                                                        web_sys::console::log_1(&"❌ No 'settings' field in conversion".into());
                                                                     }
-                                                                } else {
-                                                                    web_sys::console::log_1(&"❌ API call failed or returned unexpected format".into());
                                                                 }
                                                                 // No conversion found or failed to parse
-                                                                web_sys::console::log_1(&"📤 Emitting None to on_settings_loaded".into());
                                                                 on_settings_loaded.emit(None);
                                                             }
                                                         }

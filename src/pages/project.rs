@@ -250,47 +250,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             let selected_frame_settings = selected_frame_settings.clone();
                             let frame_speed = frame_speed.clone();
                             let current_conversion_id = current_conversion_id.clone();
-                            let selected_frame_dir = selected_frame_dir.clone();
-                            Callback::from(move |settings: Option<ConversionSettings>| {
-                                web_sys::console::log_1(&format!("🎬 on_frame_settings_loaded called with settings: {:?}", settings.as_ref().map(|_| "Some(settings)")).into());
-                                selected_frame_settings.set(settings.clone());
-                                if let Some(settings) = settings {
-                                    frame_speed.set(Some(settings.frame_speed));
-                                    // Fetch the conversion to get the ID for updates
-                                    if let Some(frame_dir) = &*selected_frame_dir {
-                                        web_sys::console::log_1(&format!("🔍 Found selected_frame_dir: {}", frame_dir.directory_path).into());
-                                        let current_conversion_id = current_conversion_id.clone();
-                                        let directory_path = frame_dir.directory_path.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            web_sys::console::log_1(&format!("🚀 Starting async fetch for directory: {}", directory_path).into());
-                                            match tauri_invoke("get_conversion_by_folder_path", serde_wasm_bindgen::to_value(&directory_path).unwrap()).await {
-                                                result => {
-                                                    web_sys::console::log_1(&format!("📥 Raw API result received").into());
-                                                    if let Ok(conversion) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
-                                                        web_sys::console::log_1(&format!("📋 Successfully parsed conversion result").into());
-                                                        if let Some(conversion) = conversion {
-                                                            if let Some(id) = conversion.get("id").and_then(|id| id.as_str()) {
-                                                                web_sys::console::log_1(&format!("✅ Found conversion ID: {}", id).into());
-                                                                current_conversion_id.set(Some(id.to_string()));
-                                                            } else {
-                                                                web_sys::console::log_1(&"❌ Conversion object missing 'id' field".into());
-                                                            }
-                                                        } else {
-                                                            web_sys::console::log_1(&"❌ API returned null conversion".into());
-                                                        }
-                                                    } else {
-                                                        web_sys::console::log_1(&"❌ Failed to deserialize API result".into());
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    } else {
-                                        web_sys::console::log_1(&"⚠️ No selected_frame_dir available".into());
+                            Callback::from(move |data: Option<(ConversionSettings, Option<String>)>| {
+                                match data {
+                                    Some((settings, conversion_id)) => {
+                                        selected_frame_settings.set(Some(settings.clone()));
+                                        frame_speed.set(Some(settings.frame_speed));
+                                        current_conversion_id.set(conversion_id);
                                     }
-                                } else {
-                                    web_sys::console::log_1(&"ℹ️ No settings provided (clearing state)".into());
-                                    frame_speed.set(None);
-                                    current_conversion_id.set(None);
+                                    None => {
+                                        selected_frame_settings.set(None);
+                                        frame_speed.set(None);
+                                        current_conversion_id.set(None);
+                                    }
                                 }
                             })
                         }}
@@ -494,32 +465,24 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let current_conversion_id = current_conversion_id.clone();
                                                     let selected_frame_settings = selected_frame_settings.clone();
                                                     Callback::from(move |speed: u32| {
-                                                        web_sys::console::log_1(&format!("🎯 Speed change callback called with: {}", speed).into());
-                                                        web_sys::console::log_1(&format!("🔍 Current conversion_id: {:?}", (*current_conversion_id).as_ref()).into());
-
                                                         frame_speed.set(Some(speed));
 
                                                         // Update the selected_frame_settings to reflect the change
                                                         if let Some(mut settings) = (*selected_frame_settings).clone() {
                                                             settings.frame_speed = speed;
                                                             selected_frame_settings.set(Some(settings));
-                                                            web_sys::console::log_1(&"✅ Updated selected_frame_settings".into());
                                                         }
 
                                                         // Update the database if we have a conversion_id
                                                         if let Some(conversion_id) = &*current_conversion_id {
-                                                            web_sys::console::log_1(&format!("💾 Updating database for conversion_id: {}", conversion_id).into());
                                                             let conversion_id = conversion_id.clone();
                                                             wasm_bindgen_futures::spawn_local(async move {
                                                                 let args = serde_wasm_bindgen::to_value(&serde_json::json!({
-                                                                    "conversion_id": conversion_id,
-                                                                    "frame_speed": speed
+                                                                    "conversionId": conversion_id,
+                                                                    "frameSpeed": speed
                                                                 })).unwrap();
-                                                                let result = tauri_invoke("update_conversion_frame_speed", args).await;
-                                                                web_sys::console::log_1(&format!("💾 Database update result: {:?}", result).into());
+                                                                let _ = tauri_invoke("update_conversion_frame_speed", args).await;
                                                             });
-                                                        } else {
-                                                            web_sys::console::log_1(&"⚠️ No conversion_id available - skipping database update".into());
                                                         }
                                                     })
                                                 }}

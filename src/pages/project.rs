@@ -1,5 +1,7 @@
 use yew::prelude::*;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -22,6 +24,44 @@ export async function tauriInvoke(cmd, args) {
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+}
+
+// Wasm bindings to Tauri event API (for file conversion progress)
+#[wasm_bindgen(inline_js = r#"
+export async function tauriListen(event, handler) {
+  const g = globalThis.__TAURI__;
+  if (g?.event?.listen) return g.event.listen(event, handler);
+  throw new Error('Tauri listen is not available');
+}
+
+export async function tauriUnlisten(unlistenFn) {
+  if (unlistenFn) await unlistenFn();
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = tauriListen)]
+    async fn tauri_listen(event: &str, handler: &js_sys::Function) -> JsValue;
+    #[wasm_bindgen(js_name = tauriUnlisten)]
+    async fn tauri_unlisten(unlisten_fn: JsValue);
+}
+
+#[derive(Serialize, Deserialize)]
+struct AddSourceFilesRequest {
+    project_id: String,
+    file_paths: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AddSourceFilesArgs {
+    request: AddSourceFilesRequest,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct FileProgress {
+    file_name: String,
+    status: String,
+    message: String,
+    percentage: Option<f32>,
 }
 
 // Wasm binding to our custom JS shim for convertFileSrc
@@ -73,7 +113,7 @@ pub struct ProjectPageProps {
 
 #[function_component(ProjectPage)]
 pub fn project_page(props: &ProjectPageProps) -> Html {
-    let project_id = props.project_id.clone();
+    let project_id = use_state(|| props.project_id.clone());
     let project = use_state(|| None::<Project>);
     let source_files = use_state(|| Vec::<SourceContent>::new());
     let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
@@ -84,6 +124,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
     let url_cache = use_state(|| HashMap::<String, String>::new());    // URL cache to avoid recomputing asset URLs
+    let is_adding_files = use_state(|| false);
+    let file_progress_map = use_state(|| HashMap::<String, FileProgress>::new());
     
     // ASCII conversion settings
     let luminance = use_state(|| 1u8);
@@ -108,13 +150,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let controls_collapsed = use_state(|| false);
 
     {
-        let project_id = props.project_id.clone();
+        let project_id = project_id.clone();
         let project = project.clone();
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
         let error_message = error_message.clone();
 
-        use_effect_with(project_id.clone(), move |id| {
+        use_effect_with((*project_id).clone(), move |id| {
             let id = id.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 // Fetch project details
@@ -232,31 +274,116 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             let project_id = project_id.clone();
                             let source_files = source_files.clone();
                             let error_message = error_message.clone();
+                            let is_adding_files = is_adding_files.clone();
+                            let file_progress_map = file_progress_map.clone();
                             Some(Callback::from(move |_| {
+                                web_sys::console::log_1(&"🎯 Add files button clicked!".into());
                                 let project_id = project_id.clone();
                                 let source_files = source_files.clone();
                                 let error_message = error_message.clone();
+                                let is_adding_files = is_adding_files.clone();
+                                let file_progress_map = file_progress_map.clone();
 
                                 wasm_bindgen_futures::spawn_local(async move {
+                                    web_sys::console::log_1(&"🚀 Starting file picking process...".into());
+                                    error_message.set(None);
                                     // Pick files
                                     match tauri_invoke("pick_files", JsValue::NULL).await {
                                         result => {
-                                            if let Ok(_) = serde_wasm_bindgen::from_value::<Vec<String>>(result) {
-                                                // Files picked successfully, refresh the source files list
-                                                if !project_id.is_empty() {
-                                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": *project_id })).unwrap();
-                                                    match tauri_invoke("get_project_sources", args).await {
-                                                        result => {
-                                                            if let Ok(s) = serde_wasm_bindgen::from_value(result) {
-                                                                source_files.set(s);
-                                                            } else {
-                                                                error_message.set(Some("Failed to refresh source files.".to_string()));
-                                                            }
+                                            web_sys::console::log_1(&format!("📤 Pick files result received").into());
+                                            let result_clone = result.clone();
+                                            match serde_wasm_bindgen::from_value::<Vec<String>>(result) {
+                                                Ok(file_paths) => {
+                                                    web_sys::console::log_1(&format!("✅ Parsed {} file paths", file_paths.len()).into());
+                                                    if !file_paths.is_empty() {
+                                                        web_sys::console::log_1(&format!("📁 Files selected: {:?}", file_paths).into());
+
+                                                        // Initialize progress UI for selected files
+                                                        let mut initial_map = HashMap::new();
+                                                        for file_path in file_paths.iter() {
+                                                            let file_name = std::path::Path::new(file_path)
+                                                                .file_name()
+                                                                .and_then(|n| n.to_str())
+                                                                .unwrap_or("unknown")
+                                                                .to_string();
+                                                            initial_map.insert(file_name.clone(), FileProgress {
+                                                                file_name,
+                                                                status: "pending".to_string(),
+                                                                message: "Waiting...".to_string(),
+                                                                percentage: None,
+                                                            });
                                                         }
+                                                        file_progress_map.set(initial_map);
+                                                        is_adding_files.set(true);
+
+                                                        // Listen for backend progress events (shared with create_project)
+                                                        let file_progress_map_clone = file_progress_map.clone();
+                                                        let callback: Closure<dyn Fn(JsValue)> = Closure::new(move |event: JsValue| {
+                                                            if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                                                                if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
+                                                                    let mut map = (*file_progress_map_clone).clone();
+                                                                    map.insert(progress.file_name.clone(), progress);
+                                                                    file_progress_map_clone.set(map);
+                                                                }
+                                                            }
+                                                        });
+                                                        let unlisten_handle = tauri_listen("file-progress", callback.as_ref().unchecked_ref()).await;
+
+                                                        // Files picked successfully, add them to the project
+                                                        if !project_id.is_empty() {
+                                                            web_sys::console::log_1(&format!("💾 Adding files to project: {}", project_id.as_str()).into());
+                                                            let invoke_args = AddSourceFilesArgs {
+                                                                request: AddSourceFilesRequest {
+                                                                    project_id: (*project_id).to_string(),
+                                                                    file_paths: file_paths,
+                                                                }
+                                                            };
+                                                            // Backend command signature is: add_source_files(args: AddSourceFilesArgs, ...)
+                                                            // So invoke payload must be { args: { request: ... } }
+                                                            let add_files_args = serde_wasm_bindgen::to_value(&json!({ "args": invoke_args })).unwrap();
+
+                                                            web_sys::console::log_1(&"📡 Calling add_source_files command...".into());
+                                                            let add_result = tauri_invoke("add_source_files", add_files_args).await;
+                                                            web_sys::console::log_1(&format!("📡 add_source_files result: {:?}", add_result).into());
+
+                                                            // Clean up listener
+                                                            tauri_unlisten(unlisten_handle).await;
+                                                            drop(callback);
+                                                            is_adding_files.set(false);
+
+                                                            // For now, assume success and refresh the source files list
+                                                            web_sys::console::log_1(&"🔄 Refreshing source files list...".into());
+                                                            let args = serde_wasm_bindgen::to_value(&json!({ "projectId": *project_id })).unwrap();
+                                                            match tauri_invoke("get_project_sources", args).await {
+                                                                result => {
+                                                                    match serde_wasm_bindgen::from_value::<Vec<crate::pages::project::SourceContent>>(result) {
+                                                                        Ok(s) => {
+                                                                            web_sys::console::log_1(&format!("✅ Successfully refreshed {} source files", s.len()).into());
+                                                                            source_files.set(s);
+                                                                        }
+                                                                        Err(e) => {
+                                                                            web_sys::console::log_1(&format!("❌ Failed to parse source files: {:?}", e).into());
+                                                                            error_message.set(Some("Failed to refresh source files.".to_string()));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            web_sys::console::log_1(&"⚠️ No project ID available".into());
+                                                            tauri_unlisten(unlisten_handle).await;
+                                                            drop(callback);
+                                                            is_adding_files.set(false);
+                                                        }
+                                                    } else {
+                                                        web_sys::console::log_1(&"ℹ️ No files selected (user cancelled)".into());
+                                                        // Don't show error for cancelled dialog
                                                     }
                                                 }
-                                            } else {
-                                                error_message.set(Some("Failed to pick files.".to_string()));
+                                                Err(e) => {
+                                                    web_sys::console::log_1(&format!("❌ Failed to parse pick_files result: {:?}", e).into());
+                                                    web_sys::console::log_1(&format!("❌ Raw result: {:?}", result_clone).into());
+                                                    error_message.set(Some("Failed to pick files.".to_string()));
+                                                }
                                             }
                                         }
                                     }
@@ -353,13 +480,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 error_message.set(val);
                             })
                         }}
-                        project_id={project_id.clone()}
+                        project_id={(*project_id).clone()}
                         on_refresh_frames={{
                             let frame_directories = frame_directories.clone();
                             let project_id = project_id.clone();
                             Callback::from(move |_| {
                                 let frame_directories = frame_directories.clone();
-                                let project_id = project_id.clone();
+                                let project_id = (*project_id).clone();
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
                                     match tauri_invoke("get_project_frames", args).await {
@@ -421,6 +548,47 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     if let Some(error) = &*error_message {
                         <div class="alert alert-error">{error}</div>
+                    }
+
+                    if *is_adding_files && !file_progress_map.is_empty() {
+                        <div class="progress-container">
+                            <h3>{"Adding Files"}</h3>
+                            <div class="progress-list">
+                                {
+                                    file_progress_map.iter().map(|(file_name, progress)| {
+                                        let status_class = match progress.status.as_str() {
+                                            "completed"     => "status-completed",
+                                            "error"         => "status-error",
+                                            "processing"    => "status-processing",
+                                            _               => "status-pending"
+                                        };
+
+                                        let icon = match progress.status.as_str() {
+                                            "completed"     => "✓",
+                                            "error"         => "✗",
+                                            "processing"    => "⟳",
+                                            _               => "○"
+                                        };
+
+                                        html! {
+                                            <div class={classes!("progress-item", status_class)} key={file_name.clone()}>
+                                                <div class="progress-icon">{icon}</div>
+                                                <div class="progress-info">
+                                                    <div class="progress-filename">{file_name}</div>
+                                                    <div class="progress-message">{&progress.message}</div>
+                                                    if let Some(percentage) = progress.percentage {
+                                                        <div class="progress-bar-container">
+                                                            <div class="progress-bar" style={format!("width: {}%", percentage)}></div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    }).collect::<Html>()
+                                }
+                            </div>
+                            <p class="progress-note">{"Please wait while files are being processed..."}</p>
+                        </div>
                     }
 
                     <div class="preview-container">

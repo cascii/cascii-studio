@@ -386,7 +386,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         })
     };
 
-
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let frame_count = frames.len();
     let current_frame = (*current_index).min(frame_count.saturating_sub(1));

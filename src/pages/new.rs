@@ -261,7 +261,14 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                         .and_then(|n| n.to_str())
                                         .unwrap_or(file);
                                     
-                                    let is_mkv = file.to_lowercase().ends_with(".mkv");
+                                    let lower = file.to_lowercase();
+                                    let is_video = lower.ends_with(".mp4")
+                                        || lower.ends_with(".mov")
+                                        || lower.ends_with(".avi")
+                                        || lower.ends_with(".webm")
+                                        || lower.ends_with(".mkv")
+                                        || lower.ends_with(".flv");
+                                    let needs_conversion = is_video && !lower.ends_with(".mp4");
                                     
                                     let remove_file = remove_file.clone();
                                     let on_remove = Callback::from(move |_| remove_file.emit(index));
@@ -270,7 +277,7 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                         <div class="file-item" key={index}>
                                             <span class="file-name">
                                                 {file_name}
-                                                if is_mkv {
+                                                if needs_conversion {
                                                     <span class="convert-indicator" title="Will be converted to MP4">
                                                         {"🔄"}
                                                     </span>

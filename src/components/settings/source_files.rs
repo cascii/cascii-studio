@@ -39,6 +39,7 @@ pub fn source_files(props: &SourceFilesProps) -> Html {
                     let on_add = {
                         let on_add_files = on_add_files.clone();
                         Callback::from(move |_| {
+                            web_sys::console::log_1(&"➕ Add files button clicked in SourceFiles component".into());
                             on_add_files.emit(());
                         })
                     };
@@ -48,6 +49,7 @@ pub fn source_files(props: &SourceFilesProps) -> Html {
                         </button>
                     }
                 } else {
+                    web_sys::console::log_1(&"⚠️ No on_add_files callback provided to SourceFiles".into());
                     html! {}
                 }}
             </h2>

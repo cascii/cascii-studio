@@ -228,6 +228,41 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             })
                         }}
                         on_select_source={on_select_source.clone()}
+                        on_add_files={{
+                            let project_id = project_id.clone();
+                            let source_files = source_files.clone();
+                            let error_message = error_message.clone();
+                            Some(Callback::from(move |_| {
+                                let project_id = project_id.clone();
+                                let source_files = source_files.clone();
+                                let error_message = error_message.clone();
+
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    // Pick files
+                                    match tauri_invoke("pick_files", JsValue::NULL).await {
+                                        result => {
+                                            if let Ok(_) = serde_wasm_bindgen::from_value::<Vec<String>>(result) {
+                                                // Files picked successfully, refresh the source files list
+                                                if !project_id.is_empty() {
+                                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": *project_id })).unwrap();
+                                                    match tauri_invoke("get_project_sources", args).await {
+                                                        result => {
+                                                            if let Ok(s) = serde_wasm_bindgen::from_value(result) {
+                                                                source_files.set(s);
+                                                            } else {
+                                                                error_message.set(Some("Failed to refresh source files.".to_string()));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                error_message.set(Some("Failed to pick files.".to_string()));
+                                            }
+                                        }
+                                    }
+                                });
+                            }))
+                        }}
                     />
 
                     <AvailableFrames frame_directories={(*frame_directories).clone()} selected_frame_dir={(*selected_frame_dir).clone()} selected_frame_settings={(*selected_frame_settings).clone()} frames_collapsed={*frames_collapsed} on_toggle_collapsed={{

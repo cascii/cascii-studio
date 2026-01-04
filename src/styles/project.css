@@ -362,3 +362,20 @@
     box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
+/* Add files button */
+.add-files-btn {
+    margin-left: auto;
+    padding: 0.25rem 0.5rem;
+    background: #2A2A2A;
+    color:#AAAAAA;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+
+.add-files-btn:hover {
+    background: #3A3A3A;
+}
+

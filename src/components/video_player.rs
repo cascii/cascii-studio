@@ -17,6 +17,9 @@ pub struct VideoPlayerProps {
     /// External control: seek to percentage (0.0-1.0)
     #[prop_or_default]
     pub seek_percentage: Option<f64>,
+    /// Callback to report current progress (0.0-1.0)
+    #[prop_or_default]
+    pub on_progress: Option<Callback<f64>>,
 }
 
 #[function_component(VideoPlayer)]
@@ -51,9 +54,21 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let on_time_update = {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
+        let duration = duration.clone();
+        let on_progress = props.on_progress.clone();
         Callback::from(move |_| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
-                current_time.set(v.current_time());
+                let time = v.current_time();
+                current_time.set(time);
+
+                // Report progress to parent (0.0-1.0)
+                if let Some(callback) = &on_progress {
+                    let dur = *duration;
+                    if dur > 0.0 {
+                        let progress = time / dur;
+                        callback.emit(progress);
+                    }
+                }
             }
         })
     };

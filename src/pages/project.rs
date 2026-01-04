@@ -408,6 +408,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                     should_reset={*should_reset}
                                                     seek_percentage={*seek_percentage}
+                                                    on_progress={{
+                                                        let synced_progress = synced_progress.clone();
+                                                        Callback::from(move |progress: f64| {
+                                                            synced_progress.set(progress * 100.0);
+                                                        })
+                                                    }}
                                                 />
                                             }
                                         } else {

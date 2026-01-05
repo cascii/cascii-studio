@@ -8,6 +8,7 @@ pub struct SourceFilesProps {
     pub source_files_collapsed: bool,
     pub on_toggle_collapsed: Callback<()>,
     pub on_select_source: Callback<SourceContent>,
+    pub on_add_files: Option<Callback<()>>,
 }
 
 #[function_component(SourceFiles)]
@@ -25,15 +26,32 @@ pub fn source_files(props: &SourceFilesProps) -> Html {
 
     html! {
         <div class="source-files-column">
-            <h2 class="collapsible-header" onclick={on_toggle}>
-                <span class="chevron-icon">
+            <h2 class="collapsible-header">
+                <span class="chevron-icon" onclick={&on_toggle}>
                     {if props.source_files_collapsed {
                         html! {<span>{"▶"}</span>}
                     } else {
                         html! {<span>{"▼"}</span>}
                     }}
                 </span>
-                <span>{"SOURCE FILES"}</span>
+                <span onclick={&on_toggle}>{"SOURCE FILES"}</span>
+                {if let Some(on_add_files) = &props.on_add_files {
+                    let on_add = {
+                        let on_add_files = on_add_files.clone();
+                        Callback::from(move |_| {
+                            web_sys::console::log_1(&"➕ Add files button clicked in SourceFiles component".into());
+                            on_add_files.emit(());
+                        })
+                    };
+                    html! {
+                        <button type="button" class="add-files-btn" onclick={on_add} title="Add files">
+                            {"+"}
+                        </button>
+                    }
+                } else {
+                    web_sys::console::log_1(&"⚠️ No on_add_files callback provided to SourceFiles".into());
+                    html! {}
+                }}
             </h2>
             {
                 if !props.source_files_collapsed {

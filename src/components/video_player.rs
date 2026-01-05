@@ -247,7 +247,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
-        let duration = duration.clone();
+        let _duration = duration.clone();
         let seek_percentage = props.seek_percentage;
 
         use_effect_with(seek_percentage, move |seek_percentage| {

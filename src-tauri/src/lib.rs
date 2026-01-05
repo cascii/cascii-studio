@@ -131,6 +131,105 @@ fn open_directory(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn add_source_files(args: AddSourceFilesArgs, app: tauri::AppHandle) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        add_source_files_blocking(args.request, app)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHandle) -> Result<(), String> {
+    // Load settings
+    let settings = settings::load();
+
+    // Get the project to determine the project directory
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+
+    // Ensure project directory exists
+    if !project_dir.exists() {
+        fs::create_dir_all(&project_dir).map_err(|e| format!("Failed to create project directory: {}", e))?;
+    }
+
+    let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
+
+    // Process each file
+    for file_path in request.file_paths {
+        let p = PathBuf::from(&file_path);
+        let file_name = p.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let is_video = is_video_file(&file_path);
+        let needs_mp4_conversion = is_video && !is_mp4_file(&file_path);
+
+        let result = (|| -> Result<(), String> {
+            // Emit processing event so the UI can show progress (same event name as create_project)
+            let _ = app.emit("file-progress", FileProgress {
+                file_name: file_name.clone(),
+                status: "processing".to_string(),
+                message: "Processing...".to_string(),
+                percentage: None,
+            });
+            thread::sleep(Duration::from_millis(10));
+
+            let dest_path = if needs_mp4_conversion {
+                // Convert any non-MP4 video to MP4
+                let _ = app.emit("file-progress", FileProgress {
+                    file_name: file_name.clone(),
+                    status: "processing".to_string(),
+                    message: "Converting to MP4... 0%".to_string(),
+                    percentage: Some(0.0),
+                });
+                thread::sleep(Duration::from_millis(10));
+                ffmpeg_convert_to_mp4(&file_path, project_dir.to_str().unwrap(), &app, &file_name)?
+            } else {
+                // Copy or move all other files as-is
+                copy_or_move_file(&file_path, project_dir.to_str().unwrap(), use_move)?
+            };
+
+            let file_size = calculate_file_size(&dest_path)?;
+
+            let source_type = if is_video { database::SourceType::Video } else { database::SourceType::Image };
+            let source = database::SourceContent {
+                id: Uuid::new_v4().to_string(),
+                content_type: source_type,
+                project_id: request.project_id.clone(),
+                date_added: Utc::now(),
+                file_path: dest_path,
+                size: file_size,
+            };
+
+            database::add_source_content(&source).map_err(|e| e.to_string())?;
+
+            // Emit completion event
+            let _ = app.emit("file-progress", FileProgress {
+                file_name: file_name.clone(),
+                status: "completed".to_string(),
+                message: "Completed".to_string(),
+                percentage: Some(100.0),
+            });
+            Ok(())
+        })();
+
+        if let Err(e) = result {
+            eprintln!("Failed to process file {}: {}", file_path, e);
+            let _ = app.emit("file-progress", FileProgress {
+                file_name: file_name.clone(),
+                status: "error".to_string(),
+                message: format!("Error: {}", e),
+                percentage: None,
+            });
+            // Continue with other files
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::{DialogExt, FilePath};
 
@@ -146,7 +245,8 @@ async fn pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
             }).collect();
             Ok(paths)
         }
-        None => Err("No files selected".into()),
+        // Treat dialog cancel as "no selection" (not an error), so the UI doesn't panic on a rejected invoke.
+        None => Ok(Vec::new()),
     }
 }
 
@@ -164,10 +264,10 @@ fn is_video_file(path: &str) -> bool {
     }
 }
 
-fn is_mkv_file(path: &str) -> bool {
+fn is_mp4_file(path: &str) -> bool {
     if let Some(ext) = PathBuf::from(path).extension() {
         let ext_lower = ext.to_string_lossy().to_lowercase();
-        ext_lower == "mkv"
+        ext_lower == "mp4"
     } else {
         false
     }
@@ -239,7 +339,7 @@ fn ffmpeg_convert_to_mp4(input_path: &str, output_dir: &str, app: &tauri::AppHan
                                 let _ = app.emit("file-progress", FileProgress {
                                     file_name: file_name.to_string(),
                                     status: "processing".to_string(),
-                                    message: format!("Converting MKV to MP4... {:.0}%", percentage),
+                                    message: format!("Converting to MP4... {:.0}%", percentage),
                                     percentage: Some(percentage),
                                 });
                             }
@@ -282,6 +382,17 @@ fn copy_or_move_file(source: &str, dest_dir: &str, use_move: bool) -> Result<Str
 struct CreateProjectRequest {
     project_name: String,
     file_paths: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AddSourceFilesRequest {
+    project_id: String,
+    file_paths: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AddSourceFilesArgs {
+    request: AddSourceFilesRequest,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -364,15 +475,15 @@ fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle)
         thread::sleep(Duration::from_millis(10));
         
         let is_video = is_video_file(file_path);
-        let is_mkv = is_mkv_file(file_path);
+        let needs_mp4_conversion = is_video && !is_mp4_file(file_path);
 
         let result = (|| -> Result<(), String> {
-            let dest_path = if is_mkv {
-                // Convert MKV to MP4
+            let dest_path = if needs_mp4_conversion {
+                // Convert any non-MP4 video to MP4
                 let _ = app.emit("file-progress", FileProgress {
                     file_name: file_name.clone(),
                     status: "processing".to_string(),
-                    message: "Converting MKV to MP4... 0%".to_string(),
+                    message: "Converting to MP4... 0%".to_string(),
                     percentage: Some(0.0),
                 });
                 thread::sleep(Duration::from_millis(10));
@@ -773,6 +884,7 @@ pub fn run() {
             pick_directory,
             open_directory,
             pick_files,
+            add_source_files,
             create_project,
             get_all_projects,
             get_project,

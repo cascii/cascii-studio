@@ -62,5 +62,3 @@ pub fn save(s: &Settings) -> Result<(), String> {
     let body = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
     fs::write(&p, body).map_err(|e| e.to_string())
 }
-
-

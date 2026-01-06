@@ -174,5 +174,3 @@ pub fn settings_page() -> Html {
         </main>
     }
 }
-
-

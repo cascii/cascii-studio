@@ -67,6 +67,8 @@ pub struct SourceContent {
     pub date_added: DateTime<Utc>,
     pub size: i64, // in bytes
     pub file_path: String,
+    #[serde(default)]
+    pub custom_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,10 +135,26 @@ pub fn init_database() -> SqlResult<Connection> {
             date_added TEXT NOT NULL,
             size INTEGER NOT NULL,
             file_path TEXT NOT NULL,
+            custom_name TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )",
         [],
     )?;
+
+    // Check if custom_name column exists, if not add it
+    let column_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('source_content') WHERE name='custom_name'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0) > 0;
+
+    if !column_exists {
+        // Add custom_name column for existing databases
+        conn.execute(
+            "ALTER TABLE source_content ADD COLUMN custom_name TEXT",
+            [],
+        )?;
+    }
 
     // Create index on project_id for faster queries
     conn.execute(
@@ -225,8 +243,8 @@ pub fn add_source_content(source: &SourceContent) -> SqlResult<()> {
     let conn = init_database()?;
     
     conn.execute(
-        "INSERT INTO source_content (id, content_type, project_id, date_added, size, file_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO source_content (id, content_type, project_id, date_added, size, file_path, custom_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             source.id,
             source.content_type.to_string(),
@@ -234,6 +252,7 @@ pub fn add_source_content(source: &SourceContent) -> SqlResult<()> {
             source.date_added.to_rfc3339(),
             source.size,
             source.file_path,
+            source.custom_name,
         ],
     )?;
 
@@ -303,7 +322,7 @@ pub fn get_project(project_id: &str) -> SqlResult<Project> {
 pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, content_type, project_id, date_added, size, file_path 
+        "SELECT id, content_type, project_id, date_added, size, file_path, custom_name 
          FROM source_content 
          WHERE project_id = ?1 
          ORDER BY date_added ASC"
@@ -321,10 +340,22 @@ pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
                 .with_timezone(&Utc),
             size: row.get(4)?,
             file_path: row.get(5)?,
+            custom_name: row.get(6)?,
         })
     })?.collect::<SqlResult<Vec<_>>>()?;
 
     Ok(sources)
+}
+
+pub fn update_source_custom_name(source_id: &str, custom_name: Option<String>) -> SqlResult<()> {
+    let conn = init_database()?;
+    
+    conn.execute(
+        "UPDATE source_content SET custom_name = ?1 WHERE id = ?2",
+        params![custom_name, source_id],
+    )?;
+
+    Ok(())
 }
 
 pub fn update_project_size_and_frames(project_id: &str, size: i64, frames: i32) -> SqlResult<()> {
@@ -481,4 +512,3 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
         Ok(None)
     }
 }
-

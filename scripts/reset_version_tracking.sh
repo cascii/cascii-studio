@@ -32,4 +32,3 @@ else
         echo "Branch '$BRANCH_NAME' was not found in version tracking."
     fi
 fi
-

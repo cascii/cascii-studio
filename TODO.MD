@@ -13,7 +13,8 @@ cascii dep: autodetect to match framerate. i suspect that generating more frames
 
 
 - rename sourcefiles and rename frames
-- add more files
+- converting progress
 
 bugs:
 - font_ratio 0.699999988079071 in db instead of 0.7
+- creating frames not immediately in AVAILABLE FRAMES

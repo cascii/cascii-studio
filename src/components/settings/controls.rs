@@ -63,7 +63,6 @@ pub fn controls(props: &ControlsProps) -> Html {
         })
     };
 
-
     html! {
         <div class="controls-column">
             <h2 class="collapsible-header" onclick={on_toggle}>
@@ -88,7 +87,6 @@ pub fn controls(props: &ControlsProps) -> Html {
                                     <span class="reset-icon">{"↺"}</span>
                                 </button>
                             </div>
-
 
                             <div class="control-row">
                                 <input class="progress synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />

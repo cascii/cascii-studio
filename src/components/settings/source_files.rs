@@ -267,21 +267,10 @@ impl Component for SourceFiles {
                                                     <>
                                                         <span class="source-item-name">{display_name}</span>
                                                         <div class="source-item-buttons">
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn rename-btn"
-                                                                onclick={on_rename}
-                                                                title="Rename file"
-                                                            >
+                                                            <button type="button" class="source-item-btn rename-btn" onclick={on_rename} title="Rename file">
                                                                 <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn delete-btn"
-                                                                onclick={on_delete}
-                                                                title={if on_delete.is_none() {"Delete functionality not yet implemented"} else {"Delete file"}}
-                                                                disabled={on_delete.is_none()}
-                                                            >
+                                                            <button type="button" class="source-item-btn delete-btn" onclick={on_delete} title={if on_delete.is_none() {"Delete functionality not yet implemented"} else {"Delete file"}} disabled={on_delete.is_none()}>
                                                                 <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
                                                             </button>
                                                         </div>

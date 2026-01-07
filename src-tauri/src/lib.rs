@@ -618,9 +618,15 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                        if dir_name.ends_with("_ascii") {
-                            // Extract source file name (remove "_ascii" suffix)
-                            let source_name = dir_name.strip_suffix("_ascii").unwrap_or(dir_name);
+                        if dir_name.ends_with("_ascii") || dir_name.contains("_ascii[") {
+                            // Extract source file name (remove "_ascii[...]" suffix)
+                            let source_name = if let Some(bracket_start) = dir_name.find("_ascii[") {
+                                // Has random suffix: extract part before "_ascii["
+                                &dir_name[..bracket_start]
+                            } else {
+                                // Old format without random suffix
+                                dir_name.strip_suffix("_ascii").unwrap_or(dir_name)
+                            };
 
                             // Get custom name from database if it exists
                             let folder_path = path.to_str().unwrap_or("");
@@ -866,10 +872,12 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
         .unwrap_or(false);
     
     // Create output directory next to the input file
-    let folder_name = format!("{}_ascii", 
+    let random_suffix = generate_random_suffix();
+    let folder_name = format!("{}_ascii{}", 
         input_path.file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("output")
+            .unwrap_or("output"),
+        random_suffix
     );
     let output_dir = input_path.parent()
         .ok_or("Cannot determine parent directory")?
@@ -945,20 +953,47 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
         custom_name: None,
     };
     
-    database::add_ascii_conversion(&conversion)
-        .map_err(|e| format!("Failed to save conversion to database: {}", e))?;
-    
-    Ok(format!("ASCII frames saved to: {} ({} frames, {} bytes)", 
-        conversion_result.display(), frame_count, total_size))
+    println!("🎯 About to save conversion to database:");
+    println!("   - ID: {}", conversion.id);
+    println!("   - Folder: {}", conversion.folder_name);
+    println!("   - Path: {}", conversion.folder_path);
+    println!("   - Source ID: {}", conversion.source_file_id);
+    println!("   - Project ID: {}", conversion.project_id);
+    println!("   - Frames: {}", conversion.frame_count);
+
+    match database::add_ascii_conversion(&conversion) {
+        Ok(_) => {
+            println!("✅ Conversion successfully saved to database");
+            Ok(format!("ASCII frames saved to: {} ({} frames, {} bytes)",
+                conversion_result.display(), frame_count, total_size))
+        }
+        Err(e) => {
+            println!("❌ Failed to save conversion to database: {}", e);
+            Err(format!("Failed to save conversion to database: {}", e))
+        }
+    }
+}
+
+fn generate_random_suffix() -> String {
+    use rand::{Rng, thread_rng};
+    use rand::distributions::Alphanumeric;
+
+    let random_string: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(10)
+        .map(char::from)
+        .collect();
+
+    format!("[{}]", random_string)
 }
 
 fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     let mut frame_count = 0i32;
     let mut total_size = 0i64;
-    
+
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("Failed to read directory: {}", e))?;
-    
+
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() {
@@ -972,7 +1007,7 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
             }
         }
     }
-    
+
     Ok((frame_count, total_size))
 }
 

@@ -444,6 +444,25 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 }
                             })
                         }}
+                        on_rename_frame={{
+                            let frame_directories = frame_directories.clone();
+                            let project_id = project_id.clone();
+                            Some(Callback::from(move |(_folder_path, _new_name): (String, String)| {
+                                // Refresh frame directories list after rename
+                                let frame_directories = frame_directories.clone();
+                                let project_id = (*project_id).clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                    match tauri_invoke("get_project_frames", args).await {
+                                        result => {
+                                            if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
+                                                frame_directories.set(frames);
+                                            }
+                                        }
+                                    }
+                                });
+                            }))
+                        }}
                     />
 
                     <ConvertToAscii selected_source={(*selected_source).clone()} convert_collapsed={*convert_collapsed} on_toggle_collapsed={{

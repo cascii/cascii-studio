@@ -91,6 +91,7 @@ pub struct AsciiConversion {
     pub settings: ConversionSettings, // Conversion settings (luminance, font_ratio, columns, fps)
     pub creation_date: DateTime<Utc>,
     pub total_size: i64,           // Total size of all frame files in bytes
+    pub custom_name: Option<String>, // Custom display name for the frame directory
 }
 
 fn app_support_dir() -> PathBuf {
@@ -178,6 +179,7 @@ pub fn init_database() -> SqlResult<Connection> {
             frame_speed INTEGER NOT NULL DEFAULT 0,
             creation_date TEXT NOT NULL,
             total_size INTEGER NOT NULL,
+            custom_name TEXT,
             FOREIGN KEY (source_file_id) REFERENCES source_content(id) ON DELETE CASCADE,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )",
@@ -201,6 +203,23 @@ pub fn init_database() -> SqlResult<Connection> {
         // Update existing records to set frame_speed = fps
         conn.execute(
             "UPDATE ascii_conversions SET frame_speed = fps",
+            [],
+        )?;
+    }
+
+    // Check if custom_name column exists, if not add it
+    let column_exists = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='custom_name'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if !column_exists {
+        // Add custom_name column for existing databases
+        conn.execute(
+            "ALTER TABLE ascii_conversions ADD COLUMN custom_name TEXT",
             [],
         )?;
     }
@@ -399,8 +418,8 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
     let conn = init_database()?;
     
     conn.execute(
-        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             conversion.id,
             conversion.folder_name,
@@ -415,6 +434,7 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
             conversion.settings.frame_speed,
             conversion.creation_date.to_rfc3339(),
             conversion.total_size,
+            conversion.custom_name,
         ],
     )?;
 
@@ -424,7 +444,7 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
 pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name
          FROM ascii_conversions
          WHERE project_id = ?1
          ORDER BY creation_date DESC"
@@ -451,6 +471,7 @@ pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversio
                 .unwrap_or_else(|_| Utc::now().into())
                 .with_timezone(&Utc),
             total_size: row.get(12)?,
+            custom_name: row.get(13)?,
         })
     })?.collect::<SqlResult<Vec<_>>>()?;
 
@@ -478,7 +499,7 @@ pub fn update_conversion_frame_speed(conversion_id: &str, frame_speed: u32) -> S
 pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name
          FROM ascii_conversions
          WHERE folder_path = ?1
          LIMIT 1"
@@ -507,8 +528,60 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
                 .unwrap_or_else(|_| Utc::now().into())
                 .with_timezone(&Utc),
             total_size: row.get(12)?,
+            custom_name: row.get(13)?,
         }))
     } else {
         Ok(None)
     }
+}
+
+pub fn delete_conversion_by_folder_path(folder_path: &str) -> SqlResult<()> {
+    println!("🗑️ DB: Deleting conversion by folder path: {}", folder_path);
+    let conn = init_database()?;
+    let result = conn.execute(
+        "DELETE FROM ascii_conversions WHERE folder_path = ?1",
+        [folder_path],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("🗑️ DB: Delete successful, {} rows affected", rows_affected),
+        Err(e) => println!("🗑️ DB: Delete failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
+pub fn update_conversion_folder_path(old_path: &str, new_path: &str) -> SqlResult<()> {
+    println!("📝 DB: Updating conversion folder path from {} to {}", old_path, new_path);
+    let conn = init_database()?;
+    let result = conn.execute(
+        "UPDATE ascii_conversions SET folder_path = ?1 WHERE folder_path = ?2",
+        [new_path, old_path],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("📝 DB: Update successful, {} rows affected", rows_affected),
+        Err(e) => println!("📝 DB: Update failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
+pub fn update_conversion_custom_name(conversion_id: &str, custom_name: Option<String>) -> SqlResult<()> {
+    println!("📝 DB: Updating conversion custom_name for {} to {:?}", conversion_id, custom_name);
+    let conn = init_database()?;
+    let result = conn.execute(
+        "UPDATE ascii_conversions SET custom_name = ?1 WHERE id = ?2",
+        params![custom_name, conversion_id],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("📝 DB: Update successful, {} rows affected", rows_affected),
+        Err(e) => println!("📝 DB: Update failed: {}", e),
+    }
+
+    result?;
+    Ok(())
 }

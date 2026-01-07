@@ -591,6 +591,7 @@ pub struct FrameDirectory {
     pub name: String,           // Display name like "Notan Nigres - Frames"
     pub directory_path: String, // Full path to the frames directory
     pub source_file_name: String, // Original source file name
+    pub custom_name: Option<String>, // Custom display name for the frame directory
 }
 
 #[tauri::command]
@@ -620,14 +621,22 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                         if dir_name.ends_with("_ascii") {
                             // Extract source file name (remove "_ascii" suffix)
                             let source_name = dir_name.strip_suffix("_ascii").unwrap_or(dir_name);
-                            
-                            // Create display name: "{Source Name} - Frames"
-                            let display_name = format!("{} - Frames", source_name);
-                            
+
+                            // Get custom name from database if it exists
+                            let folder_path = path.to_str().unwrap_or("");
+                            let custom_name = database::get_conversion_by_folder_path(folder_path)
+                                .ok()
+                                .flatten()
+                                .and_then(|conversion| conversion.custom_name);
+
+                            // Create display name: use custom_name if available, otherwise "{Source Name} - Frames"
+                            let display_name = custom_name.clone().unwrap_or_else(|| format!("{} - Frames", source_name));
+
                             frames.push(FrameDirectory {
                                 name: display_name,
-                                directory_path: path.to_str().unwrap_or("").to_string(),
+                                directory_path: folder_path.to_string(),
                                 source_file_name: source_name.to_string(),
+                                custom_name,
                             });
                         }
                     }
@@ -743,6 +752,92 @@ fn rename_source_file(source_id: String, custom_name: Option<String>) -> Result<
         .map_err(|e| format!("Failed to rename source file: {}", e))
 }
 
+
+#[derive(serde::Deserialize)]
+struct UpdateFrameCustomNameRequest {
+    #[serde(rename = "folderPath")]
+    folder_path: String,
+    #[serde(rename = "customName")]
+    custom_name: Option<String>,
+}
+
+#[tauri::command]
+fn update_frame_custom_name(request: UpdateFrameCustomNameRequest) -> Result<(), String> {
+    // First get the conversion by folder path to find the ID
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
+        .map_err(|e| format!("Failed to find conversion: {}", e))?
+        .ok_or("Conversion not found")?;
+
+    // Update the custom name
+    database::update_conversion_custom_name(&conversion.id, request.custom_name)
+        .map_err(|e| format!("Failed to update custom name: {}", e))
+}
+
+#[tauri::command]
+fn delete_frame_directory(directory_path: String) -> Result<(), String> {
+    let dir_path = PathBuf::from(&directory_path);
+
+    // Check if directory exists
+    if !dir_path.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+
+    // Delete the directory and all its contents
+    fs::remove_dir_all(&dir_path)
+        .map_err(|e| format!("Failed to delete frame directory: {}", e))?;
+
+    // Find and delete the corresponding conversion from database
+    // The conversion folder_path should match the directory_path
+    database::delete_conversion_by_folder_path(&directory_path)
+        .map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
+
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct RenameFrameDirectoryRequest {
+    directory_path: String,
+    new_name: Option<String>,
+}
+
+#[tauri::command]
+fn rename_frame_directory(request: RenameFrameDirectoryRequest) -> Result<(), String> {
+    let old_dir_path = PathBuf::from(&request.directory_path);
+
+    // Check if directory exists
+    if !old_dir_path.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+
+    // Get parent directory
+    let parent_dir = old_dir_path.parent()
+        .ok_or("Cannot determine parent directory")?;
+
+    // Create new path - use new_name if provided, otherwise keep original name
+    let new_dir_name = request.new_name.unwrap_or_else(|| {
+        old_dir_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("frames")
+            .to_string()
+    });
+    let new_dir_path = parent_dir.join(&new_dir_name);
+
+    // Check if new directory name already exists
+    if new_dir_path.exists() {
+        return Err("A directory with this name already exists".to_string());
+    }
+
+    // Rename the directory
+    fs::rename(&old_dir_path, &new_dir_path)
+        .map_err(|e| format!("Failed to rename frame directory: {}", e))?;
+
+    // Update the conversion in database
+    database::update_conversion_folder_path(&request.directory_path, new_dir_path.to_str().unwrap_or(""))
+        .map_err(|e| format!("Failed to update conversion in database: {}", e))?;
+
+    Ok(())
+}
+
 #[derive(serde::Deserialize, Clone)]
 struct ConvertToAsciiRequest {
     file_path: String,
@@ -847,6 +942,7 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
         },
         creation_date: Utc::now(),
         total_size,
+        custom_name: None,
     };
     
     database::add_ascii_conversion(&conversion)
@@ -903,6 +999,8 @@ pub fn run() {
             get_frame_files,
             read_frame_file,
             delete_project,
+            delete_frame_directory,
+            update_frame_custom_name,
             prepare_media,
             convert_to_ascii,
             update_conversion_frame_speed,

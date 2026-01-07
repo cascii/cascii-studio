@@ -358,6 +358,84 @@ pub fn update_source_custom_name(source_id: &str, custom_name: Option<String>) -
     Ok(())
 }
 
+pub fn get_source_content(source_id: &str) -> SqlResult<SourceContent> {
+    let conn = init_database()?;
+    conn.query_row(
+        "SELECT id, content_type, project_id, date_added, size, file_path, custom_name 
+         FROM source_content 
+         WHERE id = ?1",
+        [source_id],
+        |row| {
+            let date_str: String = row.get(3)?;
+            
+            Ok(SourceContent {
+                id: row.get(0)?,
+                content_type: SourceType::from_string(&row.get::<_, String>(1)?),
+                project_id: row.get(2)?,
+                date_added: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                size: row.get(4)?,
+                file_path: row.get(5)?,
+                custom_name: row.get(6)?,
+            })
+        },
+    )
+}
+
+pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
+    let conn = init_database()?;
+    
+    // Delete associated ASCII conversions first (CASCADE should handle this, but being explicit)
+    conn.execute(
+        "DELETE FROM ascii_conversions WHERE source_file_id = ?1",
+        [source_id],
+    )?;
+    
+    // Delete the source content
+    conn.execute(
+        "DELETE FROM source_content WHERE id = ?1",
+        [source_id],
+    )?;
+
+    Ok(())
+}
+
+pub fn get_conversions_for_source(source_id: &str) -> SqlResult<Vec<AsciiConversion>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size
+         FROM ascii_conversions
+         WHERE source_file_id = ?1"
+    )?;
+
+    let conversions = stmt.query_map([source_id], |row| {
+        let date_str: String = row.get(11)?;
+        
+        Ok(AsciiConversion {
+            id: row.get(0)?,
+            folder_name: row.get(1)?,
+            folder_path: row.get(2)?,
+            frame_count: row.get(3)?,
+            source_file_id: row.get(4)?,
+            project_id: row.get(5)?,
+            settings: ConversionSettings {
+                luminance: row.get(6)?,
+                font_ratio: row.get(7)?,
+                columns: row.get(8)?,
+                fps: row.get(9)?,
+                frame_speed: row.get(10)?,
+            },
+            creation_date: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
+            total_size: row.get(12)?,
+        })
+    })?.collect::<SqlResult<Vec<_>>>()?;
+
+    Ok(conversions)
+}
+
 pub fn update_project_size_and_frames(project_id: &str, size: i64, frames: i32) -> SqlResult<()> {
     let conn = init_database()?;
     

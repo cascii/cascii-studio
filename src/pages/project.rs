@@ -391,7 +391,59 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 });
                             }))
                         }}
-                        on_delete_file={None::<Callback<SourceContent>>}
+                        on_delete_file={{
+                            web_sys::console::log_1(&"🔧 Creating on_delete_file callback in project.rs".into());
+                            let source_files = source_files.clone();
+                            let selected_source = selected_source.clone();
+                            let project_id = project_id.clone();
+                            let frame_directories = frame_directories.clone();
+                            let selected_frame_dir = selected_frame_dir.clone();
+                            Some(Callback::from(move |source_id: String| {
+                                web_sys::console::log_1(&format!("🎯 on_delete_file callback triggered for source_id: {}", source_id).into());
+                                let source_files = source_files.clone();
+                                let selected_source = selected_source.clone();
+                                let project_id = (*project_id).clone();
+                                let frame_directories = frame_directories.clone();
+                                let selected_frame_dir = selected_frame_dir.clone();
+                                
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    // Call the delete_source_file command
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "sourceId": source_id })).unwrap();
+                                    let result = tauri_invoke("delete_source_file", args).await;
+                                    
+                                    // Check if deletion was successful (result is null/undefined on success)
+                                    if result.is_null() || result.is_undefined() {
+                                        web_sys::console::log_1(&"✅ Source file deleted successfully".into());
+                                        
+                                        // Clear selection if the deleted file was selected
+                                        if selected_source.as_ref().map(|s| s.id == source_id).unwrap_or(false) {
+                                            selected_source.set(None);
+                                        }
+                                        
+                                        // Refresh source files list
+                                        let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                        if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
+                                            source_files.set(s);
+                                        }
+                                        
+                                        // Refresh frame directories (since ASCII conversions may have been deleted)
+                                        let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                        if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
+                                            // Clear frame selection if it was associated with the deleted source
+                                            if let Some(current_frame_dir) = selected_frame_dir.as_ref() {
+                                                if !frames.iter().any(|f| f.directory_path == current_frame_dir.directory_path) {
+                                                    selected_frame_dir.set(None);
+                                                }
+                                            }
+                                            frame_directories.set(frames);
+                                        }
+                                    } else {
+                                        // Log error
+                                        web_sys::console::log_1(&format!("❌ Failed to delete source file: {:?}", result).into());
+                                    }
+                                });
+                            }))
+                        }}
                         on_rename_file={{
                             let source_files = source_files.clone();
                             let project_id = project_id.clone();

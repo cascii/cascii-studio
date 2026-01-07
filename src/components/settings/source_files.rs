@@ -26,7 +26,7 @@ pub struct SourceFilesProps {
     pub on_toggle_collapsed: Callback<()>,
     pub on_select_source: Callback<SourceContent>,
     pub on_add_files: Option<Callback<()>>,
-    pub on_delete_file: Option<Callback<SourceContent>>,
+    pub on_delete_file: Option<Callback<String>>,
     pub on_rename_file: Option<Callback<SourceContent>>,
 }
 
@@ -118,7 +118,9 @@ impl Component for SourceFiles {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        
+
+        web_sys::console::log_1(&format!("🔍 SourceFiles view() called - source_files count: {}, on_delete_file is_some: {}", props.source_files.len(), props.on_delete_file.is_some()).into());
+
         let on_toggle = {
             let on_toggle_collapsed = props.on_toggle_collapsed.clone();
             Callback::from(move |_| {
@@ -165,6 +167,8 @@ impl Component for SourceFiles {
                             <div class="source-list">
                             {
                                 source_files.iter().map(|file| {
+                                    web_sys::console::log_1(&format!("📁 Rendering source file: {} (id: {})", file.file_path, file.id).into());
+
                                     let display_name = file.custom_name.as_ref()
                                         .map(|n| n.as_str())
                                         .unwrap_or_else(|| {
@@ -187,14 +191,18 @@ impl Component for SourceFiles {
                                     let file_display_name = display_name.to_string();
 
                                     // Delete button handler
+                                    web_sys::console::log_1(&format!("🗑️ Creating delete button for file {} - on_delete_file prop exists: {}", file_id, props.on_delete_file.is_some()).into());
                                     let on_delete = if let Some(on_delete_file) = &props.on_delete_file {
+                                        web_sys::console::log_1(&format!("✅ Delete callback found, creating handler for file {}", file_id).into());
                                         let on_delete_file = on_delete_file.clone();
-                                        let file_clone = file.clone();
+                                        let file_id = file.id.clone();
                                         Some(Callback::from(move |e: web_sys::MouseEvent| {
+                                            web_sys::console::log_1(&format!("🗑️ Delete button clicked for file {}", file_id).into());
                                             e.stop_propagation();
-                                            on_delete_file.emit(file_clone.clone());
+                                            on_delete_file.emit(file_id.clone());
                                         }))
                                     } else {
+                                        web_sys::console::log_1(&format!("❌ No delete callback provided for file {}", file_id).into());
                                         None
                                     };
 
@@ -267,23 +275,26 @@ impl Component for SourceFiles {
                                                     <>
                                                         <span class="source-item-name">{display_name}</span>
                                                         <div class="source-item-buttons">
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn rename-btn"
-                                                                onclick={on_rename}
-                                                                title="Rename file"
-                                                            >
+                                                            <button type="button" class="source-item-btn rename-btn" onclick={on_rename} title="Rename file">
                                                                 <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn delete-btn"
-                                                                onclick={on_delete}
-                                                                title={if on_delete.is_none() {"Delete functionality not yet implemented"} else {"Delete file"}}
-                                                                disabled={on_delete.is_none()}
-                                                            >
-                                                                <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
-                                                            </button>
+                                                            {
+                                                                if let Some(on_delete) = on_delete.clone() {
+                                                                    web_sys::console::log_1(&format!("🎨 Rendering delete button for file {} (enabled)", file_id).into());
+                                                                    html! {
+                                                                        <button type="button" class="source-item-btn delete-btn" onclick={on_delete} title="Delete file">
+                                                                            <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
+                                                                        </button>
+                                                                    }
+                                                                } else {
+                                                                    web_sys::console::log_1(&format!("🚫 Rendering delete button for file {} (disabled)", file_id).into());
+                                                                    html! {
+                                                                        <button type="button" class="source-item-btn delete-btn" title="Delete file" disabled={true}>
+                                                                            <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
+                                                                        </button>
+                                                                    }
+                                                                }
+                                                            }
                                                         </div>
                                                     </>
                                                 }

@@ -743,6 +743,40 @@ fn rename_source_file(source_id: String, custom_name: Option<String>) -> Result<
         .map_err(|e| format!("Failed to rename source file: {}", e))
 }
 
+#[tauri::command]
+fn delete_source_file(source_id: String) -> Result<(), String> {
+    // Get the source content details first
+    let source = database::get_source_content(&source_id)
+        .map_err(|e| format!("Failed to get source file: {}", e))?;
+    
+    // Get any ASCII conversions associated with this source
+    let conversions = database::get_conversions_for_source(&source_id)
+        .map_err(|e| format!("Failed to get conversions: {}", e))?;
+    
+    // Delete conversion folders from disk
+    for conversion in conversions {
+        let conversion_path = PathBuf::from(&conversion.folder_path);
+        if conversion_path.exists() {
+            if let Err(e) = fs::remove_dir_all(&conversion_path) {
+                eprintln!("Warning: Failed to delete conversion folder {}: {}", conversion.folder_path, e);
+            }
+        }
+    }
+    
+    // Delete the source file from disk
+    let source_path = PathBuf::from(&source.file_path);
+    if source_path.exists() {
+        fs::remove_file(&source_path)
+            .map_err(|e| format!("Failed to delete source file from disk: {}", e))?;
+    }
+    
+    // Delete from database (this also deletes associated conversions)
+    database::delete_source_content(&source_id)
+        .map_err(|e| format!("Failed to delete source from database: {}", e))?;
+    
+    Ok(())
+}
+
 #[derive(serde::Deserialize, Clone)]
 struct ConvertToAsciiRequest {
     file_path: String,
@@ -903,6 +937,7 @@ pub fn run() {
             get_frame_files,
             read_frame_file,
             delete_project,
+            delete_source_file,
             prepare_media,
             convert_to_ascii,
             update_conversion_frame_speed,

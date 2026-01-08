@@ -33,6 +33,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let volume = use_state(|| 1.0f64);
     let error_text = use_state(|| None::<String>);
 
+    // Dual range selector state
+    let left_value = use_state(|| 0.0f64);
+    let right_value = use_state(|| 1.0f64);
+
+
     // Toggle play/pause
     let on_toggle = {
         let video_ref = video_ref.clone();
@@ -155,6 +160,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
+
     // Icon choices
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let vol_icon = if *is_muted || *volume == 0.0 {
@@ -263,6 +269,35 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         });
     }
 
+    // Dual range selector handlers
+    let min_gap = 0.01;
+
+    let on_left_range_input = {
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        Callback::from(move |e: InputEvent| {
+            let val = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value_as_number()
+                .clamp(0.0, 1.0);
+
+            left_value.set(val.min(*right_value - min_gap));
+        })
+    };
+
+    let on_right_range_input = {
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        Callback::from(move |e: InputEvent| {
+            let val = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value_as_number()
+                .clamp(0.0, 1.0);
+
+            right_value.set(val.max(*left_value + min_gap));
+        })
+    };
+
     html! {
         <div class={classes!("video-player", props.class.clone())}>
             <div class="video-wrap">
@@ -316,6 +351,34 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title="Mute/Unmute">
                         <Icon icon_id={vol_icon} width={"20"} height={"20"} />
                     </button>
+                </div>
+
+                <div class="control-row">
+                    <div class="range-selector">
+                        <div class="range-selector-track"></div>
+
+                        <input
+                            class="range-selector-input range-left"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.001"
+                            value={left_value.to_string()}
+                            oninput={on_left_range_input}
+                            title="Range start"
+                        />
+
+                        <input
+                            class="range-selector-input range-right"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.001"
+                            value={right_value.to_string()}
+                            oninput={on_right_range_input}
+                            title="Range end"
+                        />
+                    </div>
                 </div>
             </div>
         </div>

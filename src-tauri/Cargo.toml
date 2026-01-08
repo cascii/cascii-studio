@@ -1,6 +1,6 @@
 [package]
 name = "cascii_studio"
-version = "0.53.0"
+version = "0.56.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -26,6 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 url = "2.5.0"
 tokio = { version = "1", features = ["full"] }
 cascii = "0.2"
+rand = "0.8"
 
 [features]
 custom-protocol = [ "tauri/custom-protocol" ]

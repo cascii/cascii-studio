@@ -217,9 +217,10 @@
 
 /* Reuse the same layout as the frames viewer "settings-info" */
 .video-player .settings-info {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .video-player .settings-row {
@@ -227,6 +228,7 @@
   flex-direction: column;
   align-items: center;
   gap: 0.15rem;
+  flex: 1;
 }
 
 .video-player .settings-label {
@@ -251,4 +253,9 @@
 .video-player .setting-input:focus {
   outline: none;
   border-color: #7ba3cc;
+}
+
+/* Align button with input boxes when in settings row */
+.video-player .settings-info + .ctrl-btn {
+  align-self: flex-end;
 }

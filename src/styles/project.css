@@ -337,6 +337,7 @@
     color: #f6f6f6;
     font-size: 0.875rem;
     font-family: inherit;
+    max-width: 80px;
 }
 
 .setting-input:focus {

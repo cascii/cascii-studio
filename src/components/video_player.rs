@@ -632,22 +632,22 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             <div class="video-wrap">
                 <video ref={video_ref.clone()} class="video" src={props.src.clone()} preload="metadata" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
                 if let Some(msg) = &*error_text {
-                    <div class="error-overlay">{ msg }</div>
+                    <div class="error-overlay">{msg}</div>
                 }
-                <div class="timestamp-overlay">{ timestamp }</div>
+                <div class="timestamp-overlay">{timestamp}</div>
             </div>
 
             <div class="controls">
                 <div class="control-row">
-                    <input class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim} title="Seek (within trim)" />
+                    <input class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
                     <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
                 <div class="control-row">
-                    <input class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input} title="Volume" />
-                    <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title="Mute/Unmute">
+                    <input class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input.clone()} title="Volume" />
+                    <button class="ctrl-btn" type="button" onclick={on_toggle_mute.clone()} title="Mute/Unmute">
                         <Icon icon_id={vol_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
@@ -655,99 +655,47 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 <div class="control-row">
                     <div class="range-selector">
                         <div class="range-selector-track"></div>
-                        <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input} title="Range start" />
-                        <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input} title="Range end" />
+                        <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" />
+                        <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" />
                     </div>
                     <button class="ctrl-btn" type="button" title="Trim video">
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
                 </div>
+
+                <div class="controls-divider"></div>
+
                 <div class="control-row">
-                <div class="range-selector">
-                    <div class="range-selector-track"></div>
-                    <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input} title="Range start" />
-                    <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input} title="Range end" />
-                </div>
-                <button class="ctrl-btn" type="button" title="Trim video">
-                    <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
-                </button>
-            </div>
-
-            // ---- Inline Convert to ASCII UI (under trim bar) ----
-            <div class="controls-divider"></div>
-
-            <div class="settings-info">
-                <div class="settings-row">
-                    <span class="settings-label">{"FPS:"}</span>
-                    <input
-                        type="number"
-                        class="setting-input"
-                        value={props.fps.to_string()}
-                        min="1"
-                        max="120"
-                        oninput={on_fps_input}
-                    />
+                    <div class="settings-info">
+                        <div class="settings-row">
+                            <span class="settings-label">{"FPS:"}</span>
+                            <input type="number" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input.clone()} />
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"FONT RATIO:"}</span>
+                            <input type="number" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input.clone()} />
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"LUMINANCE:"}</span>
+                            <input type="number" class="setting-input" value={props.luminance.to_string()} min="0" max="255" oninput={on_luminance_input.clone()} />
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">{"COLUMNS:"}</span>
+                            <input type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input.clone()} />
+                        </div>
+                    </div>
+                    <button class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
+                        <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />
+                    </button>
                 </div>
 
-                <div class="settings-row">
-                    <span class="settings-label">{"Font Ratio:"}</span>
-                    <input
-                        type="number"
-                        class="setting-input"
-                        value={props.font_ratio.to_string()}
-                        min="0.1"
-                        max="2.0"
-                        step="0.1"
-                        oninput={on_font_ratio_input}
-                    />
-                </div>
-
-                <div class="settings-row">
-                    <span class="settings-label">{"Luminance:"}</span>
-                    <input
-                        type="number"
-                        class="setting-input"
-                        value={props.luminance.to_string()}
-                        min="0"
-                        max="255"
-                        oninput={on_luminance_input}
-                    />
-                </div>
-
-                <div class="settings-row">
-                    <span class="settings-label">{"Columns:"}</span>
-                    <input
-                        type="number"
-                        class="setting-input"
-                        value={props.columns.to_string()}
-                        min="1"
-                        max="2000"
-                        oninput={on_columns_input}
-                    />
-                </div>
-            </div>
-
-            <button
-                class="btn-convert"
-                type="button"
-                onclick={on_convert_click}
-                disabled={
-                    is_converting
-                    || props.project_id.is_none()
-                    || props.source_file_id.is_none()
-                    || props.source_file_path.is_none()
+                {
+                    if let Some(msg) = &props.conversion_message {
+                        html! {<div class="conversion-success">{msg}</div>}
+                    } else {
+                        html! {<></>}
+                    }
                 }
-            >
-                { if is_converting { "Converting..." } else { "Convert to ASCII" } }
-            </button>
-
-            {
-                if let Some(msg) = &props.conversion_message {
-                    html! { <div class="conversion-success">{ msg }</div> }
-                } else {
-                    html! { <></> }
-                }
-            }
             </div>
         </div>
     }

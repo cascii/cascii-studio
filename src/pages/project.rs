@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
-use crate::components::settings::{SourceFiles, AvailableFrames, ConvertToAscii, Controls};
+use crate::components::settings::{SourceFiles, AvailableFrames, Controls};
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -465,82 +465,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                     />
 
-                    <ConvertToAscii selected_source={(*selected_source).clone()} convert_collapsed={*convert_collapsed} on_toggle_collapsed={{
-                            let convert_collapsed = convert_collapsed.clone();
-                            Callback::from(move |_| {
-                                convert_collapsed.set(!*convert_collapsed);
-                            })
-                        }}
-                        luminance={*luminance}
-                        on_luminance_change={{
-                            let luminance = luminance.clone();
-                            Callback::from(move |val: u8| {
-                                luminance.set(val);
-                            })
-                        }}
-                        font_ratio={*font_ratio}
-                        on_font_ratio_change={{
-                            let font_ratio = font_ratio.clone();
-                            Callback::from(move |val: f32| {
-                                font_ratio.set(val);
-                            })
-                        }}
-                        columns={*columns}
-                        on_columns_change={{
-                            let columns = columns.clone();
-                            Callback::from(move |val: u32| {
-                                columns.set(val);
-                            })
-                        }}
-                        fps={*fps}
-                        on_fps_change={{
-                            let fps = fps.clone();
-                            Callback::from(move |val: u32| {
-                                fps.set(val);
-                            })
-                        }}
-                        is_converting={*is_converting}
-                        on_is_converting_change={{
-                            let is_converting = is_converting.clone();
-                            Callback::from(move |val: bool| {
-                                is_converting.set(val);
-                            })
-                        }}
-                        conversion_message={(*conversion_message).clone()}
-                        on_conversion_message_change={{
-                            let conversion_message = conversion_message.clone();
-                            Callback::from(move |val: Option<String>| {
-                                conversion_message.set(val);
-                            })
-                        }}
-                        error_message={(*error_message).clone()}
-                        on_error_message_change={{
-                            let error_message = error_message.clone();
-                            Callback::from(move |val: Option<String>| {
-                                error_message.set(val);
-                            })
-                        }}
-                        project_id={(*project_id).clone()}
-                        on_refresh_frames={{
-                            let frame_directories = frame_directories.clone();
-                            let project_id = project_id.clone();
-                            Callback::from(move |_| {
-                                let frame_directories = frame_directories.clone();
-                                let project_id = (*project_id).clone();
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                    match tauri_invoke("get_project_frames", args).await {
-                                        result => {
-                                            if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
-                                                frame_directories.set(frames);
-                                            }
-                                        }
-                                    }
-                                });
-                            })
-                        }}
-                    />
-
                     <Controls
                         selected_source={(*selected_source).clone()}
                         selected_frame_dir={(*selected_frame_dir).clone()}
@@ -646,18 +570,74 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         } else if source.content_type == "Video" {
                                             html! { 
                                                 <VideoPlayer
-                                                    src={url.clone()}
-                                                    class={classes!("source-video")}
-                                                    should_play={if *is_playing {Some(true)} else {Some(false)}}
-                                                    should_reset={*should_reset}
-                                                    seek_percentage={*seek_percentage}
-                                                    on_progress={{
-                                                        let synced_progress = synced_progress.clone();
-                                                        Callback::from(move |progress: f64| {
-                                                            synced_progress.set(progress * 100.0);
-                                                        })
-                                                    }}
-                                                />
+                                                src={url.clone()}
+                                                class={classes!("source-video")}
+                                                should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                should_reset={*should_reset}
+                                                seek_percentage={*seek_percentage}
+                                                on_progress={{
+                                                    let synced_progress = synced_progress.clone();
+                                                    Callback::from(move |progress: f64| {
+                                                        synced_progress.set(progress * 100.0);
+                                                    })
+                                                }}
+                                            
+                                                project_id={Some((*project_id).clone())}
+                                                source_file_id={Some(source.id.clone())}
+                                                source_file_path={Some(source.file_path.clone())}
+                                            
+                                                luminance={*luminance}
+                                                font_ratio={*font_ratio}
+                                                columns={*columns}
+                                                fps={*fps}
+                                            
+                                                on_luminance_change={Some({
+                                                    let luminance = luminance.clone();
+                                                    Callback::from(move |v: u8| luminance.set(v))
+                                                })}
+                                                on_font_ratio_change={Some({
+                                                    let font_ratio = font_ratio.clone();
+                                                    Callback::from(move |v: f32| font_ratio.set(v))
+                                                })}
+                                                on_columns_change={Some({
+                                                    let columns = columns.clone();
+                                                    Callback::from(move |v: u32| columns.set(v))
+                                                })}
+                                                on_fps_change={Some({
+                                                    let fps = fps.clone();
+                                                    Callback::from(move |v: u32| fps.set(v))
+                                                })}
+                                            
+                                                is_converting={Some(*is_converting)}
+                                                on_is_converting_change={Some({
+                                                    let is_converting = is_converting.clone();
+                                                    Callback::from(move |v: bool| is_converting.set(v))
+                                                })}
+                                                conversion_message={(*conversion_message).clone()}
+                                                on_conversion_message_change={Some({
+                                                    let conversion_message = conversion_message.clone();
+                                                    Callback::from(move |v: Option<String>| conversion_message.set(v))
+                                                })}
+                                                on_error_message_change={Some({
+                                                    let error_message = error_message.clone();
+                                                    Callback::from(move |v: Option<String>| error_message.set(v))
+                                                })}
+                                            
+                                                on_refresh_frames={Some({
+                                                    let frame_directories = frame_directories.clone();
+                                                    let project_id = project_id.clone();
+                                                    Callback::from(move |_| {
+                                                        let frame_directories = frame_directories.clone();
+                                                        let project_id = (*project_id).clone();
+                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                            let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                                            if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                                                frame_directories.set(frames);
+                                                            }
+                                                        });
+                                                    })
+                                                })}
+                                            />
                                             }
                                         } else {
                                             html! { <span>{"Unsupported file type"}</span> }

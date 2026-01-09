@@ -47,7 +47,8 @@ yew_icons = { version = "0.8.0", features = [
     "LucideTrash2",
     "LucideXCircle",
     "LucidePencil",
-    "LucideScissors"
+    "LucideScissors",
+    "LucideWand"
 ] }
 
 [build-dependencies]

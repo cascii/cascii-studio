@@ -552,23 +552,6 @@ pub fn delete_conversion_by_folder_path(folder_path: &str) -> SqlResult<()> {
     Ok(())
 }
 
-pub fn update_conversion_folder_path(old_path: &str, new_path: &str) -> SqlResult<()> {
-    println!("📝 DB: Updating conversion folder path from {} to {}", old_path, new_path);
-    let conn = init_database()?;
-    let result = conn.execute(
-        "UPDATE ascii_conversions SET folder_path = ?1 WHERE folder_path = ?2",
-        [new_path, old_path],
-    );
-
-    match &result {
-        Ok(rows_affected) => println!("📝 DB: Update successful, {} rows affected", rows_affected),
-        Err(e) => println!("📝 DB: Update failed: {}", e),
-    }
-
-    result?;
-    Ok(())
-}
-
 pub fn update_conversion_custom_name(conversion_id: &str, custom_name: Option<String>) -> SqlResult<()> {
     println!("📝 DB: Updating conversion custom_name for {} to {:?}", conversion_id, custom_name);
     let conn = init_database()?;

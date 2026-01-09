@@ -800,50 +800,6 @@ fn delete_frame_directory(directory_path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
-struct RenameFrameDirectoryRequest {
-    directory_path: String,
-    new_name: Option<String>,
-}
-
-#[tauri::command]
-fn rename_frame_directory(request: RenameFrameDirectoryRequest) -> Result<(), String> {
-    let old_dir_path = PathBuf::from(&request.directory_path);
-
-    // Check if directory exists
-    if !old_dir_path.exists() {
-        return Err("Directory does not exist".to_string());
-    }
-
-    // Get parent directory
-    let parent_dir = old_dir_path.parent()
-        .ok_or("Cannot determine parent directory")?;
-
-    // Create new path - use new_name if provided, otherwise keep original name
-    let new_dir_name = request.new_name.unwrap_or_else(|| {
-        old_dir_path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("frames")
-            .to_string()
-    });
-    let new_dir_path = parent_dir.join(&new_dir_name);
-
-    // Check if new directory name already exists
-    if new_dir_path.exists() {
-        return Err("A directory with this name already exists".to_string());
-    }
-
-    // Rename the directory
-    fs::rename(&old_dir_path, &new_dir_path)
-        .map_err(|e| format!("Failed to rename frame directory: {}", e))?;
-
-    // Update the conversion in database
-    database::update_conversion_folder_path(&request.directory_path, new_dir_path.to_str().unwrap_or(""))
-        .map_err(|e| format!("Failed to update conversion in database: {}", e))?;
-
-    Ok(())
-}
-
 #[derive(serde::Deserialize, Clone)]
 struct ConvertToAsciiRequest {
     file_path: String,

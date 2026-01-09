@@ -1,6 +1,37 @@
 use yew::prelude::*;
 use web_sys::HtmlVideoElement;
 use yew_icons::{Icon, IconId};
+use wasm_bindgen::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct ConvertToAsciiRequest {
+    file_path: String,
+    luminance: u8,
+    font_ratio: f32,
+    columns: u32,
+    fps: Option<u32>,
+    project_id: String,
+    source_file_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConvertToAsciiInvokeArgs {
+    request: ConvertToAsciiRequest,
+}
+
+#[wasm_bindgen(inline_js = r#"
+export async function tauriInvoke(cmd, args) {
+  const g = globalThis.__TAURI__;
+  if (g?.core?.invoke) return g.core.invoke(cmd, args);
+  if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args);
+  throw new Error('Tauri invoke is not available');
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = tauriInvoke)]
+    async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+}
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct VideoPlayerProps {
@@ -8,6 +39,7 @@ pub struct VideoPlayerProps {
     pub src: String,
     #[prop_or_default]
     pub class: Classes,
+
     /// External control: when Some(true), play; when Some(false), pause; when None, no external control
     #[prop_or_default]
     pub should_play: Option<bool>,
@@ -20,6 +52,48 @@ pub struct VideoPlayerProps {
     /// Callback to report current progress (0.0-1.0) — emitted RELATIVE TO TRIM WINDOW
     #[prop_or_default]
     pub on_progress: Option<Callback<f64>>,
+
+    // ---- Inline "Convert to ASCII" controls (rendered under trim bar) ----
+    #[prop_or_default]
+    pub project_id: Option<String>,
+    #[prop_or_default]
+    pub source_file_id: Option<String>,
+    /// IMPORTANT: this is the ORIGINAL file path (not asset://)
+    #[prop_or_default]
+    pub source_file_path: Option<String>,
+
+    #[prop_or(1)]
+    pub luminance: u8,
+    #[prop_or(0.7)]
+    pub font_ratio: f32,
+    #[prop_or(200)]
+    pub columns: u32,
+    #[prop_or(30)]
+    pub fps: u32,
+
+    #[prop_or_default]
+    pub on_luminance_change: Option<Callback<u8>>,
+    #[prop_or_default]
+    pub on_font_ratio_change: Option<Callback<f32>>,
+    #[prop_or_default]
+    pub on_columns_change: Option<Callback<u32>>,
+    #[prop_or_default]
+    pub on_fps_change: Option<Callback<u32>>,
+
+    #[prop_or_default]
+    pub is_converting: Option<bool>,
+    #[prop_or_default]
+    pub on_is_converting_change: Option<Callback<bool>>,
+
+    #[prop_or_default]
+    pub conversion_message: Option<String>,
+    #[prop_or_default]
+    pub on_conversion_message_change: Option<Callback<Option<String>>>,
+    #[prop_or_default]
+    pub on_error_message_change: Option<Callback<Option<String>>>,
+
+    #[prop_or_default]
+    pub on_refresh_frames: Option<Callback<()>>,
 }
 
 #[function_component(VideoPlayer)]
@@ -435,6 +509,124 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
+    let is_converting = props.is_converting.unwrap_or(false);
+
+    let on_luminance_input = {
+        let cb = props.on_luminance_change.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(cb) = &cb {
+                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                if let Ok(val) = input.value().parse::<u8>() {
+                    cb.emit(val);
+                }
+            }
+        })
+    };
+
+    let on_font_ratio_input = {
+        let cb = props.on_font_ratio_change.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(cb) = &cb {
+                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                if let Ok(val) = input.value().parse::<f32>() {
+                    cb.emit(val);
+                }
+            }
+        })
+    };
+
+    let on_columns_input = {
+        let cb = props.on_columns_change.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(cb) = &cb {
+                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                if let Ok(val) = input.value().parse::<u32>() {
+                    cb.emit(val);
+                }
+            }
+        })
+    };
+
+    let on_fps_input = {
+        let cb = props.on_fps_change.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(cb) = &cb {
+                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                if let Ok(val) = input.value().parse::<u32>() {
+                    cb.emit(val);
+                }
+            }
+        })
+    };
+
+    let on_convert_click = {
+        let project_id = props.project_id.clone();
+        let source_file_id = props.source_file_id.clone();
+        let source_file_path = props.source_file_path.clone();
+
+        let luminance = props.luminance;
+        let font_ratio = props.font_ratio;
+        let columns = props.columns;
+        let fps = props.fps;
+
+        let on_is_converting_change = props.on_is_converting_change.clone();
+        let on_conversion_message_change = props.on_conversion_message_change.clone();
+        let on_error_message_change = props.on_error_message_change.clone();
+        let on_refresh_frames = props.on_refresh_frames.clone();
+
+        Callback::from(move |_| {
+            let (Some(project_id), Some(source_file_id), Some(file_path)) =
+                (project_id.clone(), source_file_id.clone(), source_file_path.clone())
+            else {
+                return;
+            };
+
+            if let Some(cb) = &on_is_converting_change {
+                cb.emit(true);
+            }
+            if let Some(cb) = &on_conversion_message_change {
+                cb.emit(None);
+            }
+            if let Some(cb) = &on_error_message_change {
+                cb.emit(None);
+            }
+
+            let on_is_converting_change = on_is_converting_change.clone();
+            let on_conversion_message_change = on_conversion_message_change.clone();
+            let on_error_message_change = on_error_message_change.clone();
+            let on_refresh_frames = on_refresh_frames.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id}};
+                let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
+                let result = tauri_invoke("convert_to_ascii", args).await;
+                if let Some(cb) = &on_is_converting_change {cb.emit(false)}
+
+                match serde_wasm_bindgen::from_value::<String>(result) {
+                    Ok(msg) => {
+                        if let Some(cb) = &on_conversion_message_change {
+                            cb.emit(Some(msg));
+                        }
+                        if let Some(cb) = &on_error_message_change {
+                            cb.emit(None);
+                        }
+                        if let Some(cb) = &on_refresh_frames {
+                            cb.emit(());
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(cb) = &on_error_message_change {
+                            cb.emit(Some("Failed to convert to ASCII. Please try again.".to_string()));
+                        }
+                        if let Some(cb) = &on_conversion_message_change {
+                            cb.emit(None);
+                        }
+                    }
+                }
+            });
+        })
+    };
+
     html! {
         <div class={classes!("video-player", props.class.clone())}>
             <div class="video-wrap">
@@ -470,6 +662,92 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
                 </div>
+                <div class="control-row">
+                <div class="range-selector">
+                    <div class="range-selector-track"></div>
+                    <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input} title="Range start" />
+                    <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input} title="Range end" />
+                </div>
+                <button class="ctrl-btn" type="button" title="Trim video">
+                    <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
+                </button>
+            </div>
+
+            // ---- Inline Convert to ASCII UI (under trim bar) ----
+            <div class="controls-divider"></div>
+
+            <div class="settings-info">
+                <div class="settings-row">
+                    <span class="settings-label">{"FPS:"}</span>
+                    <input
+                        type="number"
+                        class="setting-input"
+                        value={props.fps.to_string()}
+                        min="1"
+                        max="120"
+                        oninput={on_fps_input}
+                    />
+                </div>
+
+                <div class="settings-row">
+                    <span class="settings-label">{"Font Ratio:"}</span>
+                    <input
+                        type="number"
+                        class="setting-input"
+                        value={props.font_ratio.to_string()}
+                        min="0.1"
+                        max="2.0"
+                        step="0.1"
+                        oninput={on_font_ratio_input}
+                    />
+                </div>
+
+                <div class="settings-row">
+                    <span class="settings-label">{"Luminance:"}</span>
+                    <input
+                        type="number"
+                        class="setting-input"
+                        value={props.luminance.to_string()}
+                        min="0"
+                        max="255"
+                        oninput={on_luminance_input}
+                    />
+                </div>
+
+                <div class="settings-row">
+                    <span class="settings-label">{"Columns:"}</span>
+                    <input
+                        type="number"
+                        class="setting-input"
+                        value={props.columns.to_string()}
+                        min="1"
+                        max="2000"
+                        oninput={on_columns_input}
+                    />
+                </div>
+            </div>
+
+            <button
+                class="btn-convert"
+                type="button"
+                onclick={on_convert_click}
+                disabled={
+                    is_converting
+                    || props.project_id.is_none()
+                    || props.source_file_id.is_none()
+                    || props.source_file_path.is_none()
+                }
+            >
+                { if is_converting { "Converting..." } else { "Convert to ASCII" } }
+            </button>
+
+            {
+                if let Some(msg) = &props.conversion_message {
+                    html! { <div class="conversion-success">{ msg }</div> }
+                } else {
+                    html! { <></> }
+                }
+            }
             </div>
         </div>
     }

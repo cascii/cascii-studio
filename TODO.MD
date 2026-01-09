@@ -18,3 +18,11 @@ cascii dep: autodetect to match framerate. i suspect that generating more frames
 bugs:
 - font_ratio 0.699999988079071 in db instead of 0.7
 - creating frames not immediately in AVAILABLE FRAMES
+
+
+
+features
+- auto load frames
+- frames buffer
+- load frames in parallel
+- frame by frame

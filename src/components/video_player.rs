@@ -94,6 +94,13 @@ pub struct VideoPlayerProps {
 
     #[prop_or_default]
     pub on_refresh_frames: Option<Callback<()>>,
+
+    // ---- Video cutting controls ----
+    /// Callback to cut video: emits (start_time, end_time) in seconds
+    #[prop_or_default]
+    pub on_cut_video: Option<Callback<(f64, f64)>>,
+    #[prop_or_default]
+    pub is_cutting: Option<bool>,
 }
 
 #[function_component(VideoPlayer)]
@@ -510,6 +517,25 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     };
 
     let is_converting = props.is_converting.unwrap_or(false);
+    let is_cutting = props.is_cutting.unwrap_or(false);
+
+    let on_cut_click = {
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        let duration = duration.clone();
+        let on_cut_video = props.on_cut_video.clone();
+
+        Callback::from(move |_| {
+            if let Some(on_cut) = &on_cut_video {
+                let dur = *duration;
+                if dur > 0.0 {
+                    let start_time = (*left_value) * dur;
+                    let end_time = (*right_value) * dur;
+                    on_cut.emit((start_time, end_time));
+                }
+            }
+        })
+    };
 
     let on_luminance_input = {
         let cb = props.on_luminance_change.clone();
@@ -658,7 +684,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" />
                         <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" />
                     </div>
-                    <button class="ctrl-btn" type="button" title="Trim video">
+                    <button class="ctrl-btn" type="button" onclick={on_cut_click.clone()} disabled={is_cutting || props.on_cut_video.is_none()} title="Cut video segment">
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
                 </div>

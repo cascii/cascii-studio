@@ -26,3 +26,6 @@ features
 - frames buffer
 - load frames in parallel
 - frame by frame
+
+
+- move source files under /source and ascii conversion under /frames

@@ -967,6 +967,154 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     Ok((frame_count, total_size))
 }
 
+// ============== Video Cuts Commands ==============
+
+#[derive(serde::Deserialize)]
+struct CutVideoRequest {
+    source_file_path: String,
+    project_id: String,
+    source_file_id: String,
+    start_time: f64,  // in seconds
+    end_time: f64,    // in seconds
+}
+
+#[derive(serde::Deserialize)]
+struct CutVideoArgs {
+    request: CutVideoRequest,
+}
+
+#[tauri::command]
+async fn cut_video(args: CutVideoArgs, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+    tokio::task::spawn_blocking(move || {
+        cut_video_blocking(args.request, app)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+    use std::process::{Command, Stdio};
+
+    let settings = settings::load();
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    let cuts_dir = project_dir.join("cuts");
+
+    // Ensure cuts directory exists
+    fs::create_dir_all(&cuts_dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
+
+    // Generate unique filename
+    let input_path = PathBuf::from(&request.source_file_path);
+    let file_stem = input_path.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input filename")?;
+
+    let cut_id = Uuid::new_v4().to_string();
+    let output_filename = format!("{}_cut_{}.mp4", file_stem, &cut_id[..8]);
+    let output_path = cuts_dir.join(&output_filename);
+
+    let duration = request.end_time - request.start_time;
+
+    // Emit progress event
+    let _ = app.emit("cut-progress", FileProgress {
+        file_name: output_filename.clone(),
+        status: "processing".to_string(),
+        message: "Cutting video...".to_string(),
+        percentage: Some(0.0),
+    });
+
+    println!("🎬 Cutting video: {} -> {}", request.source_file_path, output_path.display());
+    println!("   Start: {}s, End: {}s, Duration: {}s", request.start_time, request.end_time, duration);
+
+    // Run ffmpeg to cut the video
+    // Using -ss before -i for fast seeking, then -t for duration
+    let status = Command::new("ffmpeg")
+        .arg("-ss").arg(format!("{}", request.start_time))
+        .arg("-i").arg(&request.source_file_path)
+        .arg("-t").arg(format!("{}", duration))
+        .arg("-c:v").arg("libx264")
+        .arg("-c:a").arg("aac")
+        .arg("-movflags").arg("+faststart")
+        .arg("-avoid_negative_ts").arg("make_zero")
+        .arg("-y")
+        .arg(&output_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e))?;
+
+    if !status.success() {
+        return Err(format!("ffmpeg cut failed with status: {}", status));
+    }
+
+    // Calculate file size
+    let file_size = fs::metadata(&output_path)
+        .map_err(|e| format!("Failed to get file size: {}", e))?
+        .len() as i64;
+
+    // Create database entry
+    let cut = database::VideoCut {
+        id: cut_id,
+        project_id: request.project_id,
+        source_file_id: request.source_file_id,
+        file_path: output_path.to_str().unwrap_or("").to_string(),
+        date_added: Utc::now(),
+        size: file_size,
+        custom_name: None,
+        start_time: request.start_time,
+        end_time: request.end_time,
+        duration,
+    };
+
+    database::add_video_cut(&cut).map_err(|e| format!("Failed to save cut to database: {}", e))?;
+
+    // Emit completion event
+    let _ = app.emit("cut-progress", FileProgress {
+        file_name: output_filename,
+        status: "completed".to_string(),
+        message: "Cut completed".to_string(),
+        percentage: Some(100.0),
+    });
+
+    println!("✅ Cut saved: {} ({} bytes)", cut.file_path, file_size);
+
+    Ok(cut)
+}
+
+#[tauri::command]
+fn get_project_cuts(project_id: String) -> Result<Vec<database::VideoCut>, String> {
+    database::get_project_cuts(&project_id).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteCutRequest {
+    cut_id: String,
+    file_path: String,
+}
+
+#[tauri::command]
+fn delete_cut(request: DeleteCutRequest) -> Result<(), String> {
+    // Delete the file
+    let path = PathBuf::from(&request.file_path);
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete cut file: {}", e))?;
+    }
+    // Delete from database
+    database::delete_cut(&request.cut_id).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct RenameCutRequest {
+    cut_id: String,
+    custom_name: Option<String>,
+}
+
+#[tauri::command]
+fn rename_cut(request: RenameCutRequest) -> Result<(), String> {
+    database::update_cut_custom_name(&request.cut_id, request.custom_name)
+        .map_err(|e| format!("Failed to rename cut: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -995,7 +1143,11 @@ pub fn run() {
             prepare_media,
             convert_to_ascii,
             update_conversion_frame_speed,
-            rename_source_file
+            rename_source_file,
+            cut_video,
+            get_project_cuts,
+            delete_cut,
+            rename_cut
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

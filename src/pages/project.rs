@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use super::open::Project;
 use crate::components::video_player::VideoPlayer;
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
-use crate::components::settings::{SourceFiles, AvailableFrames, Controls};
+use crate::components::settings::{SourceFiles, AvailableFrames, AvailableCuts, Controls};
+use crate::components::settings::available_cuts::VideoCut;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -147,14 +148,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
     let frames_collapsed = use_state(|| false);
-    let convert_collapsed = use_state(|| false);
+    let cuts_collapsed = use_state(|| false);
     let controls_collapsed = use_state(|| false);
+
+    // Video cuts state
+    let video_cuts = use_state(|| Vec::<VideoCut>::new());
+    let selected_cut = use_state(|| None::<VideoCut>);
+    let is_cutting = use_state(|| false);
 
     {
         let project_id = project_id.clone();
         let project = project.clone();
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
         let error_message = error_message.clone();
 
         use_effect_with((*project_id).clone(), move |id| {
@@ -193,6 +200,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         } else {
                             // Not critical, just log silently
                         }
+                    }
+                }
+
+                // Fetch video cuts
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                match tauri_invoke("get_project_cuts", args).await {
+                    result => {
+                        if let Ok(cuts) = serde_wasm_bindgen::from_value(result) {
+                            video_cuts.set(cuts);
+                        }
+                        // Not critical, just log silently
                     }
                 }
             });
@@ -251,6 +269,111 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }
                         is_loading_media.set(false);
                     }
+                }
+            });
+        })
+    };
+
+    // Callback to cut video
+    let on_cut_video = {
+        let project_id = project_id.clone();
+        let selected_source = selected_source.clone();
+        let video_cuts = video_cuts.clone();
+        let is_cutting = is_cutting.clone();
+        let error_message = error_message.clone();
+
+        Callback::from(move |(start_time, end_time): (f64, f64)| {
+            if let Some(source) = &*selected_source {
+                let project_id = (*project_id).clone();
+                let source_file_id = source.id.clone();
+                let source_file_path = source.file_path.clone();
+                let video_cuts = video_cuts.clone();
+                let is_cutting = is_cutting.clone();
+                let error_message = error_message.clone();
+
+                is_cutting.set(true);
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
+                        "args": {
+                            "request": {
+                                "source_file_path": source_file_path,
+                                "project_id": project_id,
+                                "source_file_id": source_file_id,
+                                "start_time": start_time,
+                                "end_time": end_time
+                            }
+                        }
+                    })).unwrap();
+
+                    match tauri_invoke("cut_video", args).await {
+                        result => {
+                            is_cutting.set(false);
+                            if serde_wasm_bindgen::from_value::<VideoCut>(result.clone()).is_ok() {
+                                // Refresh cuts list
+                                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                                    video_cuts.set(cuts);
+                                }
+                            } else {
+                                error_message.set(Some("Failed to cut video".to_string()));
+                            }
+                        }
+                    }
+                });
+            }
+        })
+    };
+
+    // Callback to delete a cut
+    let on_delete_cut = {
+        let video_cuts = video_cuts.clone();
+        let project_id = project_id.clone();
+        let selected_cut = selected_cut.clone();
+
+        Callback::from(move |cut: VideoCut| {
+            let video_cuts = video_cuts.clone();
+            let project_id = (*project_id).clone();
+            let cut_id = cut.id.clone();
+            let file_path = cut.file_path.clone();
+            let selected_cut = selected_cut.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "cutId": cut_id,
+                        "filePath": file_path
+                    }
+                })).unwrap();
+                let _ = tauri_invoke("delete_cut", args).await;
+
+                // Clear selection if deleted cut was selected
+                if selected_cut.as_ref().map(|s| s.id == cut_id).unwrap_or(false) {
+                    selected_cut.set(None);
+                }
+
+                // Refresh
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                    video_cuts.set(cuts);
+                }
+            });
+        })
+    };
+
+    // Callback to refresh cuts after rename
+    let on_rename_cut = {
+        let video_cuts = video_cuts.clone();
+        let project_id = project_id.clone();
+
+        Callback::from(move |(_cut_id, _new_name): (String, String)| {
+            let video_cuts = video_cuts.clone();
+            let project_id = (*project_id).clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                    video_cuts.set(cuts);
                 }
             });
         })
@@ -465,6 +588,93 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                     />
 
+                    <AvailableCuts
+                        cuts={(*video_cuts).clone()}
+                        selected_cut={(*selected_cut).clone()}
+                        cuts_collapsed={*cuts_collapsed}
+                        on_toggle_collapsed={{
+                            let cuts_collapsed = cuts_collapsed.clone();
+                            Callback::from(move |_| {
+                                cuts_collapsed.set(!*cuts_collapsed);
+                            })
+                        }}
+                        on_select_cut={{
+                            let selected_cut = selected_cut.clone();
+                            let selected_source = selected_source.clone();
+                            let asset_url = asset_url.clone();
+                            let is_loading_media = is_loading_media.clone();
+                            let url_cache = url_cache.clone();
+                            let error_message = error_message.clone();
+                            Callback::from(move |cut: VideoCut| {
+                                selected_cut.set(Some(cut.clone()));
+
+                                // Convert cut to SourceContent-like structure for the video player
+                                let file_path = cut.file_path.clone();
+
+                                // Check cache first
+                                if let Some(cached_url) = url_cache.get(&file_path) {
+                                    // Create a pseudo SourceContent from the cut
+                                    let source = SourceContent {
+                                        id: cut.id.clone(),
+                                        content_type: "Video".to_string(),
+                                        project_id: cut.project_id.clone(),
+                                        date_added: chrono::Utc::now(),
+                                        size: cut.size,
+                                        file_path: cut.file_path.clone(),
+                                        custom_name: cut.custom_name.clone(),
+                                    };
+                                    selected_source.set(Some(source));
+                                    asset_url.set(Some(cached_url.clone()));
+                                    return;
+                                }
+
+                                // Not in cache, prepare media
+                                let selected_source = selected_source.clone();
+                                let asset_url = asset_url.clone();
+                                let is_loading_media = is_loading_media.clone();
+                                let url_cache = url_cache.clone();
+                                let error_message = error_message.clone();
+                                let cut_clone = cut.clone();
+
+                                is_loading_media.set(true);
+
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "path": file_path })).unwrap();
+                                    match tauri_invoke("prepare_media", args).await {
+                                        result => {
+                                            if let Ok(prepared) = serde_wasm_bindgen::from_value::<PreparedMedia>(result) {
+                                                let asset_url_str = app_convert_file_src(&prepared.cached_abs_path);
+
+                                                // Store in cache
+                                                let mut cache = (*url_cache).clone();
+                                                cache.insert(cut_clone.file_path.clone(), asset_url_str.clone());
+                                                url_cache.set(cache);
+
+                                                // Create a pseudo SourceContent from the cut
+                                                let source = SourceContent {
+                                                    id: cut_clone.id.clone(),
+                                                    content_type: "Video".to_string(),
+                                                    project_id: cut_clone.project_id.clone(),
+                                                    date_added: chrono::Utc::now(),
+                                                    size: cut_clone.size,
+                                                    file_path: cut_clone.file_path.clone(),
+                                                    custom_name: cut_clone.custom_name.clone(),
+                                                };
+                                                selected_source.set(Some(source));
+                                                asset_url.set(Some(asset_url_str));
+                                            } else {
+                                                error_message.set(Some("Failed to prepare cut video.".to_string()));
+                                            }
+                                            is_loading_media.set(false);
+                                        }
+                                    }
+                                });
+                            })
+                        }}
+                        on_delete_cut={Some(on_delete_cut.clone())}
+                        on_rename_cut={Some(on_rename_cut.clone())}
+                    />
+
                     <Controls
                         selected_source={(*selected_source).clone()}
                         selected_frame_dir={(*selected_frame_dir).clone()}
@@ -637,6 +847,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         });
                                                     })
                                                 })}
+
+                                                on_cut_video={Some(on_cut_video.clone())}
+                                                is_cutting={Some(*is_cutting)}
                                             />
                                             }
                                         } else {

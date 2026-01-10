@@ -32,7 +32,8 @@
 }
 
 .source-files-column,
-.frames-column {
+.frames-column,
+.cuts-column {
     display: flex;
     flex-direction: column;
     background-color: #2a2a2a;
@@ -56,6 +57,7 @@
 
 .source-files-column h2,
 .frames-column h2,
+.cuts-column h2,
 .ascii-conversion-column h2,
 .controls-column h2 {
     margin: 0;

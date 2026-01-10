@@ -252,7 +252,7 @@ impl Component for AvailableFrames {
                                             } else {
                                                 html! {
                                                     <>
-                                                        <span class="source-item-name">{ &frame_dir.name }</span>
+                                                        <div class="source-item-name-wrapper"><span class="source-item-name">{ &frame_dir.name }</span></div>
                                                         <div class="source-item-buttons">
                                                             <button
                                                                 type="button"

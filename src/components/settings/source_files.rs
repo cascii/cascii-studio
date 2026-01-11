@@ -265,7 +265,7 @@ impl Component for SourceFiles {
                                             } else {
                                                 html! {
                                                     <>
-                                                        <span class="source-item-name">{display_name}</span>
+                                                        <div class="source-item-name-wrapper"><span class="source-item-name">{display_name}</span></div>
                                                         <div class="source-item-buttons">
                                                             <button
                                                                 type="button"

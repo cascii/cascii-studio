@@ -146,10 +146,11 @@ fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHand
         .map_err(|e| format!("Failed to get project: {}", e))?;
 
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    let source_dir = project_dir.join("source");
 
-    // Ensure project directory exists
-    if !project_dir.exists() {
-        fs::create_dir_all(&project_dir).map_err(|e| format!("Failed to create project directory: {}", e))?;
+    // Ensure source directory exists
+    if !source_dir.exists() {
+        fs::create_dir_all(&source_dir).map_err(|e| format!("Failed to create source directory: {}", e))?;
     }
 
     let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
@@ -184,10 +185,10 @@ fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHand
                     percentage: Some(0.0),
                 });
                 thread::sleep(Duration::from_millis(10));
-                ffmpeg_convert_to_mp4(&file_path, project_dir.to_str().unwrap(), &app, &file_name)?
+                ffmpeg_convert_to_mp4(&file_path, source_dir.to_str().unwrap(), &app, &file_name)?
             } else {
                 // Copy or move all other files as-is
-                copy_or_move_file(&file_path, project_dir.to_str().unwrap(), use_move)?
+                copy_or_move_file(&file_path, source_dir.to_str().unwrap(), use_move)?
             };
 
             let file_size = calculate_file_size(&dest_path)?;
@@ -415,17 +416,18 @@ async fn create_project(request: CreateProjectRequest, app: tauri::AppHandle) ->
 fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle) -> Result<database::Project, String> {
     // Load settings to get output directory and default behavior
     let settings = settings::load();
-    
+
     // Generate project ID and create project directory
     let project_id = Uuid::new_v4().to_string();
-    let project_folder_name = format!("{}_{}", 
+    let project_folder_name = format!("{}_{}",
         request.project_name.replace(" ", "_").to_lowercase(),
         &project_id[..8]
     );
-    
+
     let project_dir = PathBuf::from(&settings.output_directory).join(&project_folder_name);
-    fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
-    
+    let source_dir = project_dir.join("source");
+    fs::create_dir_all(&source_dir).map_err(|e| e.to_string())?;
+
     // Determine project type based on files
     let has_video = request.file_paths.iter().any(|p| is_video_file(p));
     let project_type = if has_video || request.file_paths.len() > 1 {
@@ -447,21 +449,21 @@ fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle)
         last_modified: now,
     };
     database::create_project(&project).map_err(|e| e.to_string())?;
-    
+
     let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
-    
+
     // Process and save source files with progress tracking
     let mut total_size = 0i64;
     let mut frame_count = 0;
     let total_files = request.file_paths.len();
-    
+
     for (index, file_path) in request.file_paths.iter().enumerate() {
         let p = PathBuf::from(file_path);
         let file_name = p.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        
+
         // Emit processing event
         if let Err(e) = app.emit("file-progress", FileProgress {
             file_name: file_name.clone(),
@@ -471,10 +473,10 @@ fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle)
         }) {
             eprintln!("Failed to emit progress event: {}", e);
         }
-        
+
         // Small delay to ensure event is sent
         thread::sleep(Duration::from_millis(10));
-        
+
         let is_video = is_video_file(file_path);
         let needs_mp4_conversion = is_video && !is_mp4_file(file_path);
 
@@ -488,11 +490,11 @@ fn create_project_blocking(request: CreateProjectRequest, app: tauri::AppHandle)
                     percentage: Some(0.0),
                 });
                 thread::sleep(Duration::from_millis(10));
-                
-                ffmpeg_convert_to_mp4(file_path, project_dir.to_str().unwrap(), &app, &file_name)?
+
+                ffmpeg_convert_to_mp4(file_path, source_dir.to_str().unwrap(), &app, &file_name)?
             } else {
                 // Copy or move all other files as-is
-                copy_or_move_file(file_path, project_dir.to_str().unwrap(), use_move)?
+                copy_or_move_file(file_path, source_dir.to_str().unwrap(), use_move)?
             };
 
             let file_size = calculate_file_size(&dest_path)?;
@@ -653,10 +655,16 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
         Ok(())
     };
 
-    // Scan the main project directory
+    // Scan the frames directory (new structure)
+    let frames_dir = project_dir.join("frames");
+    if frames_dir.exists() {
+        scan_directory(&frames_dir, &mut frames)?;
+    }
+
+    // Also scan the main project directory for backward compatibility
     scan_directory(&project_dir, &mut frames)?;
 
-    // Also scan the cuts subdirectory if it exists
+    // Also scan the cuts subdirectory for frames converted from cuts (legacy)
     let cuts_dir = project_dir.join("cuts");
     if cuts_dir.exists() {
         scan_directory(&cuts_dir, &mut frames)?;
@@ -823,31 +831,40 @@ struct ConvertToAsciiRequest {
 #[tauri::command]
 async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
-    
+
     let input_path = PathBuf::from(&request.file_path);
-    
+
     if !input_path.exists() {
         return Err(format!("File not found: {}", request.file_path));
     }
-    
+
     // Determine if it's an image or video
     let is_image = input_path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp"))
         .unwrap_or(false);
-    
-    // Create output directory next to the input file
+
+    // Get project directory to save frames in /frames subdirectory
+    let settings = settings::load();
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    let frames_dir = project_dir.join("frames");
+
+    // Ensure frames directory exists
+    fs::create_dir_all(&frames_dir)
+        .map_err(|e| format!("Failed to create frames directory: {}", e))?;
+
+    // Create output directory in /frames
     let random_suffix = generate_random_suffix();
-    let folder_name = format!("{}_ascii{}", 
+    let folder_name = format!("{}_ascii{}",
         input_path.file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("output"),
         random_suffix
     );
-    let output_dir = input_path.parent()
-        .ok_or("Cannot determine parent directory")?
-        .join(&folder_name);
-    
+    let output_dir = frames_dir.join(&folder_name);
+
     fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
     

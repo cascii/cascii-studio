@@ -598,22 +598,23 @@ pub struct FrameDirectory {
 fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String> {
     // Get project details
     let project = database::get_project(&project_id).map_err(|e| e.to_string())?;
-    
+
     // Load settings to get output directory
     let settings = settings::load();
-    
+
     // Construct the full path to the project directory
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
-    
+
     if !project_dir.exists() {
         return Ok(Vec::new());
     }
-    
+
     // Scan for directories ending with "_ascii"
     let mut frames = Vec::new();
-    
-    match fs::read_dir(&project_dir) {
-        Ok(entries) => {
+
+    // Helper function to scan a directory for ascii frame folders
+    let scan_directory = |dir: &PathBuf, frames: &mut Vec<FrameDirectory>| -> Result<(), String> {
+        if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
@@ -649,14 +650,21 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                 }
             }
         }
-        Err(e) => {
-            return Err(format!("Failed to read project directory: {}", e));
-        }
+        Ok(())
+    };
+
+    // Scan the main project directory
+    scan_directory(&project_dir, &mut frames)?;
+
+    // Also scan the cuts subdirectory if it exists
+    let cuts_dir = project_dir.join("cuts");
+    if cuts_dir.exists() {
+        scan_directory(&cuts_dir, &mut frames)?;
     }
-    
+
     // Sort by name for consistent ordering
     frames.sort_by(|a, b| a.name.cmp(&b.name));
-    
+
     Ok(frames)
 }
 
@@ -809,6 +817,7 @@ struct ConvertToAsciiRequest {
     fps: Option<u32>,
     project_id: String,
     source_file_id: String,
+    custom_name: Option<String>,
 }
 
 #[tauri::command]
@@ -906,9 +915,9 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
         },
         creation_date: Utc::now(),
         total_size,
-        custom_name: None,
+        custom_name: request.custom_name.clone(),
     };
-    
+
     println!("🎯 About to save conversion to database:");
     println!("   - ID: {}", conversion.id);
     println!("   - Folder: {}", conversion.folder_name);

@@ -13,6 +13,7 @@ struct ConvertToAsciiRequest {
     fps: Option<u32>,
     project_id: String,
     source_file_id: String,
+    custom_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +95,10 @@ pub struct VideoPlayerProps {
 
     #[prop_or_default]
     pub on_refresh_frames: Option<Callback<()>>,
+
+    /// Custom name to use for the conversion (e.g., from a cut's custom_name)
+    #[prop_or_default]
+    pub custom_name: Option<String>,
 
     // ---- Video cutting controls ----
     /// Callback to cut video: emits (start_time, end_time) in seconds
@@ -589,6 +594,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let project_id = props.project_id.clone();
         let source_file_id = props.source_file_id.clone();
         let source_file_path = props.source_file_path.clone();
+        let custom_name = props.custom_name.clone();
 
         let luminance = props.luminance;
         let font_ratio = props.font_ratio;
@@ -606,6 +612,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             else {
                 return;
             };
+            let custom_name = custom_name.clone();
 
             if let Some(cb) = &on_is_converting_change {
                 cb.emit(true);
@@ -623,7 +630,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             let on_refresh_frames = on_refresh_frames.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id}};
+                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name}};
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
                 if let Some(cb) = &on_is_converting_change {cb.emit(false)}

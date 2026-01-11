@@ -614,8 +614,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 // Check cache first
                                 if let Some(cached_url) = url_cache.get(&file_path) {
                                     // Create a pseudo SourceContent from the cut
+                                    // Use source_file_id (the original source's ID) for DB foreign key compatibility
                                     let source = SourceContent {
-                                        id: cut.id.clone(),
+                                        id: cut.source_file_id.clone(),
                                         content_type: "Video".to_string(),
                                         project_id: cut.project_id.clone(),
                                         date_added: chrono::Utc::now(),
@@ -651,8 +652,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 url_cache.set(cache);
 
                                                 // Create a pseudo SourceContent from the cut
+                                                // Use source_file_id (the original source's ID) for DB foreign key compatibility
                                                 let source = SourceContent {
-                                                    id: cut_clone.id.clone(),
+                                                    id: cut_clone.source_file_id.clone(),
                                                     content_type: "Video".to_string(),
                                                     project_id: cut_clone.project_id.clone(),
                                                     date_added: chrono::Utc::now(),
@@ -847,6 +849,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         });
                                                     })
                                                 })}
+
+                                                custom_name={source.custom_name.clone()}
 
                                                 on_cut_video={Some(on_cut_video.clone())}
                                                 is_cutting={Some(*is_cutting)}

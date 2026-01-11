@@ -1,5 +1,6 @@
 use yew::prelude::*;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::closure::Closure;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use yew_icons::{Icon, IconId};
@@ -14,10 +15,31 @@ export async function tauriInvoke(cmd, args) {
   if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args);
   throw new Error('Tauri invoke is not available');
 }
+
+export function observeResize(element, callback) {
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      callback(width, height);
+    }
+  });
+  observer.observe(element);
+  return observer;
+}
+
+export function disconnectObserver(observer) {
+  observer.disconnect();
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+
+    #[wasm_bindgen(js_name = observeResize)]
+    fn observe_resize(element: &web_sys::Element, callback: &Closure<dyn Fn(f64, f64)>) -> JsValue;
+
+    #[wasm_bindgen(js_name = disconnectObserver)]
+    fn disconnect_observer(observer: &JsValue);
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -99,6 +121,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Store timeout handle to allow cancellation
     let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
+
+    // Auto-sizing state
+    let container_ref = use_node_ref();
+    let calculated_font_size = use_state(|| 10.0f64); // Default font size in px
+    let container_size = use_state(|| (0.0f64, 0.0f64)); // (width, height) from ResizeObserver
 
     // Load frames when directory_path changes
     {
@@ -315,6 +342,91 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         });
     }
 
+    // ResizeObserver to track container size changes
+    {
+        let container_ref = container_ref.clone();
+        let container_size = container_size.clone();
+        let observer_handle: Rc<RefCell<Option<JsValue>>> = use_mut_ref(|| None);
+
+        use_effect_with(container_ref.clone(), move |container_ref| {
+            let container_size = container_size.clone();
+            let observer_handle = observer_handle.clone();
+
+            if let Some(element) = container_ref.cast::<web_sys::Element>() {
+                let container_size_clone = container_size.clone();
+                let closure = Closure::wrap(Box::new(move |width: f64, height: f64| {
+                    container_size_clone.set((width, height));
+                }) as Box<dyn Fn(f64, f64)>);
+
+                let observer = observe_resize(&element, &closure);
+                *observer_handle.borrow_mut() = Some(observer);
+
+                // Keep closure alive
+                closure.forget();
+            }
+
+            // Return cleanup function
+            move || {
+                if let Some(obs) = observer_handle.borrow_mut().take() {
+                    disconnect_observer(&obs);
+                }
+            }
+        });
+    }
+
+    // Auto-size font to fit container when frames or container size changes
+    {
+        let frames = frames.clone();
+        let calculated_font_size = calculated_font_size.clone();
+        let is_loading = is_loading.clone();
+        let container_width = container_size.0;
+        let container_height = container_size.1;
+
+        use_effect_with((frames.len(), (*is_loading).clone(), container_width as i32, container_height as i32), move |_| {
+            if frames.is_empty() {
+                return;
+            }
+
+            // Get the first frame to determine dimensions
+            if let Some(first_frame) = frames.first() {
+                let lines: Vec<&str> = first_frame.lines().collect();
+                let row_count = lines.len();
+                let col_count = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+
+                if row_count == 0 || col_count == 0 {
+                    return;
+                }
+
+                // Use container dimensions from ResizeObserver (subtract padding)
+                let available_width = container_width - 20.0;
+                let available_height = container_height - 20.0;
+
+                if available_width <= 0.0 || available_height <= 0.0 {
+                    return;
+                }
+
+                // For monospace fonts, character width is approximately 0.6 * font_size
+                // Line height is 1.11 * font_size (as defined in CSS)
+                let char_width_ratio = 0.6;
+                let line_height_ratio = 1.11;
+
+                // Calculate max font size that fits width
+                let max_font_from_width = available_width / (col_count as f64 * char_width_ratio);
+
+                // Calculate max font size that fits height
+                let max_font_from_height = available_height / (row_count as f64 * line_height_ratio);
+
+                // Use the smaller of the two to ensure both dimensions fit
+                let optimal_font_size = max_font_from_width.min(max_font_from_height);
+
+                // Clamp to reasonable range (1px to 50px)
+                let clamped_font_size = optimal_font_size.max(1.0).min(50.0);
+
+                calculated_font_size.set(clamped_font_size);
+            }
+        });
+    }
+
     // Toggle play/pause
     let on_toggle_play = {
         let is_playing = is_playing.clone();
@@ -404,9 +516,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         }
     };
 
+    let font_size_style = format!("font-size: {:.2}px;", *calculated_font_size);
+
     html! {
         <div class="ascii-frames-viewer">
-            <div class="frames-display">
+            <div class="frames-display" ref={container_ref}>
                 if *is_loading {
                     <div class="loading-frames">{loading_message.clone()}</div>
                 } else if let Some(error) = &*error_message {
@@ -414,7 +528,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 } else if frames.is_empty() {
                     <div class="no-frames">{"No frames available"}</div>
                 } else {
-                    <pre class="ascii-frame-content">{
+                    <pre class="ascii-frame-content" style={font_size_style.clone()}>{
                         frames.get(current_frame).cloned().unwrap_or_default()
                     }</pre>
                     <div class="frame-info-overlay">

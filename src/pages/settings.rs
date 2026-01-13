@@ -40,14 +40,20 @@ extern "C" {
 #[function_component(SettingsPage)]
 pub fn settings_page() -> Html {
     let settings = use_state(Settings::default);
+    let version = use_state(|| String::from("..."));
 
     { // load once
         let settings = settings.clone();
+        let version = version.clone();
         use_effect_with((), move |_| {
             spawn_local(async move {
                 let v = invoke("load_settings", JsValue::NULL).await;
                 if let Ok(s) = serde_wasm_bindgen::from_value::<Settings>(v) {
                     settings.set(s);
+                }
+                let ver = invoke("get_app_version", JsValue::NULL).await;
+                if let Some(v) = ver.as_string() {
+                    version.set(v);
                 }
             });
             || ()
@@ -169,6 +175,10 @@ pub fn settings_page() -> Html {
 
                 <div class="form-group center">
                     <button type="button" onclick={on_save}>{"Save"}</button>
+                </div>
+
+                <div class="form-group center version-info">
+                    <span class="version-label">{format!("Version {}", *version)}</span>
                 </div>
             </div>
         </main>

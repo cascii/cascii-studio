@@ -99,6 +99,11 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
 fn load_settings() -> settings::Settings { settings::load() }
 
 #[tauri::command]
@@ -1148,6 +1153,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_app_version,
             load_settings,
             save_settings,
             pick_directory,

@@ -117,3 +117,15 @@ select:focus {
     background-color: #0f0f0f98;
   }
 }
+
+/* Version info */
+.version-info {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.version-label {
+  font-size: 0.85rem;
+  color: #888;
+}

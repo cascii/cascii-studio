@@ -433,6 +433,90 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    // Callback to delete a source file
+    let on_delete_source_file = {
+        let source_files = source_files.clone();
+        let project_id = project_id.clone();
+        let selected_source = selected_source.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+
+        Callback::from(move |source: SourceContent| {
+            let source_files = source_files.clone();
+            let project_id = (*project_id).clone();
+            let source_id = source.id.clone();
+            let file_path = source.file_path.clone();
+            let selected_source = selected_source.clone();
+            let frame_directories = frame_directories.clone();
+            let video_cuts = video_cuts.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "source_id": source_id.clone(),
+                        "file_path": file_path
+                    }
+                })).unwrap();
+                let _ = tauri_invoke("delete_source_file", args).await;
+
+                // Clear selection if deleted source was selected
+                if selected_source.as_ref().map(|s| s.id == source_id).unwrap_or(false) {
+                    selected_source.set(None);
+                }
+
+                // Refresh source files
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
+                    source_files.set(sources);
+                }
+
+                // Refresh frame directories (in case associated conversions were deleted)
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                    frame_directories.set(frames);
+                }
+
+                // Refresh cuts (in case associated cuts were deleted)
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                    video_cuts.set(cuts);
+                }
+            });
+        })
+    };
+
+    // Callback to delete a frame directory
+    let on_delete_frame = {
+        let frame_directories = frame_directories.clone();
+        let project_id = project_id.clone();
+        let selected_frame_dir = selected_frame_dir.clone();
+
+        Callback::from(move |frame_dir: FrameDirectory| {
+            let frame_directories = frame_directories.clone();
+            let project_id = (*project_id).clone();
+            let directory_path = frame_dir.directory_path.clone();
+            let selected_frame_dir = selected_frame_dir.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "directoryPath": directory_path.clone()
+                })).unwrap();
+                let _ = tauri_invoke("delete_frame_directory", args).await;
+
+                // Clear selection if deleted frame dir was selected
+                if selected_frame_dir.as_ref().map(|s| s.directory_path == directory_path).unwrap_or(false) {
+                    selected_frame_dir.set(None);
+                }
+
+                // Refresh frame directories
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                    frame_directories.set(frames);
+                }
+            });
+        })
+    };
+
     html! {
         <div class="container project-page">
             <div class="project-layout">
@@ -568,7 +652,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 });
                             }))
                         }}
-                        on_delete_file={None::<Callback<SourceContent>>}
+                        on_delete_file={Some(on_delete_source_file.clone())}
                         on_rename_file={{
                             let source_files = source_files.clone();
                             let project_id = project_id.clone();
@@ -640,6 +724,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 });
                             }))
                         }}
+                        on_delete_frame={Some(on_delete_frame.clone())}
                     />
 
                     <AvailableCuts

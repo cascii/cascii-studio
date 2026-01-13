@@ -42,6 +42,7 @@ pub struct AvailableFramesProps {
     pub on_select_frame_dir: Callback<FrameDirectory>,
     pub on_frame_settings_loaded: Callback<Option<(ConversionSettings, Option<String>)>>,
     pub on_rename_frame: Option<Callback<(String, String)>>,
+    pub on_delete_frame: Option<Callback<FrameDirectory>>,
 }
 
 pub struct AvailableFrames {
@@ -250,10 +251,29 @@ impl Component for AvailableFrames {
                                                     />
                                                 }
                                             } else {
+                                                let on_delete_click = props.on_delete_frame.as_ref().map(|cb| {
+                                                    let cb = cb.clone();
+                                                    let frame_clone = frame_dir.clone();
+                                                    Callback::from(move |e: MouseEvent| {
+                                                        e.stop_propagation();
+                                                        cb.emit(frame_clone.clone());
+                                                    })
+                                                });
+
                                                 html! {
                                                     <>
                                                         <div class="source-item-name-wrapper"><span class="source-item-name">{ &frame_dir.name }</span></div>
                                                         <div class="source-item-buttons">
+                                                            if let Some(on_delete) = on_delete_click {
+                                                                <button
+                                                                    type="button"
+                                                                    class="source-item-btn delete-btn"
+                                                                    onclick={on_delete}
+                                                                    title="Delete frame directory"
+                                                                >
+                                                                    <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
+                                                                </button>
+                                                            }
                                                             <button
                                                                 type="button"
                                                                 class="source-item-btn rename-btn"

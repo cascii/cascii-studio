@@ -411,11 +411,51 @@ pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
 
 pub fn update_source_custom_name(source_id: &str, custom_name: Option<String>) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
     conn.execute(
         "UPDATE source_content SET custom_name = ?1 WHERE id = ?2",
         params![custom_name, source_id],
     )?;
+
+    Ok(())
+}
+
+pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
+    println!("🗑️ DB: Deleting source content: {}", source_id);
+    let conn = init_database()?;
+
+    // Delete associated ascii conversions first (foreign key constraint)
+    let result = conn.execute(
+        "DELETE FROM ascii_conversions WHERE source_file_id = ?1",
+        [source_id],
+    );
+    match &result {
+        Ok(rows) => println!("🗑️ DB: Deleted {} associated conversions", rows),
+        Err(e) => println!("🗑️ DB: Error deleting conversions: {}", e),
+    }
+    result?;
+
+    // Delete associated cuts (foreign key constraint)
+    let result = conn.execute(
+        "DELETE FROM cuts WHERE source_file_id = ?1",
+        [source_id],
+    );
+    match &result {
+        Ok(rows) => println!("🗑️ DB: Deleted {} associated cuts", rows),
+        Err(e) => println!("🗑️ DB: Error deleting cuts: {}", e),
+    }
+    result?;
+
+    // Delete the source content
+    let result = conn.execute(
+        "DELETE FROM source_content WHERE id = ?1",
+        [source_id],
+    );
+    match &result {
+        Ok(rows) => println!("🗑️ DB: Deleted {} source content rows", rows),
+        Err(e) => println!("🗑️ DB: Error deleting source content: {}", e),
+    }
+    result?;
 
     Ok(())
 }

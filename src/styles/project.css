@@ -189,21 +189,18 @@
     gap: 0.25rem;
     margin-left: auto;
     flex-shrink: 0;
-    max-width: 0;
-    overflow: hidden;
     opacity: 0;
-    transition: all 0.2s ease;
+    transition: opacity 0.2s ease;
     pointer-events: none;
 }
 
 .source-item:hover .source-item-buttons {
-    max-width: 60px;
     opacity: 1;
     pointer-events: auto;
 }
 
 .source-item-btn {
-    background: rgba(255, 255, 255, 0.1);
+    background: #3A3A3A;
     border: none;
     color: #f6f6f6;
     cursor: pointer;
@@ -212,19 +209,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.2s, opacity 0.2s;
+    transition: color 0.2s;
     pointer-events: auto;
     flex-shrink: 0;
 }
 
 .source-item-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 18px !important;
+    height: 18px !important;
     min-width: 18px;
     min-height: 18px;
     max-width: 18px;
     max-height: 18px;
+    stroke: currentColor !important;
+    fill: none !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
 }
+
 
 .source-item-rename-input {
     flex-grow: 1;
@@ -247,13 +250,25 @@
     box-shadow: 0 0 0 2px rgba(123, 163, 204, 0.2);
 }
 
-.source-item-btn:hover {
-    background-color: rgba(246, 246, 246, 0.1);
+.source-item-btn.rename-btn:hover {
+    color: #7ba3cc;
 }
 
-.delete-btn:hover {
-    background-color: rgba(220, 53, 69, 0.2);
+.source-item-btn.delete-btn {
     color: #ff6b7a;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.source-item-btn.delete-btn:hover {
+    color: #ff4757;
+}
+
+.source-item-btn.delete-btn svg {
+    stroke: currentColor !important;
+    fill: none !important;
+    display: block !important;
 }
 
 .source-item-btn:disabled {

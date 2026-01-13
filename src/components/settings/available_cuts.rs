@@ -251,14 +251,14 @@ impl Component for AvailableCuts {
                                                     <>
                                                         <div class="source-item-name-wrapper"><span class="source-item-name">{display_name}</span></div>
                                                         <div class="source-item-buttons">
-                                                            <button type="button" class="source-item-btn rename-btn" onclick={on_rename_click} title="Rename cut">
-                                                                <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
-                                                            </button>
                                                             if let Some(on_delete) = on_delete_click {
                                                                 <button type="button" class="source-item-btn delete-btn" onclick={on_delete} title="Delete cut">
                                                                     <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
                                                                 </button>
                                                             }
+                                                            <button type="button" class="source-item-btn rename-btn" onclick={on_rename_click} title="Rename cut">
+                                                                <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
+                                                            </button>
                                                         </div>
                                                     </>
                                                 }

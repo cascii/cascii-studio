@@ -43,7 +43,7 @@ pub fn controls(props: &ControlsProps) -> Html {
             on_should_reset_change.emit(true);
             // Reset immediately, then set back to false
             let on_should_reset_change_clone = on_should_reset_change.clone();
-            gloo_timers::callback::Timeout::new(100, move || {
+            gloo_timers::callback::Timeout::new(600, move || {
                 on_should_reset_change_clone.emit(false);
             }).forget();
         })

@@ -136,7 +136,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let fps = use_state(|| 30u32);
     let is_converting = use_state(|| false);
     let conversion_message = use_state(|| Option::<String>::None);
+    let conversion_success_folder = use_state(|| Option::<String>::None);
     let is_playing = use_state(|| false);
+    let frames_delayed_playing = use_state(|| false); // Delayed playback for frames to sync with video
+    let playback_started = use_state(|| false); // Track if playback has started (for delay logic)
     let should_reset = use_state(|| false);
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
     let seek_percentage = use_state(|| None::<f64>);
@@ -215,6 +218,57 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
             });
 
+            || ()
+        });
+    }
+
+    // Delay frames playback to sync with video when using the main play button
+    {
+        let is_playing_val = *is_playing;
+        let playback_started_val = *playback_started;
+        let frames_delayed_playing = frames_delayed_playing.clone();
+        let playback_started = playback_started.clone();
+
+        use_effect_with((is_playing_val, playback_started_val), move |(is_playing, was_started)| {
+            web_sys::console::log_1(&format!("🎬 is_playing={}, playback_started={}", is_playing, was_started).into());
+
+            if *is_playing {
+                if !*was_started {
+                    // Fresh start from beginning - apply delay
+                    web_sys::console::log_1(&"⏳ Fresh start: Setting up 300ms delay for frames...".into());
+                    let frames_delayed_playing = frames_delayed_playing.clone();
+                    let playback_started = playback_started.clone();
+                    let timeout = gloo_timers::callback::Timeout::new(300, move || {
+                        web_sys::console::log_1(&"✅ Timeout fired! Setting frames_delayed_playing to true".into());
+                        frames_delayed_playing.set(true);
+                        playback_started.set(true);
+                    });
+                    timeout.forget();
+                } else {
+                    // Resume from pause - no delay
+                    web_sys::console::log_1(&"▶️ Resume: Starting frames immediately".into());
+                    frames_delayed_playing.set(true);
+                }
+            } else {
+                // Pause - stop frames immediately but keep playback_started true
+                web_sys::console::log_1(&"⏸️ Pausing frames".into());
+                frames_delayed_playing.set(false);
+            }
+
+            || ()
+        });
+    }
+
+    // Reset playback_started when reset button is pressed
+    {
+        let should_reset_val = *should_reset;
+        let playback_started = playback_started.clone();
+
+        use_effect_with(should_reset_val, move |should_reset| {
+            if *should_reset {
+                web_sys::console::log_1(&"🔄 Reset pressed: Clearing playback_started".into());
+                playback_started.set(false);
+            }
             || ()
         });
     }
@@ -717,6 +771,47 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                         frames_loading={*frames_loading}
                     />
+
+                    // Conversion success notification
+                    if let Some(folder_path) = &*conversion_success_folder {
+                        <div class="conversion-notification">
+                            <span class="conversion-notification-text">{"ASCII frames generated"}</span>
+                            <div class="conversion-notification-actions">
+                                <button
+                                    class="nav-btn"
+                                    type="button"
+                                    title="Open folder"
+                                    onclick={{
+                                        let folder_path = folder_path.clone();
+                                        Callback::from(move |_| {
+                                            let folder_path = folder_path.clone();
+                                            wasm_bindgen_futures::spawn_local(async move {
+                                                let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                                                let _ = tauri_invoke("open_directory", args).await;
+                                            });
+                                        })
+                                    }}
+                                >
+                                    <yew_icons::Icon icon_id={yew_icons::IconId::LucideFolderOpen} width={"16"} height={"16"} />
+                                </button>
+                                <button
+                                    class="nav-btn"
+                                    type="button"
+                                    title="Dismiss"
+                                    onclick={{
+                                        let conversion_success_folder = conversion_success_folder.clone();
+                                        let conversion_message = conversion_message.clone();
+                                        Callback::from(move |_| {
+                                            conversion_success_folder.set(None);
+                                            conversion_message.set(None);
+                                        })
+                                    }}
+                                >
+                                    <yew_icons::Icon icon_id={yew_icons::IconId::LucideXCircle} width={"16"} height={"16"} />
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </div>
 
                 <div class="main-content">
@@ -828,7 +923,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 conversion_message={(*conversion_message).clone()}
                                                 on_conversion_message_change={Some({
                                                     let conversion_message = conversion_message.clone();
-                                                    Callback::from(move |v: Option<String>| conversion_message.set(v))
+                                                    let conversion_success_folder = conversion_success_folder.clone();
+                                                    Callback::from(move |v: Option<String>| {
+                                                        if let Some(ref msg) = v {
+                                                            // Parse folder path from "ASCII frames saved to: {path} ({frames} frames, {bytes} bytes)"
+                                                            if let Some(start) = msg.find("saved to: ") {
+                                                                let after_prefix = &msg[start + 10..];
+                                                                if let Some(end) = after_prefix.find(" (") {
+                                                                    let folder_path = after_prefix[..end].to_string();
+                                                                    conversion_success_folder.set(Some(folder_path));
+                                                                }
+                                                            }
+                                                        } else {
+                                                            conversion_success_folder.set(None);
+                                                        }
+                                                        conversion_message.set(v);
+                                                    })
                                                 })}
                                                 on_error_message_change={Some({
                                                     let error_message = error_message.clone();
@@ -887,7 +997,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     }
                                                 }}
                                                 settings={(*selected_frame_settings).clone()}
-                                                should_play={if *is_playing && !*frames_loading {Some(true)} else {Some(false)}}
+                                                should_play={{
+                                                    let should = *frames_delayed_playing && !*frames_loading;
+                                                    web_sys::console::log_1(&format!("🖼️ AsciiFramesViewer should_play: {} (frames_delayed_playing={}, frames_loading={})", should, *frames_delayed_playing, *frames_loading).into());
+                                                    if should {Some(true)} else {Some(false)}
+                                                }}
                                                 should_reset={*should_reset}
                                                 seek_percentage={*seek_percentage}
                                                 on_loading_changed={{

@@ -636,3 +636,56 @@
     font-size: 0.875rem;
     color: #aaa;
 }
+
+/* Conversion success notification in sidebar */
+.conversion-notification {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background-color: #2a5a2a;
+    border: 1px solid #4a7a4a;
+    border-radius: 6px;
+    margin-top: auto;
+}
+
+.conversion-notification-text {
+    font-size: 0.8rem;
+    color: #aaffaa;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.conversion-notification-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.conversion-notification .nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #aaffaa;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    padding: 0;
+}
+
+.conversion-notification .nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.conversion-notification .nav-btn svg {
+    width: 16px;
+    height: 16px;
+}

@@ -459,7 +459,11 @@ pub fn delete_project(project_id: &str) -> SqlResult<()> {
 
 pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
+    // Round font_ratio to 2 decimal places using f64 for precision
+    // f32 cannot precisely represent values like 0.7, but f64 can after rounding
+    let font_ratio_rounded = (conversion.settings.font_ratio as f64 * 100.0).round() / 100.0;
+
     conn.execute(
         "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
@@ -471,7 +475,7 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
             conversion.source_file_id,
             conversion.project_id,
             conversion.settings.luminance,
-            conversion.settings.font_ratio,
+            font_ratio_rounded,
             conversion.settings.columns,
             conversion.settings.fps,
             conversion.settings.frame_speed,

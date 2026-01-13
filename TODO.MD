@@ -11,12 +11,9 @@ don't create project if not all files are saved/converted
 
 cascii dep: autodetect to match framerate. i suspect that generating more frames than in the source files causes
 
-
-- rename sourcefiles and rename frames
 - converting progress
 
 bugs:
-- font_ratio 0.699999988079071 in db instead of 0.7
 - creating frames not immediately in AVAILABLE FRAMES
 
 

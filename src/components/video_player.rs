@@ -722,13 +722,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     </button>
                 </div>
 
-                {
-                    if let Some(msg) = &props.conversion_message {
-                        html! {<div class="conversion-success">{msg}</div>}
-                    } else {
-                        html! {<></>}
-                    }
-                }
             </div>
         </div>
     }

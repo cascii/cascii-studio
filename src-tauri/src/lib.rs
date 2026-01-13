@@ -774,6 +774,33 @@ fn rename_source_file(source_id: String, custom_name: Option<String>) -> Result<
         .map_err(|e| format!("Failed to rename source file: {}", e))
 }
 
+#[derive(serde::Deserialize)]
+struct DeleteSourceFileRequest {
+    source_id: String,
+    file_path: String,
+}
+
+#[tauri::command]
+fn delete_source_file(request: DeleteSourceFileRequest) -> Result<(), String> {
+    println!("🗑️ Deleting source file: {} ({})", request.source_id, request.file_path);
+
+    // Delete the physical file
+    let file_path = PathBuf::from(&request.file_path);
+    if file_path.exists() {
+        fs::remove_file(&file_path)
+            .map_err(|e| format!("Failed to delete file: {}", e))?;
+        println!("✅ Deleted physical file: {}", request.file_path);
+    } else {
+        println!("⚠️ File not found, skipping physical delete: {}", request.file_path);
+    }
+
+    // Delete from database (this also deletes associated conversions and cuts)
+    database::delete_source_content(&request.source_id)
+        .map_err(|e| format!("Failed to delete from database: {}", e))?;
+
+    println!("✅ Source file deleted successfully");
+    Ok(())
+}
 
 #[derive(serde::Deserialize)]
 struct UpdateFrameCustomNameRequest {
@@ -1170,6 +1197,7 @@ pub fn run() {
             convert_to_ascii,
             update_conversion_frame_speed,
             rename_source_file,
+            delete_source_file,
             cut_video,
             get_project_cuts,
             delete_cut,

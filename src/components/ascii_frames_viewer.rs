@@ -609,6 +609,36 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     >
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
+                    <div style="flex: 1;"></div>
+                    <button
+                        type="button"
+                        class="ctrl-btn"
+                        onclick={{
+                            let current_index = current_index.clone();
+                            let frames = frames.clone();
+                            let is_playing = is_playing.clone();
+                            Callback::from(move |_| {
+                                // Pause if playing
+                                if *is_playing {
+                                    is_playing.set(false);
+                                }
+                                // Advance one frame
+                                let frame_count = frames.len();
+                                if frame_count > 0 {
+                                    let current = *current_index;
+                                    let next = if current + 1 >= frame_count {
+                                        0
+                                    } else {
+                                        current + 1
+                                    };
+                                    current_index.set(next);
+                                }
+                            })
+                        }}
+                        title="Step forward one frame"
+                    >
+                        <Icon icon_id={IconId::LucideSkipForward} width={"20"} height={"20"} />
+                    </button>
                 </div>
                 
                 if let Some(settings) = &props.settings {

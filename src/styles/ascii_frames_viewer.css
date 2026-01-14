@@ -169,3 +169,37 @@
     font-weight: 500;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
+
+/* Hide spinner arrows on number inputs */
+.ascii-frames-viewer .no-spinner::-webkit-outer-spin-button,
+.ascii-frames-viewer .no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.ascii-frames-viewer .no-spinner {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+/* Loop button styling */
+.ascii-frames-viewer .loop-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+}
+
+.ascii-frames-viewer .loop-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.ascii-frames-viewer .loop-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+}
+
+.ascii-frames-viewer .loop-btn.active:hover {
+    background: #5a7aaa;
+}

@@ -148,6 +148,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
     let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
+    let loop_enabled = use_state(|| true);
 
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -1148,6 +1149,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let selected_speed = selected_speed.clone();
                                                     Callback::from(move |selection: crate::components::ascii_frames_viewer::SpeedSelection| {
                                                         selected_speed.set(selection);
+                                                    })
+                                                }}
+                                                loop_enabled={*loop_enabled}
+                                                on_loop_change={{
+                                                    let loop_enabled = loop_enabled.clone();
+                                                    Callback::from(move |enabled: bool| {
+                                                        loop_enabled.set(enabled);
                                                     })
                                                 }}
                                             />

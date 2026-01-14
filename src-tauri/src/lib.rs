@@ -857,9 +857,18 @@ struct ConvertToAsciiRequest {
 
 #[derive(Clone, serde::Serialize)]
 struct ConversionProgress {
+    source_id: String,
+    name: String,
     completed: usize,
     total: usize,
     percentage: f64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ConversionComplete {
+    source_id: String,
+    success: bool,
+    message: String,
 }
 
 #[tauri::command]
@@ -902,115 +911,167 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    // Move conversion work to a blocking thread to prevent UI freeze
+    // Prepare variables for the background task
     let input_path_clone = input_path.clone();
     let output_dir_clone = output_dir.clone();
     let request_clone = request.clone();
     let fps = request.fps.unwrap_or(30);
+    let source_id_for_progress = request.source_file_id.clone();
+    let source_id_for_complete = request.source_file_id.clone();
+    let display_name = request.custom_name.clone().unwrap_or_else(|| {
+        input_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Unknown")
+            .to_string()
+    });
+    let display_name_for_return = display_name.clone();
+    let folder_name_clone = folder_name.clone();
 
-    let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
-        let converter = AsciiConverter::new();
+    // Clone values that need to be used after spawn_blocking moves them
+    let app_for_complete = app.clone();
+    let project_id_for_db = request.project_id.clone();
+    let custom_name_for_db = request.custom_name.clone();
+    // Copy settings values (they're Copy types but request_clone gets moved into spawn_blocking)
+    let luminance_for_db = request.luminance;
+    let font_ratio_for_db = request.font_ratio;
+    let columns_for_db = request.columns;
 
-        let conv_opts = ConversionOptions::default()
-            .with_columns(request_clone.columns)
-            .with_font_ratio(request_clone.font_ratio)
-            .with_luminance(request_clone.luminance);
+    // Spawn the conversion in a background task (don't await - returns immediately)
+    tokio::spawn(async move {
+        let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
+            let converter = AsciiConverter::new();
 
-        if is_image {
-            // Convert single image
-            let output_file = output_dir_clone.join(format!("{}.txt",
-                input_path_clone.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("output")
-            ));
+            let conv_opts = ConversionOptions::default()
+                .with_columns(request_clone.columns)
+                .with_font_ratio(request_clone.font_ratio)
+                .with_luminance(request_clone.luminance);
 
-            converter.convert_image(&input_path_clone, &output_file, &conv_opts)
-                .map_err(|e| format!("Failed to convert image: {}", e))?;
+            if is_image {
+                // Convert single image
+                let output_file = output_dir_clone.join(format!("{}.txt",
+                    input_path_clone.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("output")
+                ));
 
-            Ok(output_dir_clone)
-        } else {
-            // Convert video with progress callback
-            let video_opts = VideoOptions {
-                fps,
-                start: None,
-                end: None,
-                columns: request_clone.columns,
-            };
+                converter.convert_image(&input_path_clone, &output_file, &conv_opts)
+                    .map_err(|e| format!("Failed to convert image: {}", e))?;
 
-            println!("🎬 Starting video conversion with progress callback...");
-            let app_clone = app.clone();
-            converter.convert_video_with_progress(
-                &input_path_clone,
-                &output_dir_clone,
-                &video_opts,
-                &conv_opts,
-                false,
-                Some(move |completed: usize, total: usize| {
-                    let percentage = if total > 0 {
-                        (completed as f64 / total as f64) * 100.0
-                    } else {
-                        0.0
-                    };
-                    println!("📊 Emitting conversion-progress: {}/{} ({:.1}%)", completed, total, percentage);
-                    let emit_result = app_clone.emit("conversion-progress", ConversionProgress {
-                        completed,
-                        total,
-                        percentage,
-                    });
-                    if let Err(e) = emit_result {
-                        println!("❌ Failed to emit progress: {:?}", e);
+                Ok(output_dir_clone)
+            } else {
+                // Convert video with progress callback
+                let video_opts = VideoOptions {
+                    fps,
+                    start: None,
+                    end: None,
+                    columns: request_clone.columns,
+                };
+
+                println!("🎬 Starting video conversion: {}", source_id_for_progress);
+                let app_clone = app.clone();
+                let source_id = source_id_for_progress.clone();
+                let name = display_name.clone();
+                converter.convert_video_with_progress(
+                    &input_path_clone,
+                    &output_dir_clone,
+                    &video_opts,
+                    &conv_opts,
+                    false,
+                    Some(move |completed: usize, total: usize| {
+                        let percentage = if total > 0 {
+                            (completed as f64 / total as f64) * 100.0
+                        } else {
+                            0.0
+                        };
+                        let _ = app_clone.emit("conversion-progress", ConversionProgress {
+                            source_id: source_id.clone(),
+                            name: name.clone(),
+                            completed,
+                            total,
+                            percentage,
+                        });
+                    }),
+                ).map_err(|e| format!("Failed to convert video: {}", e))?;
+
+                Ok(output_dir_clone)
+            }
+        })
+        .await;
+
+        // Process the result and emit completion event
+        match conversion_result {
+            Ok(Ok(result_path)) => {
+                // Count frames and calculate total size
+                match count_frames_and_size(&result_path) {
+                    Ok((frame_count, total_size)) => {
+                        // Create database entry for the conversion
+                        let conversion = database::AsciiConversion {
+                            id: Uuid::new_v4().to_string(),
+                            folder_name: folder_name_clone,
+                            folder_path: result_path.to_str().unwrap_or("").to_string(),
+                            frame_count,
+                            source_file_id: source_id_for_complete.clone(),
+                            project_id: project_id_for_db.clone(),
+                            settings: database::ConversionSettings {
+                                luminance: luminance_for_db,
+                                font_ratio: font_ratio_for_db,
+                                columns: columns_for_db,
+                                fps,
+                                frame_speed: fps,
+                            },
+                            creation_date: Utc::now(),
+                            total_size,
+                            custom_name: custom_name_for_db.clone(),
+                        };
+
+                        match database::add_ascii_conversion(&conversion) {
+                            Ok(_) => {
+                                println!("✅ Conversion complete: {}", source_id_for_complete);
+                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
+                                    source_id: source_id_for_complete,
+                                    success: true,
+                                    message: format!("ASCII frames saved to: {} ({} frames, {} bytes)",
+                                        result_path.display(), frame_count, total_size),
+                                });
+                            }
+                            Err(e) => {
+                                println!("❌ Failed to save to database: {}", e);
+                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
+                                    source_id: source_id_for_complete,
+                                    success: false,
+                                    message: format!("Failed to save conversion to database: {}", e),
+                                });
+                            }
+                        }
                     }
-                }),
-            ).map_err(|e| format!("Failed to convert video: {}", e))?;
-
-            Ok(output_dir_clone)
+                    Err(e) => {
+                        let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
+                            source_id: source_id_for_complete,
+                            success: false,
+                            message: e,
+                        });
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
+                    source_id: source_id_for_complete,
+                    success: false,
+                    message: e,
+                });
+            }
+            Err(e) => {
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
+                    source_id: source_id_for_complete,
+                    success: false,
+                    message: format!("Task failed: {}", e),
+                });
+            }
         }
-    })
-    .await
-    .map_err(|e| format!("Conversion task failed: {}", e))??;
-    
-    // Count frames and calculate total size
-    let (frame_count, total_size) = count_frames_and_size(&conversion_result)?;
-    
-    // Create database entry for the conversion
-    let conversion = database::AsciiConversion {
-        id: Uuid::new_v4().to_string(),
-        folder_name: folder_name.clone(),
-        folder_path: conversion_result.to_str().unwrap_or("").to_string(),
-        frame_count,
-        source_file_id: request.source_file_id,
-        project_id: request.project_id,
-        settings: database::ConversionSettings {
-            luminance: request.luminance,
-            font_ratio: request.font_ratio,
-            columns: request.columns,
-            fps,
-            frame_speed: fps, // Initially set to same as fps
-        },
-        creation_date: Utc::now(),
-        total_size,
-        custom_name: request.custom_name.clone(),
-    };
+    });
 
-    println!("🎯 About to save conversion to database:");
-    println!("   - ID: {}", conversion.id);
-    println!("   - Folder: {}", conversion.folder_name);
-    println!("   - Path: {}", conversion.folder_path);
-    println!("   - Source ID: {}", conversion.source_file_id);
-    println!("   - Project ID: {}", conversion.project_id);
-    println!("   - Frames: {}", conversion.frame_count);
-
-    match database::add_ascii_conversion(&conversion) {
-        Ok(_) => {
-            println!("✅ Conversion successfully saved to database");
-            Ok(format!("ASCII frames saved to: {} ({} frames, {} bytes)",
-                conversion_result.display(), frame_count, total_size))
-        }
-        Err(e) => {
-            println!("❌ Failed to save conversion to database: {}", e);
-            Err(format!("Failed to save conversion to database: {}", e))
-        }
-    }
+    // Return immediately - conversion runs in background
+    Ok(format!("Conversion started for: {}", display_name_for_return))
 }
 
 fn generate_random_suffix() -> String {

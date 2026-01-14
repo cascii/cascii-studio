@@ -18,3 +18,5 @@ features
 - load frames in parallel
 
 Use side webviews to display frames and mp4 in windows
+save loop setting in settings.json
+println should only happen if debug mode on in settings

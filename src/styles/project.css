@@ -652,6 +652,14 @@
     color: #aaa;
 }
 
+/* Container for multiple conversion progress indicators */
+.conversions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: auto;
+}
+
 /* Conversion progress indicator in sidebar */
 .conversion-progress {
     display: flex;
@@ -661,7 +669,6 @@
     background-color: #2a2a4a;
     border: 1px solid #4a4a7a;
     border-radius: 6px;
-    margin-top: auto;
 }
 
 .conversion-progress-text {

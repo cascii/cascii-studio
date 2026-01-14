@@ -65,6 +65,13 @@ struct FileProgress {
     percentage: Option<f32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct ActiveConversion {
+    source_id: String,
+    name: String,
+    percentage: f64,
+}
+
 // Wasm binding to our custom JS shim for convertFileSrc
 #[wasm_bindgen(inline_js = r#"
 export function appConvertFileSrc(path) {
@@ -134,10 +141,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let font_ratio = use_state(|| 0.7f32);
     let columns = use_state(|| 200u32);
     let fps = use_state(|| 30u32);
-    let is_converting = use_state(|| false);
+    // Use Rc<RefCell<>> for conversions to allow mutation from async closures
+    let active_conversions_ref = use_mut_ref(|| HashMap::<String, ActiveConversion>::new());
+    let conversions_update_trigger = use_state(|| 0u32); // Trigger re-renders when conversions change
     let conversion_message = use_state(|| Option::<String>::None);
     let conversion_success_folder = use_state(|| Option::<String>::None);
-    let conversion_progress = use_state(|| Option::<f64>::None);
     let is_playing = use_state(|| false);
     let frames_delayed_playing = use_state(|| false); // Delayed playback for frames to sync with video
     let playback_started = use_state(|| false); // Track if playback has started (for delay logic)
@@ -271,6 +279,141 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 web_sys::console::log_1(&"🔄 Reset pressed: Clearing playback_started".into());
                 playback_started.set(false);
             }
+            || ()
+        });
+    }
+
+    // Global listener for conversion progress events
+    {
+        let active_conversions_ref = active_conversions_ref.clone();
+        let conversions_update_trigger = conversions_update_trigger.clone();
+        use_effect(move || {
+            let active_conversions_ref = active_conversions_ref.clone();
+            let conversions_update_trigger = conversions_update_trigger.clone();
+
+            // Create a callback that updates the active conversions map
+            let progress_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
+                        .ok()
+                        .and_then(|v| v.as_string());
+                    let name = js_sys::Reflect::get(&payload, &"name".into())
+                        .ok()
+                        .and_then(|v| v.as_string());
+                    let percentage = js_sys::Reflect::get(&payload, &"percentage".into())
+                        .ok()
+                        .and_then(|v| v.as_f64());
+
+                    if let (Some(source_id), Some(name), Some(percentage)) = (source_id, name, percentage) {
+                        // Update the ref directly
+                        active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
+                            source_id,
+                            name,
+                            percentage,
+                        });
+                        // Trigger a re-render
+                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+                    }
+                }
+            });
+
+            let js_callback = progress_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+
+            // Set up the listener
+            wasm_bindgen_futures::spawn_local(async move {
+                let unlisten = tauri_listen("conversion-progress", &js_callback).await;
+                // Store the unlisten handle - we'll keep the callback alive with forget
+                std::mem::forget(unlisten);
+            });
+
+            // Keep the closure alive
+            progress_callback.forget();
+
+            || ()
+        });
+    }
+
+    // Global listener for conversion-complete events
+    {
+        let active_conversions_ref = active_conversions_ref.clone();
+        let conversions_update_trigger = conversions_update_trigger.clone();
+        let conversion_message = conversion_message.clone();
+        let conversion_success_folder = conversion_success_folder.clone();
+        let error_message = error_message.clone();
+        let frame_directories = frame_directories.clone();
+        let project_id = project_id.clone();
+
+        use_effect(move || {
+            let active_conversions_ref = active_conversions_ref.clone();
+            let conversions_update_trigger = conversions_update_trigger.clone();
+            let conversion_message = conversion_message.clone();
+            let conversion_success_folder = conversion_success_folder.clone();
+            let error_message = error_message.clone();
+            let frame_directories = frame_directories.clone();
+            let project_id = project_id.clone();
+
+            let complete_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
+                        .ok()
+                        .and_then(|v| v.as_string());
+                    let success = js_sys::Reflect::get(&payload, &"success".into())
+                        .ok()
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let message = js_sys::Reflect::get(&payload, &"message".into())
+                        .ok()
+                        .and_then(|v| v.as_string());
+
+                    if let Some(source_id) = source_id {
+                        web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE EVENT: {} (success={})", source_id, success).into());
+
+                        // Remove from active conversions
+                        active_conversions_ref.borrow_mut().remove(&source_id);
+                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+
+                        if success {
+                            if let Some(msg) = message {
+                                // Parse folder path from "ASCII frames saved to: {path} ({frames} frames, {bytes} bytes)"
+                                if let Some(start) = msg.find("saved to: ") {
+                                    let after_prefix = &msg[start + 10..];
+                                    if let Some(end) = after_prefix.find(" (") {
+                                        let folder_path = after_prefix[..end].to_string();
+                                        conversion_success_folder.set(Some(folder_path));
+                                    }
+                                }
+                                conversion_message.set(Some(msg));
+                            }
+
+                            // Refresh frame directories
+                            let frame_directories = frame_directories.clone();
+                            let project_id = (*project_id).clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                    frame_directories.set(frames);
+                                }
+                            });
+                        } else {
+                            if let Some(msg) = message {
+                                error_message.set(Some(msg));
+                            } else {
+                                error_message.set(Some("Conversion failed".to_string()));
+                            }
+                        }
+                    }
+                }
+            });
+
+            let js_callback = complete_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let unlisten = tauri_listen("conversion-complete", &js_callback).await;
+                std::mem::forget(unlisten);
+            });
+
+            complete_callback.forget();
+
             || ()
         });
     }
@@ -517,6 +660,36 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
             });
         })
+    };
+
+    // Compute conversions HTML before the main html! macro
+    // Read conversions_update_trigger to create re-render dependency
+    let _trigger = *conversions_update_trigger;
+    let conversions_html = {
+        let conversions = active_conversions_ref.borrow();
+        if !conversions.is_empty() {
+            html! {
+                <div class="conversions-container">
+                    {conversions.values().map(|conv| {
+                        html! {
+                            <div class="conversion-progress" key={conv.source_id.clone()}>
+                                <span class="conversion-progress-text">
+                                    {format!("Converting {}: {:.0}%", conv.name, conv.percentage)}
+                                </span>
+                                <div class="conversion-progress-bar">
+                                    <div
+                                        class="conversion-progress-fill"
+                                        style={format!("width: {}%", conv.percentage)}
+                                    />
+                                </div>
+                            </div>
+                        }
+                    }).collect::<Html>()}
+                </div>
+            }
+        } else {
+            html! {}
+        }
     };
 
     html! {
@@ -859,24 +1032,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         frames_loading={*frames_loading}
                     />
 
-                    // Conversion progress indicator
-                    if *is_converting {
-                        <div class="conversion-progress">
-                            <span class="conversion-progress-text">
-                                {if let Some(pct) = *conversion_progress {
-                                    format!("Converting... {:.0}%", pct)
-                                } else {
-                                    "Extracting frames...".to_string()
-                                }}
-                            </span>
-                            <div class="conversion-progress-bar">
-                                <div
-                                    class="conversion-progress-fill"
-                                    style={format!("width: {}%", conversion_progress.unwrap_or(0.0))}
-                                />
-                            </div>
-                        </div>
-                    }
+                    // Conversion progress indicators (multiple parallel conversions)
+                    {conversions_html}
 
                     // Conversion success notification
                     if let Some(folder_path) = &*conversion_success_folder {
@@ -1021,10 +1178,30 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     Callback::from(move |v: u32| fps.set(v))
                                                 })}
                                             
-                                                is_converting={Some(*is_converting)}
-                                                on_is_converting_change={Some({
-                                                    let is_converting = is_converting.clone();
-                                                    Callback::from(move |v: bool| is_converting.set(v))
+                                                is_converting={Some(active_conversions_ref.borrow().contains_key(&source.id))}
+                                                on_conversion_start={Some({
+                                                    let active_conversions_ref = active_conversions_ref.clone();
+                                                    let conversions_update_trigger = conversions_update_trigger.clone();
+                                                    Callback::from(move |(source_id, name): (String, String)| {
+                                                        web_sys::console::log_1(&format!("🟢 CONVERSION START: {} ({})", name, source_id).into());
+                                                        active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
+                                                            source_id,
+                                                            name,
+                                                            percentage: 0.0,
+                                                        });
+                                                        web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
+                                                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+                                                    })
+                                                })}
+                                                on_conversion_complete={Some({
+                                                    let active_conversions_ref = active_conversions_ref.clone();
+                                                    let conversions_update_trigger = conversions_update_trigger.clone();
+                                                    Callback::from(move |source_id: String| {
+                                                        web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE: {}", source_id).into());
+                                                        active_conversions_ref.borrow_mut().remove(&source_id);
+                                                        web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
+                                                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+                                                    })
                                                 })}
                                                 conversion_message={(*conversion_message).clone()}
                                                 on_conversion_message_change={Some({
@@ -1049,10 +1226,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 on_error_message_change={Some({
                                                     let error_message = error_message.clone();
                                                     Callback::from(move |v: Option<String>| error_message.set(v))
-                                                })}
-                                                on_conversion_progress_change={Some({
-                                                    let conversion_progress = conversion_progress.clone();
-                                                    Callback::from(move |v: Option<f64>| conversion_progress.set(v))
                                                 })}
 
                                                 on_refresh_frames={Some({

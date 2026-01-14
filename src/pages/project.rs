@@ -137,6 +137,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let is_converting = use_state(|| false);
     let conversion_message = use_state(|| Option::<String>::None);
     let conversion_success_folder = use_state(|| Option::<String>::None);
+    let conversion_progress = use_state(|| Option::<f64>::None);
     let is_playing = use_state(|| false);
     let frames_delayed_playing = use_state(|| false); // Delayed playback for frames to sync with video
     let playback_started = use_state(|| false); // Track if playback has started (for delay logic)
@@ -857,6 +858,25 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         frames_loading={*frames_loading}
                     />
 
+                    // Conversion progress indicator
+                    if *is_converting {
+                        <div class="conversion-progress">
+                            <span class="conversion-progress-text">
+                                {if let Some(pct) = *conversion_progress {
+                                    format!("Converting... {:.0}%", pct)
+                                } else {
+                                    "Extracting frames...".to_string()
+                                }}
+                            </span>
+                            <div class="conversion-progress-bar">
+                                <div
+                                    class="conversion-progress-fill"
+                                    style={format!("width: {}%", conversion_progress.unwrap_or(0.0))}
+                                />
+                            </div>
+                        </div>
+                    }
+
                     // Conversion success notification
                     if let Some(folder_path) = &*conversion_success_folder {
                         <div class="conversion-notification">
@@ -1029,7 +1049,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let error_message = error_message.clone();
                                                     Callback::from(move |v: Option<String>| error_message.set(v))
                                                 })}
-                                            
+                                                on_conversion_progress_change={Some({
+                                                    let conversion_progress = conversion_progress.clone();
+                                                    Callback::from(move |v: Option<f64>| conversion_progress.set(v))
+                                                })}
+
                                                 on_refresh_frames={Some({
                                                     let frame_directories = frame_directories.clone();
                                                     let project_id = project_id.clone();

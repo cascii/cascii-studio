@@ -28,10 +28,26 @@ export async function tauriInvoke(cmd, args) {
   if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args);
   throw new Error('Tauri invoke is not available');
 }
+
+export async function tauriListen(event, callback) {
+  const g = globalThis.__TAURI__;
+  if (g?.event?.listen) return g.event.listen(event, callback);
+  throw new Error('Tauri listen is not available');
+}
+
+export async function tauriUnlisten(unlistenFn) {
+  if (unlistenFn) await unlistenFn();
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+
+    #[wasm_bindgen(js_name = tauriListen)]
+    async fn tauri_listen(event: &str, callback: &js_sys::Function) -> JsValue;
+
+    #[wasm_bindgen(js_name = tauriUnlisten)]
+    async fn tauri_unlisten(unlisten_fn: JsValue);
 }
 
 #[derive(Properties, PartialEq, Clone)]
@@ -92,6 +108,8 @@ pub struct VideoPlayerProps {
     pub on_conversion_message_change: Option<Callback<Option<String>>>,
     #[prop_or_default]
     pub on_error_message_change: Option<Callback<Option<String>>>,
+    #[prop_or_default]
+    pub on_conversion_progress_change: Option<Callback<Option<f64>>>,
 
     #[prop_or_default]
     pub on_refresh_frames: Option<Callback<()>>,
@@ -604,6 +622,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let on_is_converting_change = props.on_is_converting_change.clone();
         let on_conversion_message_change = props.on_conversion_message_change.clone();
         let on_error_message_change = props.on_error_message_change.clone();
+        let on_conversion_progress_change = props.on_conversion_progress_change.clone();
         let on_refresh_frames = props.on_refresh_frames.clone();
 
         Callback::from(move |_| {
@@ -623,17 +642,57 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             if let Some(cb) = &on_error_message_change {
                 cb.emit(None);
             }
+            if let Some(cb) = &on_conversion_progress_change {
+                cb.emit(Some(0.0));
+            }
 
             let on_is_converting_change = on_is_converting_change.clone();
             let on_conversion_message_change = on_conversion_message_change.clone();
             let on_error_message_change = on_error_message_change.clone();
+            let on_conversion_progress_change = on_conversion_progress_change.clone();
             let on_refresh_frames = on_refresh_frames.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
+                // Set up progress listener using a raw JS callback approach
+                web_sys::console::log_1(&"🎬 Setting up conversion-progress listener...".into());
+
+                let on_progress = on_conversion_progress_change.clone();
+                let progress_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                    web_sys::console::log_1(&"📡 EVENT RECEIVED!".into());
+                    web_sys::console::log_1(&event);
+                    if let Some(cb) = &on_progress {
+                        if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                            web_sys::console::log_1(&"📦 Got payload".into());
+                            if let Ok(percentage) = js_sys::Reflect::get(&payload, &"percentage".into()) {
+                                if let Some(pct) = percentage.as_f64() {
+                                    web_sys::console::log_1(&format!("📊 Progress: {:.1}%", pct).into());
+                                    cb.emit(Some(pct));
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Keep the closure alive by forgetting it (we'll clean it up manually)
+                let js_callback = progress_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+                progress_callback.forget(); // Prevent Rust from dropping the closure
+
+                web_sys::console::log_1(&"🔗 Registering listener...".into());
+                let unlisten_handle = tauri_listen("conversion-progress", &js_callback).await;
+                web_sys::console::log_1(&format!("✅ Listener registered: {:?}", unlisten_handle).into());
+                web_sys::console::log_1(&"🚀 Starting conversion...".into());
+
+                // Start conversion
                 let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name}};
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
+
+                // Clean up listener
+                web_sys::console::log_1(&"🧹 Cleaning up listener...".into());
+                tauri_unlisten(unlisten_handle).await;
+
                 if let Some(cb) = &on_is_converting_change {cb.emit(false)}
+                if let Some(cb) = &on_conversion_progress_change {cb.emit(None)}
 
                 match serde_wasm_bindgen::from_value::<String>(result) {
                     Ok(msg) => {

@@ -108,6 +108,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback when speed selection changes
     #[prop_or_default]
     pub on_speed_selection_change: Option<Callback<SpeedSelection>>,
+    /// Whether to loop playback
+    #[prop_or(true)]
+    pub loop_enabled: bool,
+    /// Callback when loop setting changes
+    #[prop_or_default]
+    pub on_loop_change: Option<Callback<bool>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -231,6 +237,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let fps = props.fps;
         let selected_speed = props.selected_speed.clone();
         let settings = props.settings.clone();
+        let loop_enabled = props.loop_enabled;
 
         // Use a simple effect that runs on every render when playing state changes
         // This is simpler than trying to track all the complex dependencies
@@ -249,17 +256,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 };
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
+                    let is_playing_clone = is_playing.clone();
                     let frame_count_clone = frame_count;
 
                     // Schedule the next frame advance
                     let handle = Timeout::new(interval_ms, move || {
                         let current = *current_index_clone;
-                        let next = if current + 1 >= frame_count_clone {
-                            0 // Loop back to start
+                        if current + 1 >= frame_count_clone {
+                            if loop_enabled {
+                                current_index_clone.set(0); // Loop back to start
+                            } else {
+                                // Stop at the end
+                                is_playing_clone.set(false);
+                            }
                         } else {
-                            current + 1
-                        };
-                        current_index_clone.set(next);
+                            current_index_clone.set(current + 1);
+                        }
                     });
 
                     *timeout_handle.borrow_mut() = Some(handle);
@@ -574,13 +586,29 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     />
                     <input
                         type="number"
-                        class={if props.selected_speed == SpeedSelection::Base {"setting-input selected"} else {"setting-input"}}
+                        class={if props.selected_speed == SpeedSelection::Base {"setting-input selected no-spinner"} else {"setting-input no-spinner"}}
                         style="width: 68px;"
                         value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()}
                         readonly=true
                         onclick={on_select_base}
-                        title="Base conversion FPS (read-only)"
+                        title="Default Speed"
                     />
+                    <button
+                        type="button"
+                        class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}}
+                        onclick={{
+                            let on_loop_change = props.on_loop_change.clone();
+                            let loop_enabled = props.loop_enabled;
+                            Callback::from(move |_| {
+                                if let Some(cb) = &on_loop_change {
+                                    cb.emit(!loop_enabled);
+                                }
+                            })
+                        }}
+                        title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
+                    >
+                        <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
+                    </button>
                 </div>
                 
                 if let Some(settings) = &props.settings {

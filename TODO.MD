@@ -10,19 +10,11 @@ don't create project if not all files are saved/converted
 
 
 cascii dep: autodetect to match framerate. i suspect that generating more frames than in the source files causes
-
-- converting progress
-
-bugs:
-- creating frames not immediately in AVAILABLE FRAMES
-
-
+Speed disparity
 
 features
 - auto load frames
 - frames buffer
 - load frames in parallel
-- frame by frame
 
-
-- move source files under /source and ascii conversion under /frames
+Use side webviews to display frames and mp4 in windows

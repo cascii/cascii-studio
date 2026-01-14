@@ -855,8 +855,15 @@ struct ConvertToAsciiRequest {
     custom_name: Option<String>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ConversionProgress {
+    completed: usize,
+    total: usize,
+    percentage: f64,
+}
+
 #[tauri::command]
-async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, String> {
+async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
 
     let input_path = PathBuf::from(&request.file_path);
@@ -894,21 +901,21 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
 
     fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
-    
+
     // Move conversion work to a blocking thread to prevent UI freeze
     let input_path_clone = input_path.clone();
     let output_dir_clone = output_dir.clone();
     let request_clone = request.clone();
     let fps = request.fps.unwrap_or(30);
-    
+
     let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
         let converter = AsciiConverter::new();
-        
+
         let conv_opts = ConversionOptions::default()
             .with_columns(request_clone.columns)
             .with_font_ratio(request_clone.font_ratio)
             .with_luminance(request_clone.luminance);
-        
+
         if is_image {
             // Convert single image
             let output_file = output_dir_clone.join(format!("{}.txt",
@@ -916,23 +923,46 @@ async fn convert_to_ascii(request: ConvertToAsciiRequest) -> Result<String, Stri
                     .and_then(|s| s.to_str())
                     .unwrap_or("output")
             ));
-            
+
             converter.convert_image(&input_path_clone, &output_file, &conv_opts)
                 .map_err(|e| format!("Failed to convert image: {}", e))?;
-            
+
             Ok(output_dir_clone)
         } else {
-            // Convert video
+            // Convert video with progress callback
             let video_opts = VideoOptions {
                 fps,
                 start: None,
                 end: None,
                 columns: request_clone.columns,
             };
-            
-            converter.convert_video(&input_path_clone, &output_dir_clone, &video_opts, &conv_opts, false)
-                .map_err(|e| format!("Failed to convert video: {}", e))?;
-            
+
+            println!("🎬 Starting video conversion with progress callback...");
+            let app_clone = app.clone();
+            converter.convert_video_with_progress(
+                &input_path_clone,
+                &output_dir_clone,
+                &video_opts,
+                &conv_opts,
+                false,
+                Some(move |completed: usize, total: usize| {
+                    let percentage = if total > 0 {
+                        (completed as f64 / total as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+                    println!("📊 Emitting conversion-progress: {}/{} ({:.1}%)", completed, total, percentage);
+                    let emit_result = app_clone.emit("conversion-progress", ConversionProgress {
+                        completed,
+                        total,
+                        percentage,
+                    });
+                    if let Err(e) = emit_result {
+                        println!("❌ Failed to emit progress: {:?}", e);
+                    }
+                }),
+            ).map_err(|e| format!("Failed to convert video: {}", e))?;
+
             Ok(output_dir_clone)
         }
     })

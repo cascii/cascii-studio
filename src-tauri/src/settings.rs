@@ -14,7 +14,11 @@ pub struct Settings {
     pub default_behavior: DefaultBehavior,
     pub delete_mode: DeleteMode,
     pub debug_logs: bool,
+    #[serde(default = "default_loop_enabled")]
+    pub loop_enabled: bool,
 }
+
+fn default_loop_enabled() -> bool { true }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -24,6 +28,7 @@ impl Default for Settings {
             default_behavior: DefaultBehavior::Move,
             delete_mode: DeleteMode::Soft,
             debug_logs: true,
+            loop_enabled: true,
         }
     }
 }

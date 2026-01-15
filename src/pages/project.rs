@@ -158,6 +158,23 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
     let loop_enabled = use_state(|| true);
 
+    // Load loop_enabled setting from settings.json on mount
+    {
+        let loop_enabled = loop_enabled.clone();
+        use_effect(move || {
+            let loop_enabled = loop_enabled.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = tauri_invoke("load_settings", JsValue::NULL).await;
+                if let Ok(loop_val) = js_sys::Reflect::get(&result, &"loop_enabled".into()) {
+                    if let Some(enabled) = loop_val.as_bool() {
+                        loop_enabled.set(enabled);
+                    }
+                }
+            });
+            || ()
+        });
+    }
+
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
     let frames_collapsed = use_state(|| false);
@@ -1329,6 +1346,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let loop_enabled = loop_enabled.clone();
                                                     Callback::from(move |enabled: bool| {
                                                         loop_enabled.set(enabled);
+                                                        // Save to settings
+                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                            let args = serde_wasm_bindgen::to_value(&json!({ "enabled": enabled })).unwrap();
+                                                            let _ = tauri_invoke("set_loop_enabled", args).await;
+                                                        });
                                                     })
                                                 }}
                                             />

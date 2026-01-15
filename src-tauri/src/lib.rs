@@ -105,6 +105,13 @@ fn load_settings() -> settings::Settings { settings::load() }
 fn save_settings(settings: settings::Settings) -> Result<(), String> { settings::save(&settings) }
 
 #[tauri::command]
+fn set_loop_enabled(enabled: bool) -> Result<(), String> {
+    let mut s = settings::load();
+    s.loop_enabled = enabled;
+    settings::save(&s)
+}
+
+#[tauri::command]
 async fn pick_directory(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::{DialogExt, FilePath};
 
@@ -1268,6 +1275,7 @@ pub fn run() {
             greet,
             load_settings,
             save_settings,
+            set_loop_enabled,
             pick_directory,
             open_directory,
             pick_files,

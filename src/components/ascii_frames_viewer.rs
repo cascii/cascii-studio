@@ -576,7 +576,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
                     <input
                         type="number"
-                        class={if props.selected_speed == SpeedSelection::Custom {"setting-input selected"} else {"setting-input"}}
+                        class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}}
                         style="width: 68px;"
                         value={props.frame_speed.unwrap_or(props.fps).to_string()}
                         min="1"
@@ -586,7 +586,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     />
                     <input
                         type="number"
-                        class={if props.selected_speed == SpeedSelection::Base {"setting-input selected no-spinner"} else {"setting-input no-spinner"}}
+                        class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}}
                         style="width: 68px;"
                         value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()}
                         readonly=true

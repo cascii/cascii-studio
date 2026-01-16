@@ -691,6 +691,37 @@
     transition: width 0.1s ease-out;
 }
 
+/* Frame loading progress indicator in sidebar */
+.frame-loading-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background-color: #2a4a4a;
+    border: 1px solid #4a7a7a;
+    border-radius: 6px;
+}
+
+.frame-loading-progress-text {
+    font-size: 0.8rem;
+    color: #aaffff;
+}
+
+.frame-loading-progress-bar {
+    width: 100%;
+    height: 6px;
+    background-color: #3a5a5a;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.frame-loading-progress-fill {
+    height: 100%;
+    background-color: #7affff;
+    border-radius: 3px;
+    transition: width 0.05s ease-out;
+}
+
 /* Conversion success notification in sidebar */
 .conversion-notification {
     display: flex;

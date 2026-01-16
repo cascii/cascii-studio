@@ -753,6 +753,141 @@ fn read_frame_file(file_path: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to read frame file: {}", e))
 }
 
+#[derive(Clone, serde::Serialize)]
+struct FramesLoadingProgress {
+    directory_path: String,
+    loaded: usize,
+    total: usize,
+    percentage: f64,
+}
+
+#[tauri::command]
+async fn load_frames_parallel(app: tauri::AppHandle, directory_path: String) -> Result<Vec<String>, String> {
+    let dir = PathBuf::from(&directory_path);
+
+    if !dir.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+
+    // Get list of frame files first
+    let mut frame_paths: Vec<(PathBuf, u32)> = Vec::new();
+
+    match fs::read_dir(&dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if ext == "txt" {
+                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                                let index = if file_name.starts_with("frame_") {
+                                    file_name
+                                        .strip_prefix("frame_")
+                                        .and_then(|s| s.strip_suffix(".txt"))
+                                        .and_then(|s| s.parse::<u32>().ok())
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                };
+                                frame_paths.push((path, index));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            return Err(format!("Failed to read directory: {}", e));
+        }
+    }
+
+    // Sort by index
+    frame_paths.sort_by(|a, b| a.1.cmp(&b.1));
+
+    let total = frame_paths.len();
+    if total == 0 {
+        return Err("No frames found in directory".to_string());
+    }
+
+    println!("🚀 Starting parallel frame loading for {} frames", total);
+
+    let directory_path_clone = directory_path.clone();
+    let total_count = total;
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let loaded_count = Arc::new(AtomicUsize::new(0));
+    let last_emitted_percent = Arc::new(AtomicUsize::new(0));
+    let app_for_progress = app.clone();
+    let dir_path_for_progress = directory_path_clone.clone();
+
+    // Emit initial progress
+    let _ = app_for_progress.emit("frames-loading-progress", FramesLoadingProgress {
+        directory_path: dir_path_for_progress.clone(),
+        loaded: 0,
+        total: total_count,
+        percentage: 0.0,
+    });
+
+    // Use rayon for parallel file reading in a blocking task
+    let result = tokio::task::spawn_blocking(move || {
+        use rayon::prelude::*;
+
+        // Process files in parallel
+        let frames: Vec<(u32, Result<String, String>)> = frame_paths
+            .par_iter()
+            .map(|(path, index)| {
+                let content = fs::read_to_string(path)
+                    .map_err(|e| format!("Failed to read {}: {}", path.display(), e));
+
+                // Update progress - only emit every 2% to avoid overwhelming the event system
+                let loaded = loaded_count.fetch_add(1, Ordering::SeqCst) + 1;
+                let current_percent = ((loaded as f64 / total_count as f64) * 100.0) as usize;
+                let last_percent = last_emitted_percent.load(Ordering::SeqCst);
+
+                if current_percent >= last_percent + 2 || loaded == total_count {
+                    if last_emitted_percent.compare_exchange(last_percent, current_percent, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                        let _ = app_for_progress.emit("frames-loading-progress", FramesLoadingProgress {
+                            directory_path: dir_path_for_progress.clone(),
+                            loaded,
+                            total: total_count,
+                            percentage: current_percent as f64,
+                        });
+                    }
+                }
+
+                (*index, content)
+            })
+            .collect();
+
+        // Sort by index and collect results
+        let mut sorted_frames: Vec<(u32, Result<String, String>)> = frames;
+        sorted_frames.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut final_frames = Vec::with_capacity(sorted_frames.len());
+        for (_, result) in sorted_frames {
+            match result {
+                Ok(content) => final_frames.push(content),
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(final_frames)
+    }).await.map_err(|e| format!("Task failed: {}", e))?;
+
+    match result {
+        Ok(frames) => {
+            println!("✅ Frames loaded: {} frames", frames.len());
+            Ok(frames)
+        }
+        Err(e) => {
+            println!("❌ Frame loading error: {}", e);
+            Err(e)
+        }
+    }
+}
+
 #[tauri::command]
 fn delete_project(project_id: String) -> Result<(), String> {
     // First, get the project details to find the project path
@@ -1289,6 +1424,7 @@ pub fn run() {
             get_project_frames,
             get_frame_files,
             read_frame_file,
+            load_frames_parallel,
             delete_project,
             delete_frame_directory,
             update_frame_custom_name,

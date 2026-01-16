@@ -72,6 +72,15 @@ struct ActiveConversion {
     percentage: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct FrameLoadingProgress {
+    directory_path: String,
+    name: String,
+    loaded: usize,
+    total: usize,
+    percentage: f64,
+}
+
 // Wasm binding to our custom JS shim for convertFileSrc
 #[wasm_bindgen(inline_js = r#"
 export function appConvertFileSrc(path) {
@@ -157,6 +166,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let current_conversion_id = use_state(|| None::<String>);
     let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
     let loop_enabled = use_state(|| true);
+
+    // Frame loading state (for progress bar in sidebar)
+    let frame_loading_progress_ref = use_mut_ref(|| Option::<FrameLoadingProgress>::None);
+    let frame_loading_trigger = use_state(|| 0u32);
 
     // Load loop_enabled setting from settings.json on mount
     {
@@ -435,6 +448,71 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         });
     }
 
+    // Global listener for frames-loading-progress events
+    {
+        let frame_loading_progress_ref = frame_loading_progress_ref.clone();
+        let frame_loading_trigger = frame_loading_trigger.clone();
+        let frames_loading = frames_loading.clone();
+
+        use_effect(move || {
+            let frame_loading_progress_ref = frame_loading_progress_ref.clone();
+            let frame_loading_trigger = frame_loading_trigger.clone();
+            let frames_loading = frames_loading.clone();
+
+            let progress_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                web_sys::console::log_1(&format!("📊 frames-loading-progress event received").into());
+                if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    let directory_path = js_sys::Reflect::get(&payload, &"directory_path".into())
+                        .ok()
+                        .and_then(|v| v.as_string());
+                    let loaded = js_sys::Reflect::get(&payload, &"loaded".into())
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .map(|v| v as usize);
+                    let total = js_sys::Reflect::get(&payload, &"total".into())
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                        .map(|v| v as usize);
+                    let percentage = js_sys::Reflect::get(&payload, &"percentage".into())
+                        .ok()
+                        .and_then(|v| v.as_f64());
+
+                    web_sys::console::log_1(&format!("📊 Progress: loaded={:?}, total={:?}, pct={:?}", loaded, total, percentage).into());
+
+                    if let (Some(dir_path), Some(loaded), Some(total), Some(pct)) = (directory_path, loaded, total, percentage) {
+                        // Extract name from directory path
+                        let name = std::path::Path::new(&dir_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Frames")
+                            .to_string();
+
+                        *frame_loading_progress_ref.borrow_mut() = Some(FrameLoadingProgress {
+                            directory_path: dir_path,
+                            name,
+                            loaded,
+                            total,
+                            percentage: pct,
+                        });
+                        frames_loading.set(true);
+                        frame_loading_trigger.set(*frame_loading_trigger + 1);
+                    }
+                }
+            });
+
+            let js_callback = progress_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let unlisten = tauri_listen("frames-loading-progress", &js_callback).await;
+                std::mem::forget(unlisten);
+            });
+
+            progress_callback.forget();
+
+            || ()
+        });
+    }
+
     // When a source is selected, prepare the media and convert to asset:// URL
     let on_select_source = {
         let selected_source = selected_source.clone();
@@ -703,6 +781,41 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }
                     }).collect::<Html>()}
                 </div>
+            }
+        } else {
+            html! {}
+        }
+    };
+
+    // Compute frame loading HTML (only show in sidebar for > 1000 frames)
+    let _frame_trigger = *frame_loading_trigger;
+    let frame_loading_html = {
+        let progress = frame_loading_progress_ref.borrow();
+        if let Some(p) = progress.as_ref() {
+            // Only show sidebar progress for large frame counts
+            if p.total > 1000 {
+                // Truncate name to 15 characters
+                let truncated_name: String = p.name.chars().take(15).collect();
+                let display_name = if p.name.len() > 15 {
+                    format!("{}...", truncated_name)
+                } else {
+                    truncated_name
+                };
+                html! {
+                    <div class="frame-loading-progress">
+                        <span class="frame-loading-progress-text">
+                            {format!("Loading {}: {} / {} ({:.0}%)", display_name, p.loaded, p.total, p.percentage)}
+                        </span>
+                        <div class="frame-loading-progress-bar">
+                            <div
+                                class="frame-loading-progress-fill"
+                                style={format!("width: {}%", p.percentage)}
+                            />
+                        </div>
+                    </div>
+                }
+            } else {
+                html! {}
             }
         } else {
             html! {}
@@ -1052,6 +1165,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     // Conversion progress indicators (multiple parallel conversions)
                     {conversions_html}
 
+                    // Frame loading progress indicator
+                    {frame_loading_html}
+
                     // Conversion success notification
                     if let Some(folder_path) = &*conversion_success_folder {
                         <div class="conversion-notification">
@@ -1306,8 +1422,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 seek_percentage={*seek_percentage}
                                                 on_loading_changed={{
                                                     let frames_loading = frames_loading.clone();
+                                                    let frame_loading_progress_ref = frame_loading_progress_ref.clone();
+                                                    let frame_loading_trigger = frame_loading_trigger.clone();
                                                     Callback::from(move |is_loading: bool| {
                                                         frames_loading.set(is_loading);
+                                                        if !is_loading {
+                                                            // Clear progress bar when loading is done
+                                                            *frame_loading_progress_ref.borrow_mut() = None;
+                                                            frame_loading_trigger.set(*frame_loading_trigger + 1);
+                                                        }
                                                     })
                                                 }}
                                                 frame_speed={*frame_speed}

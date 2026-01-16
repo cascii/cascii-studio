@@ -42,26 +42,6 @@ extern "C" {
     fn disconnect_observer(observer: &JsValue);
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct FrameFile {
-    path: String,
-    name: String,
-    index: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct AsciiConversion {
-    id: String,
-    folder_name: String,
-    folder_path: String,
-    frame_count: i32,
-    source_file_id: String,
-    project_id: String,
-    settings: ConversionSettings,
-    creation_date: String,
-    total_size: i64,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConversionSettings {
     pub fps: u32,
@@ -133,7 +113,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let calculated_font_size = use_state(|| 10.0f64); // Default font size in px
     let container_size = use_state(|| (0.0f64, 0.0f64)); // (width, height) from ResizeObserver
 
-    // Load frames when directory_path changes
+    // Trigger parallel frame loading when directory_path changes
     {
         let directory_path = props.directory_path.clone();
         let frames = frames.clone();
@@ -158,67 +138,35 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             // Cancel any pending timeout
             timeout_handle_clone.borrow_mut().take();
 
-            let on_loading_changed_async = on_loading_changed.clone();
+            // Trigger parallel frame loading (progress events are handled by global listener in project.rs)
+            let frames_for_async = frames.clone();
+            let is_loading_for_async = is_loading.clone();
+            let error_message_for_async = error_message.clone();
+            let on_loading_changed_for_async = on_loading_changed.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                // First, try to get conversion info to get the total frame count
-                let conversion_args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
-                let total_frames = match tauri_invoke("get_conversion_by_folder_path", conversion_args).await {
-                    result => {
-                        match serde_wasm_bindgen::from_value::<Option<AsciiConversion>>(result) {
-                            Ok(Some(conversion)) => conversion.frame_count as usize,
-                            _ => 0
-                        }
-                    }
-                };
-
-                // Get list of frame files
+                web_sys::console::log_1(&format!("🚀 Calling load_frames_parallel for: {}", directory_path).into());
                 let args = serde_wasm_bindgen::to_value(&json!({ "directoryPath": directory_path })).unwrap();
-                match tauri_invoke("get_frame_files", args).await {
-                    result => {
-                        match serde_wasm_bindgen::from_value::<Vec<FrameFile>>(result) {
-                            Ok(frame_files) => {
-                                let total_count = if total_frames > 0 { total_frames } else { frame_files.len() };
-                                loading_progress_clone.set((0, total_count));
+                let result = tauri_invoke("load_frames_parallel", args).await;
 
-                                // Load all frame contents
-                                let mut loaded_frames = Vec::new();
-                                for (i, frame_file) in frame_files.into_iter().enumerate() {
-                                    let args = serde_wasm_bindgen::to_value(&json!({ "filePath": frame_file.path })).unwrap();
-                                    match tauri_invoke("read_frame_file", args).await {
-                                        result => {
-                                            match serde_wasm_bindgen::from_value::<String>(result) {
-                                                Ok(content) => {
-                                                    loaded_frames.push(content);
-                                                    loading_progress_clone.set((i + 1, total_count));
-                                                }
-                                                Err(e) => {
-                                                    error_message.set(Some(format!("Failed to read frame {}: {:?}", frame_file.name, e)));
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if loaded_frames.is_empty() {
-                                    error_message.set(Some("No frames found in directory".to_string()));
-                                } else {
-                                    frames.set(loaded_frames);
-                                }
-                                is_loading.set(false);
-                                if let Some(callback) = on_loading_changed_async {
-                                    callback.emit(false);
-                                }
-                            }
-                            Err(e) => {
-                                error_message.set(Some(format!("Failed to list frames: {:?}", e)));
-                                is_loading.set(false);
-                                if let Some(callback) = on_loading_changed_async {
-                                    callback.emit(false);
-                                }
-                            }
+                // Parse result as Vec<String>
+                match serde_wasm_bindgen::from_value::<Vec<String>>(result) {
+                    Ok(loaded_frames) => {
+                        web_sys::console::log_1(&format!("✅ Loaded {} frames", loaded_frames.len()).into());
+                        if loaded_frames.is_empty() {
+                            error_message_for_async.set(Some("No frames found in directory".to_string()));
+                        } else {
+                            frames_for_async.set(loaded_frames);
                         }
                     }
+                    Err(e) => {
+                        web_sys::console::log_1(&format!("❌ Failed to load frames: {:?}", e).into());
+                        error_message_for_async.set(Some(format!("Failed to load frames: {:?}", e)));
+                    }
+                }
+
+                is_loading_for_async.set(false);
+                if let Some(callback) = &on_loading_changed_for_async {
+                    callback.emit(false);
                 }
             });
 

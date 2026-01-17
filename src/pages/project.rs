@@ -370,17 +370,27 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let project_id = project_id.clone();
 
             let complete_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                web_sys::console::log_1(&"🔵 CONVERSION-COMPLETE EVENT RECEIVED".into());
+                web_sys::console::log_1(&event);
+
                 if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    web_sys::console::log_1(&"🔵 Payload extracted:".into());
+                    web_sys::console::log_1(&payload);
+
                     let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
                         .ok()
                         .and_then(|v| v.as_string());
-                    let success = js_sys::Reflect::get(&payload, &"success".into())
-                        .ok()
+                    let success_val = js_sys::Reflect::get(&payload, &"success".into()).ok();
+                    web_sys::console::log_1(&format!("🔵 success raw value: {:?}", success_val.as_ref().map(|v| format!("{:?}", v))).into());
+
+                    let success = success_val
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     let message = js_sys::Reflect::get(&payload, &"message".into())
                         .ok()
                         .and_then(|v| v.as_string());
+
+                    web_sys::console::log_1(&format!("🔵 Parsed: source_id={:?}, success={}, message={:?}", source_id, success, message).into());
 
                     if let Some(source_id) = source_id {
                         web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE EVENT: {} (success={})", source_id, success).into());

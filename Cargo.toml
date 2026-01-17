@@ -1,6 +1,6 @@
 [package]
 name = "cascii_studio-ui"
-version = "0.73.3"
+version = "0.76.0"
 edition = "2021"
 build = "build.rs"
 

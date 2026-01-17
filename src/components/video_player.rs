@@ -692,21 +692,21 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             </div>
 
             <div class="controls">
-                <div class="control-row">
+                <div class="control-row" id="video-progress">
                     <input class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
                     <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
-                <div class="control-row">
+                <div class="control-row" id="video-volume">
                     <input class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input.clone()} title="Volume" />
                     <button class="ctrl-btn" type="button" onclick={on_toggle_mute.clone()} title="Mute/Unmute">
                         <Icon icon_id={vol_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
-                <div class="control-row">
+                <div class="control-row" id="video-cut-controls">
                     <div class="range-selector">
                         <div class="range-selector-track"></div>
                         <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" />
@@ -719,7 +719,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
                 <div class="controls-divider"></div>
 
-                <div class="control-row">
+                <div class="control-row" id="conversion-settings">
                     <div class="settings-info">
                         <div class="settings-row">
                             <span class="settings-label">{"FPS:"}</span>

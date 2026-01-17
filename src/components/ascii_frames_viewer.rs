@@ -114,6 +114,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback when loop setting changes
     #[prop_or_default]
     pub on_loop_change: Option<Callback<bool>>,
+    /// Callback to cut/export frame range: emits (start_frame, end_frame) indices
+    #[prop_or_default]
+    pub on_cut_frames: Option<Callback<(usize, usize)>>,
+    /// Whether a cut operation is in progress
+    #[prop_or(false)]
+    pub is_cutting: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -124,6 +130,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let is_loading = use_state(|| true);
     let error_message = use_state(|| None::<String>);
     let loading_progress = use_state(|| (0, 0)); // (loaded, total)
+    // Dual range selector state (0..1)
+    let left_value = use_state(|| 0.0f64);
+    let right_value = use_state(|| 1.0f64);
     // Store timeout handle to allow cancellation
     let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
@@ -144,6 +153,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let is_playing = is_playing.clone();
 
         let loading_progress_clone = loading_progress.clone();
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
         use_effect_with(directory_path.clone(), move |_| {
             loading_progress_clone.set((0, 0));
             is_loading.set(true);
@@ -154,6 +165,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             frames.set(Vec::new());
             current_index.set(0);
             is_playing.set(false); // Stop playback when loading new frames
+            left_value.set(0.0);
+            right_value.set(1.0);
 
             // Cancel any pending timeout
             timeout_handle_clone.borrow_mut().take();
@@ -232,6 +245,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let is_playing = is_playing.clone();
         let frames = frames.clone();
         let timeout_handle = timeout_handle.clone();
+        let left_val = *left_value;
+        let right_val = *right_value;
         // Clone the values we need to avoid lifetime issues
         let frame_speed = props.frame_speed;
         let fps = props.fps;
@@ -257,14 +272,17 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
                     let is_playing_clone = is_playing.clone();
-                    let frame_count_clone = frame_count;
+                    // Convert 0..1 range to frame indices
+                    let max_idx = frame_count.saturating_sub(1) as f64;
+                    let effective_start = (left_val * max_idx).round() as usize;
+                    let effective_end = (right_val * max_idx).round() as usize;
 
                     // Schedule the next frame advance
                     let handle = Timeout::new(interval_ms, move || {
                         let current = *current_index_clone;
-                        if current + 1 >= frame_count_clone {
+                        if current >= effective_end {
                             if loop_enabled {
-                                current_index_clone.set(0); // Loop back to start
+                                current_index_clone.set(effective_start); // Loop back to range start
                             } else {
                                 // Stop at the end
                                 is_playing_clone.set(false);
@@ -509,6 +527,33 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         })
     };
 
+    // Dual range selector handlers
+    let min_gap = 0.01;
+
+    let on_left_range_input = {
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            let val = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value_as_number()
+                .clamp(0.0, 1.0);
+            left_value.set(val.min(*right_value - min_gap));
+        })
+    };
+
+    let on_right_range_input = {
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            let val = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value_as_number()
+                .clamp(0.0, 1.0);
+            right_value.set(val.max(*left_value + min_gap));
+        })
+    };
+
     let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
     let frame_count = frames.len();
     let current_frame = (*current_index).min(frame_count.saturating_sub(1));
@@ -550,52 +595,44 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             </div>
 
             <div class="controls">
-                <div class="control-row">
-                    <input
-                        class="progress"
-                        type="range"
-                        min="0"
-                        max={(frame_count.saturating_sub(1)).to_string()}
-                        value={current_frame.to_string()}
-                        oninput={on_seek}
-                        title="Seek frame"
-                        disabled={frame_count == 0}
-                    />
-                    <button
-                        class="ctrl-btn"
-                        type="button"
-                        onclick={on_toggle_play}
-                        title="Play/Pause"
-                        disabled={frame_count == 0}
-                    >
+                <div class="control-row" id="frames-progress">
+                    <input class="progress" type="range" min="0" max={(frame_count.saturating_sub(1)).to_string()} value={current_frame.to_string()} oninput={on_seek} title="Seek frame" disabled={frame_count == 0} />
+                    <button class="ctrl-btn" type="button" onclick={on_toggle_play} title="Play/Pause" disabled={frame_count == 0}>
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
-                <div class="control-row">
+                <div class="control-row" id="cut-controls">
+                    <div class="range-selector">
+                        <div class="range-selector-track"></div>
+                        <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" disabled={frame_count == 0} />
+                        <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" disabled={frame_count == 0} />
+                    </div>
+                    <button class="ctrl-btn" type="button" disabled={props.is_cutting || props.on_cut_frames.is_none() || frame_count == 0} title="Cut frame segment" onclick={{
+                            let left_value = left_value.clone();
+                            let right_value = right_value.clone();
+                            let on_cut_frames = props.on_cut_frames.clone();
+                            let frame_count = frame_count;
+                            Callback::from(move |_| {
+                                if let Some(on_cut) = &on_cut_frames {
+                                    if frame_count > 0 {
+                                        let max_idx = frame_count.saturating_sub(1) as f64;
+                                        let start_frame = (*left_value * max_idx).round() as usize;
+                                        let end_frame = (*right_value * max_idx).round() as usize;
+                                        on_cut.emit((start_frame, end_frame));
+                                    }
+                                }
+                            })
+                        }}>
+                        <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
+                    </button>
+                </div>
+
+                <div class="control-row" id="frames-controls">
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
-                    <input
-                        type="number"
-                        class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}}
-                        style="width: 68px;"
-                        value={props.frame_speed.unwrap_or(props.fps).to_string()}
-                        min="1"
-                        oninput={on_speed_change}
-                        onclick={on_select_custom}
-                        title="Frame playback speed (FPS)"
-                    />
-                    <input
-                        type="number"
-                        class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}}
-                        style="width: 68px;"
-                        value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()}
-                        readonly=true
-                        onclick={on_select_base}
-                        title="Default Speed"
-                    />
-                    <button
-                        type="button"
-                        class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}}
+                    <input type="number" class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}} style="width: 68px;" value={props.frame_speed.unwrap_or(props.fps).to_string()} min="1" oninput={on_speed_change} onclick={on_select_custom} title="Frame playback speed (FPS)" />
+                    <input type="number" class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}} style="width: 68px;" value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()} readonly=true onclick={on_select_base} title="Default Speed" />
+                    <button type="button" class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
                         onclick={{
                             let on_loop_change = props.on_loop_change.clone();
                             let loop_enabled = props.loop_enabled;
@@ -604,16 +641,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                     cb.emit(!loop_enabled);
                                 }
                             })
-                        }}
-                        title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
-                    >
+                        }}>
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
                     <div style="flex: 1;"></div>
-                    <button
-                        type="button"
-                        class="ctrl-btn"
-                        onclick={{
+                    <button type="button" class="ctrl-btn" onclick={{
                             let current_index = current_index.clone();
                             let frames = frames.clone();
                             let is_playing = is_playing.clone();
@@ -635,12 +667,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                 }
                             })
                         }}
-                        title="Step forward one frame"
-                    >
+                        title="Step forward one frame">
                         <Icon icon_id={IconId::LucideSkipForward} width={"20"} height={"20"} />
                     </button>
                 </div>
-                
+
                 if let Some(settings) = &props.settings {
                     <div class="settings-info">
                         <div class="settings-row">

@@ -253,22 +253,27 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let selected_speed = props.selected_speed.clone();
         let settings = props.settings.clone();
         let loop_enabled = props.loop_enabled;
+        let current_idx = *current_index;
+        let playing = *is_playing;
 
-        // Use a simple effect that runs on every render when playing state changes
-        // This is simpler than trying to track all the complex dependencies
-        use_effect(move || {
-            let playing = *is_playing;
-            let frame_count = frames.len();
+        // Calculate current FPS for dependency tracking
+        let current_fps = match selected_speed {
+            SpeedSelection::Custom => frame_speed.unwrap_or(fps),
+            SpeedSelection::Base => settings.as_ref().map(|s| s.fps).unwrap_or(fps),
+        };
 
-            // Cancel any pending timeout first
-            timeout_handle.borrow_mut().take();
+        // Effect runs when playing state, current index, range, or speed changes
+        // Convert f64 to bits for reliable comparison in dependencies
+        use_effect_with(
+            (playing, current_idx, left_val.to_bits(), right_val.to_bits(), frames.len(), current_fps, loop_enabled),
+            move |_| {
+                let frame_count = frames.len();
 
-            // Only schedule next frame if playing and we have frames
-            if playing && frame_count > 0 {
-                let current_fps = match selected_speed {
-                    SpeedSelection::Custom => frame_speed.unwrap_or(fps),
-                    SpeedSelection::Base => settings.as_ref().map(|s| s.fps).unwrap_or(fps),
-                };
+                // Cancel any pending timeout first
+                timeout_handle.borrow_mut().take();
+
+                // Only schedule next frame if playing and we have frames
+                if playing && frame_count > 0 {
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
                     let is_playing_clone = is_playing.clone();
@@ -300,7 +305,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 move || {
                     timeout_handle_cleanup.borrow_mut().take();
                 }
-            });
+            }
+        );
     }
 
     // External play/pause control
@@ -369,6 +375,30 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     current_index.set(clamped_frame);
                 }
             }
+        });
+    }
+
+    // Clamp current frame to range when range selection changes
+    {
+        let current_index = current_index.clone();
+        let frames = frames.clone();
+        let left_val = *left_value;
+        let right_val = *right_value;
+
+        use_effect_with((left_val, right_val, frames.len()), move |_| {
+            let frame_count = frames.len();
+            if frame_count > 0 {
+                let max_idx = frame_count.saturating_sub(1) as f64;
+                let range_start = (left_val * max_idx).round() as usize;
+                let range_end = (right_val * max_idx).round() as usize;
+
+                let current = *current_index;
+                if current < range_start || current > range_end {
+                    // Jump to range start if current frame is outside range
+                    current_index.set(range_start);
+                }
+            }
+            || ()
         });
     }
 
@@ -466,20 +496,32 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     };
 
     // Seek to specific frame
+    // Seek within the selected range (slider value is 0-1 within range)
     let on_seek = {
         let current_index = current_index.clone();
         let is_playing = is_playing.clone();
-        let frames_len = frames.len();
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        let frames = frames.clone();
         Callback::from(move |e: web_sys::InputEvent| {
             if let Some(target) = e.target() {
                 if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                    let val = input.value_as_number();
-                    if val.is_finite() {
-                        let idx = val as usize;
-                        if idx < frames_len {
+                    let slider_val = input.value_as_number();
+                    if slider_val.is_finite() {
+                        let frame_count = frames.len();
+                        if frame_count > 0 {
+                            let max_idx = frame_count.saturating_sub(1) as f64;
+                            let range_start = (*left_value * max_idx).round() as usize;
+                            let range_end = (*right_value * max_idx).round() as usize;
+
+                            // Convert slider position (0-1) to frame index within range
+                            let range_len = (range_end - range_start) as f64;
+                            let target_frame = (range_start as f64 + slider_val.clamp(0.0, 1.0) * range_len).round() as usize;
+                            let clamped_frame = target_frame.min(range_end).max(range_start);
+
                             // Pause when seeking
                             is_playing.set(false);
-                            current_index.set(idx);
+                            current_index.set(clamped_frame);
                         }
                     }
                 }
@@ -558,8 +600,28 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let frame_count = frames.len();
     let current_frame = (*current_index).min(frame_count.saturating_sub(1));
 
-    let format_frame_info = |idx: usize, total: usize| -> String {
-        format!("Frame {} / {}", idx + 1, total)
+    // Calculate range bounds in frame indices
+    let max_idx = frame_count.saturating_sub(1) as f64;
+    let range_start_frame = (*left_value * max_idx).round() as usize;
+    let range_end_frame = (*right_value * max_idx).round() as usize;
+    let range_frame_count = range_end_frame.saturating_sub(range_start_frame) + 1;
+
+    // Progress within the range (0.0 to 1.0)
+    let progress_in_range = if range_frame_count > 1 {
+        ((current_frame as f64) - (range_start_frame as f64)) / ((range_end_frame - range_start_frame) as f64)
+    } else {
+        0.0
+    }.clamp(0.0, 1.0);
+
+    // Format frame info to show position within range
+    let format_frame_info = |idx: usize, range_start: usize, range_end: usize, total: usize| -> String {
+        if range_start == 0 && range_end == total.saturating_sub(1) {
+            // Full range - show simple format
+            format!("Frame {} / {}", idx + 1, total)
+        } else {
+            // Subset - show range context
+            format!("Frame {} / {} (range {}-{})", idx + 1, total, range_start + 1, range_end + 1)
+        }
     };
 
     // Compute loading message
@@ -589,14 +651,14 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         frames.get(current_frame).cloned().unwrap_or_default()
                     }</pre>
                     <div class="frame-info-overlay">
-                        {format_frame_info(current_frame, frame_count)}
+                        {format_frame_info(current_frame, range_start_frame, range_end_frame, frame_count)}
                     </div>
                 }
             </div>
 
             <div class="controls">
                 <div class="control-row" id="frames-progress">
-                    <input class="progress" type="range" min="0" max={(frame_count.saturating_sub(1)).to_string()} value={current_frame.to_string()} oninput={on_seek} title="Seek frame" disabled={frame_count == 0} />
+                    <input id="frames-progress-bar" class="progress" type="range" min="0" max="1" step="0.001" value={progress_in_range.to_string()} oninput={on_seek} title="Seek frame" disabled={frame_count == 0} />
                     <button class="ctrl-btn" type="button" onclick={on_toggle_play} title="Play/Pause" disabled={frame_count == 0}>
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>

@@ -32,6 +32,8 @@ pub struct Project {
 #[derive(Properties, PartialEq)]
 pub struct OpenPageProps {
     pub on_open_project: Callback<String>,
+    #[prop_or_default]
+    pub on_open_montage: Option<Callback<String>>,
 }
 
 #[function_component(OpenPage)]
@@ -109,6 +111,7 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                 <table class="project-table">
                     <thead>
                         <tr>
+                            <th class="open-actions-column"></th>
                             <th>{"Project Name"}</th>
                             <th>{"Last Modified"}</th>
                             <th class="actions-column"></th>
@@ -118,15 +121,37 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                         {
                             projects.iter().map(|project| {
                                 let on_open_project = props.on_open_project.clone();
+                                let on_open_montage = props.on_open_montage.clone();
                                 let on_delete_project = on_delete_project.clone();
                                 let project_id = project.id.clone();
+                                let project_id_for_project = project.id.clone();
+                                let project_id_for_montage = project.id.clone();
                                 let project_id_for_delete = project.id.clone();
                                 let is_deleting = deleting_project_id.as_ref() == Some(&project.id);
 
                                 let onclick = {
                                     let project_id = project_id.clone();
+                                    let on_open_project = on_open_project.clone();
                                     Callback::from(move |_: MouseEvent| {
                                         on_open_project.emit(project_id.clone());
+                                    })
+                                };
+
+                                let on_project_click = {
+                                    let on_open_project = on_open_project.clone();
+                                    Callback::from(move |e: MouseEvent| {
+                                        e.stop_propagation();
+                                        on_open_project.emit(project_id_for_project.clone());
+                                    })
+                                };
+
+                                let on_montage_click = {
+                                    let on_open_montage = on_open_montage.clone();
+                                    Callback::from(move |e: MouseEvent| {
+                                        e.stop_propagation();
+                                        if let Some(cb) = &on_open_montage {
+                                            cb.emit(project_id_for_montage.clone());
+                                        }
                                     })
                                 };
 
@@ -137,11 +162,29 @@ pub fn open_page(props: &OpenPageProps) -> Html {
 
                                 html! {
                                     <tr key={project.id.clone()} {onclick} class={if is_deleting { "deleting" } else { "" }}>
+                                        <td class="open-actions-cell">
+                                            <button
+                                                class="open-action-btn"
+                                                onclick={on_project_click}
+                                                disabled={is_deleting}
+                                                title="Open project"
+                                            >
+                                                <Icon icon_id={IconId::LucideBrush} width={"18"} height={"18"} />
+                                            </button>
+                                            <button
+                                                class="open-action-btn"
+                                                onclick={on_montage_click}
+                                                disabled={is_deleting}
+                                                title="Open montage"
+                                            >
+                                                <Icon icon_id={IconId::LucideFilm} width={"18"} height={"18"} />
+                                            </button>
+                                        </td>
                                         <td>{ &project.project_name }</td>
                                         <td>{ project.last_modified.format("%Y-%m-%d %H:%M").to_string() }</td>
                                         <td class="actions-cell">
-                                            <button 
-                                                class="delete-btn" 
+                                            <button
+                                                class="delete-btn"
                                                 onclick={on_delete_click}
                                                 disabled={is_deleting}
                                                 title="Delete project"

@@ -1,0 +1,31 @@
+/* Montage Page Styles */
+
+.montage-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    color: #f6f6f6;
+}
+
+.montage-page h1 {
+    margin-bottom: 2rem;
+    color: #f6f6f6;
+    font-size: 2rem;
+    font-weight: 300;
+    opacity: 0.8;
+}
+
+.montage-content {
+    background: #2a2a2a;
+    border-radius: 8px;
+    padding: 2rem;
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.montage-content p {
+    color: #888;
+    font-size: 1.2rem;
+}

@@ -733,6 +733,45 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
                     <div style="flex: 1;"></div>
+                    <button type="button" title="Step backward one frame" id="move-frame-backward" class="ctrl-btn" onclick={{
+                            let current_index = current_index.clone();
+                            let frames = frames.clone();
+                            let is_playing = is_playing.clone();
+                            let left_value = left_value.clone();
+                            let right_value = right_value.clone();
+                            Callback::from(move |_| {
+                                // Pause if playing
+                                if *is_playing {
+                                    is_playing.set(false);
+                                }
+                                // Go back one frame
+                                let frame_count = frames.len();
+                                if frame_count > 0 {
+                                    // Calculate range boundaries
+                                    let max_idx = frame_count.saturating_sub(1) as f64;
+                                    let range_start = (*left_value * max_idx).round() as usize;
+                                    let range_end = (*right_value * max_idx).round() as usize;
+
+                                    let current = *current_index;
+
+                                    // If we are at or before the start of the range, loop to end
+                                    // Otherwise just go to previous frame
+                                    let prev = if current <= range_start {
+                                        range_end
+                                    } else {
+                                        current - 1
+                                    };
+
+                                    // Ensure we don't go out of bounds of the actual frames
+                                    let valid_prev = prev.min(frame_count.saturating_sub(1));
+                                    current_index.set(valid_prev);
+                                }
+                            })
+                        }}>
+                        <span style="display: inline-flex; transform: scaleX(-1);">
+                            <Icon icon_id={IconId::LucideSkipForward} width={"20"} height={"20"} />
+                        </span>
+                    </button>
                     <button type="button" title="Step forward one frame" id="move-frame-forward" class="ctrl-btn" onclick={{
                             let current_index = current_index.clone();
                             let frames = frames.clone();

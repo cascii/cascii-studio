@@ -690,17 +690,14 @@ pub struct FrameFile {
     pub index: u32,
 }
 
-#[tauri::command]
-fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
-    let dir = PathBuf::from(&directory_path);
-    
+fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
     if !dir.exists() {
         return Err("Directory does not exist".to_string());
     }
     
     let mut frames = Vec::new();
     
-    match fs::read_dir(&dir) {
+    match fs::read_dir(dir) {
         Ok(entries) => {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -745,6 +742,12 @@ fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
     frames.sort_by(|a, b| a.index.cmp(&b.index));
     
     Ok(frames)
+}
+
+#[tauri::command]
+fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
+    let dir = PathBuf::from(&directory_path);
+    scan_frames_in_dir(&dir)
 }
 
 #[tauri::command]
@@ -1266,6 +1269,113 @@ fn rename_cut(request: RenameCutRequest) -> Result<(), String> {
         .map_err(|e| format!("Failed to rename cut: {}", e))
 }
 
+#[derive(serde::Deserialize)]
+struct CutFramesRequest {
+    #[serde(rename = "folderPath")]
+    folder_path: String,
+    #[serde(rename = "startIndex")]
+    start_index: usize,
+    #[serde(rename = "endIndex")]
+    end_index: usize,
+}
+
+#[tauri::command]
+async fn cut_frames(request: CutFramesRequest, app: tauri::AppHandle) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        cut_frames_blocking(request, app)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Result<String, String> {
+    // 1. Get original conversion
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
+        .map_err(|e| e.to_string())?
+        .ok_or("Original conversion not found")?;
+
+    // 2. Prepare new paths
+    let original_dir = PathBuf::from(&conversion.folder_path);
+    if !original_dir.exists() {
+        return Err("Original directory not found".to_string());
+    }
+
+    let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
+    let random_suffix = generate_random_suffix();
+    
+    // Extract base name logic:
+    // If folder name is "video_ascii[abc]", we want "video_cut[xyz]"
+    // If folder name is "video_cut[abc]", we want "video_cut[xyz]" (new unique suffix)
+    let base_name = if let Some(idx) = conversion.folder_name.find("_ascii") {
+        &conversion.folder_name[..idx]
+    } else if let Some(idx) = conversion.folder_name.find("_cut") {
+         &conversion.folder_name[..idx]
+    } else {
+        &conversion.folder_name
+    };
+    
+    let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
+    let new_folder_path = parent_dir.join(&new_folder_name);
+    
+    fs::create_dir_all(&new_folder_path).map_err(|e| e.to_string())?;
+    
+    // 3. Copy frames
+    // Get all frame files from original directory, sorted by index
+    let frame_files = scan_frames_in_dir(&original_dir)?;
+    
+    // Filter by index range (inclusive)
+    // Note: start_index and end_index are indices into the sorted array (0-based)
+    // NOT the frame number in the filename.
+    let frames_to_copy: Vec<_> = frame_files.iter()
+        .skip(request.start_index)
+        .take(request.end_index - request.start_index + 1)
+        .collect();
+        
+    if frames_to_copy.is_empty() {
+        return Err("No frames selected".to_string());
+    }
+
+    let mut copied_count = 0;
+    let mut total_size = 0i64;
+    
+    for (new_idx, frame) in frames_to_copy.iter().enumerate() {
+        let src_path = PathBuf::from(&frame.path);
+        let ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
+        
+        // Format: frame_0001.txt (1-based index)
+        let new_filename = format!("frame_{:04}.{}", new_idx + 1, ext);
+        let dest_path = new_folder_path.join(new_filename);
+        
+        fs::copy(&src_path, &dest_path).map_err(|e| format!("Failed to copy {}: {}", frame.name, e))?;
+        
+        let size = fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
+        total_size += size as i64;
+        copied_count += 1;
+    }
+    
+    // 4. Create new DB entry
+    let custom_name = if let Some(name) = &conversion.custom_name {
+        Some(format!("{} (Cut)", name))
+    } else {
+        Some("Cut frames".to_string())
+    };
+
+    let new_conversion = database::AsciiConversion {
+        id: Uuid::new_v4().to_string(),
+        folder_name: new_folder_name,
+        folder_path: new_folder_path.to_str().unwrap_or("").to_string(),
+        frame_count: copied_count as i32,
+        source_file_id: conversion.source_file_id,
+        project_id: conversion.project_id,
+        settings: conversion.settings, // Copy settings
+        creation_date: Utc::now(),
+        total_size,
+        custom_name,
+    };
+    
+    database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
+    
+    Ok(format!("Cut frames saved to: {} ({} frames)", new_folder_path.display(), copied_count))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1300,7 +1410,8 @@ pub fn run() {
             cut_video,
             get_project_cuts,
             delete_cut,
-            rename_cut
+            rename_cut,
+            cut_frames
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

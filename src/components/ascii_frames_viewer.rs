@@ -4,9 +4,9 @@ use wasm_bindgen::closure::Closure;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use yew_icons::{Icon, IconId};
-use gloo_timers::callback::Timeout;
 use std::cell::RefCell;
 use std::rc::Rc;
+use gloo_timers::callback::Interval;
 
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
@@ -30,6 +30,14 @@ export function observeResize(element, callback) {
 export function disconnectObserver(observer) {
   observer.disconnect();
 }
+
+export function startInterval(callback, intervalMs) {
+  return setInterval(callback, intervalMs);
+}
+
+export function clearIntervalById(id) {
+  clearInterval(id);
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
@@ -40,6 +48,12 @@ extern "C" {
 
     #[wasm_bindgen(js_name = disconnectObserver)]
     fn disconnect_observer(observer: &JsValue);
+
+    #[wasm_bindgen(js_name = startInterval)]
+    fn start_interval(callback: &Closure<dyn Fn()>, interval_ms: u32) -> i32;
+
+    #[wasm_bindgen(js_name = clearIntervalById)]
+    fn clear_interval_by_id(id: i32);
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -126,6 +140,7 @@ pub struct AsciiFramesViewerProps {
 pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     let frames = use_state(|| Vec::<String>::new());
     let current_index = use_state(|| 0usize);
+    let current_index_ref = use_mut_ref(|| 0usize);
     let is_playing = use_state(|| false);
     let is_loading = use_state(|| true);
     let error_message = use_state(|| None::<String>);
@@ -133,14 +148,23 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Dual range selector state (0..1)
     let left_value = use_state(|| 0.0f64);
     let right_value = use_state(|| 1.0f64);
-    // Store timeout handle to allow cancellation
-    let timeout_handle: Rc<RefCell<Option<Timeout>>> = use_mut_ref(|| None);
+    // Store interval handle for animation
+    let interval_handle: Rc<RefCell<Option<Interval>>> = use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
 
     // Auto-sizing state
     let container_ref = use_node_ref();
     let calculated_font_size = use_state(|| 10.0f64); // Default font size in px
     let container_size = use_state(|| (0.0f64, 0.0f64)); // (width, height) from ResizeObserver
+
+    // Sync ref when current_index state changes
+    {
+        let current_index_ref = current_index_ref.clone();
+        use_effect_with(*current_index, move |idx| {
+            *current_index_ref.borrow_mut() = *idx;
+            || ()
+        });
+    }
 
     // Load frames when directory_path changes
     {
@@ -149,7 +173,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let is_loading = is_loading.clone();
         let error_message = error_message.clone();
         let current_index = current_index.clone();
-        let timeout_handle_clone = timeout_handle.clone();
+        let interval_handle = interval_handle.clone();
         let is_playing = is_playing.clone();
 
         let loading_progress_clone = loading_progress.clone();
@@ -168,8 +192,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             left_value.set(0.0);
             right_value.set(1.0);
 
-            // Cancel any pending timeout
-            timeout_handle_clone.borrow_mut().take();
+            // Cancel any running animation interval
+            interval_handle.borrow_mut().take();
 
             let on_loading_changed_async = on_loading_changed.clone();
             wasm_bindgen_futures::spawn_local(async move {
@@ -239,72 +263,73 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         });
     }
 
-    // Animation loop - schedule next frame when playing
+    // Calculate current FPS from props (used for both animation and display)
+    let current_fps = match props.selected_speed {
+        SpeedSelection::Custom => props.frame_speed.unwrap_or(props.fps),
+        SpeedSelection::Base => props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps),
+    };
+
+    // Effect to start/stop animation when is_playing or speed changes
     {
         let current_index = current_index.clone();
-        let is_playing = is_playing.clone();
+        let current_index_ref = current_index_ref.clone();
+        let is_playing_state = is_playing.clone();
         let frames = frames.clone();
-        let timeout_handle = timeout_handle.clone();
-        let left_val = *left_value;
-        let right_val = *right_value;
-        // Clone the values we need to avoid lifetime issues
-        let frame_speed = props.frame_speed;
-        let fps = props.fps;
-        let selected_speed = props.selected_speed.clone();
-        let settings = props.settings.clone();
+        let interval_handle = interval_handle.clone();
+        let left_value = left_value.clone();
+        let right_value = right_value.clone();
         let loop_enabled = props.loop_enabled;
-        let current_idx = *current_index;
         let playing = *is_playing;
+        let frame_count = frames.len();
 
-        // Calculate current FPS for dependency tracking
-        let current_fps = match selected_speed {
-            SpeedSelection::Custom => frame_speed.unwrap_or(fps),
-            SpeedSelection::Base => settings.as_ref().map(|s| s.fps).unwrap_or(fps),
-        };
-
-        // Effect runs when playing state, current index, range, or speed changes
-        // Convert f64 to bits for reliable comparison in dependencies
         use_effect_with(
-            (playing, current_idx, left_val.to_bits(), right_val.to_bits(), frames.len(), current_fps, loop_enabled),
+            (playing, current_fps, frame_count),
             move |_| {
-                let frame_count = frames.len();
+                // Always clear existing interval first
+                interval_handle.borrow_mut().take();
 
-                // Cancel any pending timeout first
-                timeout_handle.borrow_mut().take();
-
-                // Only schedule next frame if playing and we have frames
                 if playing && frame_count > 0 {
                     let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                     let current_index_clone = current_index.clone();
-                    let is_playing_clone = is_playing.clone();
-                    // Convert 0..1 range to frame indices
-                    let max_idx = frame_count.saturating_sub(1) as f64;
-                    let effective_start = (left_val * max_idx).round() as usize;
-                    let effective_end = (right_val * max_idx).round() as usize;
+                    let current_index_ref_clone = current_index_ref.clone();
+                    let is_playing_clone = is_playing_state.clone();
+                    let interval_handle_clone = interval_handle.clone();
+                    let left_value_clone = left_value.clone();
+                    let right_value_clone = right_value.clone();
 
-                    // Schedule the next frame advance
-                    let handle = Timeout::new(interval_ms, move || {
-                        let current = *current_index_clone;
+                    let interval = Interval::new(interval_ms, move || {
+                        let max_idx = frame_count.saturating_sub(1) as f64;
+                        let effective_start = (*left_value_clone * max_idx).round() as usize;
+                        let effective_end = (*right_value_clone * max_idx).round() as usize;
+                        
+                        // Use ref for latest value
+                        let mut current = *current_index_ref_clone.borrow();
+                        
+                        if current < effective_start {
+                             current = effective_start;
+                        }
+
                         if current >= effective_end {
                             if loop_enabled {
-                                current_index_clone.set(effective_start); // Loop back to range start
+                                current = effective_start;
+                                *current_index_ref_clone.borrow_mut() = current;
+                                current_index_clone.set(current);
                             } else {
-                                // Stop at the end
+                                interval_handle_clone.borrow_mut().take();
                                 is_playing_clone.set(false);
                             }
                         } else {
-                            current_index_clone.set(current + 1);
+                            current += 1;
+                            *current_index_ref_clone.borrow_mut() = current;
+                            current_index_clone.set(current);
                         }
                     });
 
-                    *timeout_handle.borrow_mut() = Some(handle);
+                    // Store the interval to keep it alive
+                    *interval_handle.borrow_mut() = Some(interval);
                 }
 
-                // Cleanup function
-                let timeout_handle_cleanup = timeout_handle.clone();
-                move || {
-                    timeout_handle_cleanup.borrow_mut().take();
-                }
+                || ()
             }
         );
     }
@@ -315,11 +340,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let current_index = current_index.clone();
         let should_play = props.should_play;
         let prev_should_play = use_mut_ref(|| None::<bool>);
-        
+
         use_effect_with(should_play, move |should_play| {
             let current = *should_play;
             let prev = *prev_should_play.borrow();
-            
+
             // Only act on changes
             if current != prev {
                 match current {
@@ -487,7 +512,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         });
     }
 
-    // Toggle play/pause
+    // Toggle play/pause - effect handles actual start/stop
     let on_toggle_play = {
         let is_playing = is_playing.clone();
         Callback::from(move |_| {
@@ -613,15 +638,14 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         0.0
     }.clamp(0.0, 1.0);
 
-    // Format frame info to show position within range
-    let format_frame_info = |idx: usize, range_start: usize, range_end: usize, total: usize| -> String {
-        if range_start == 0 && range_end == total.saturating_sub(1) {
-            // Full range - show simple format
-            format!("Frame {} / {}", idx + 1, total)
-        } else {
-            // Subset - show range context
-            format!("Frame {} / {} (range {}-{})", idx + 1, total, range_start + 1, range_end + 1)
-        }
+    // Use current_fps for display (computed earlier at line 244)
+    let display_fps = current_fps;
+
+    // Position within the subset (1-based)
+    let position_in_subset = if current_frame >= range_start_frame {
+        current_frame - range_start_frame + 1
+    } else {
+        1
     };
 
     // Compute loading message
@@ -651,12 +675,14 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         frames.get(current_frame).cloned().unwrap_or_default()
                     }</pre>
                     <div class="frame-info-overlay">
-                        {format_frame_info(current_frame, range_start_frame, range_end_frame, frame_count)}
+                        <span class="info-left">{format!("Speed: {}", display_fps)}</span>
+                        <span class="info-center">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
+                        <span class="info-right">{format!("({}-{})", range_start_frame + 1, range_end_frame + 1)}</span>
                     </div>
                 }
             </div>
 
-            <div class="controls">
+            <div class="controls" id="frames-controls">
                 <div class="control-row" id="frames-progress">
                     <input id="frames-progress-bar" class="progress" type="range" min="0" max="1" step="0.001" value={progress_in_range.to_string()} oninput={on_seek} title="Seek frame" disabled={frame_count == 0} />
                     <button class="ctrl-btn" type="button" onclick={on_toggle_play} title="Play/Pause" disabled={frame_count == 0}>

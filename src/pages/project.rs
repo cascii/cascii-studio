@@ -370,27 +370,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let project_id = project_id.clone();
 
             let complete_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
-                web_sys::console::log_1(&"🔵 CONVERSION-COMPLETE EVENT RECEIVED".into());
-                web_sys::console::log_1(&event);
-
                 if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
-                    web_sys::console::log_1(&"🔵 Payload extracted:".into());
-                    web_sys::console::log_1(&payload);
-
                     let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
                         .ok()
                         .and_then(|v| v.as_string());
-                    let success_val = js_sys::Reflect::get(&payload, &"success".into()).ok();
-                    web_sys::console::log_1(&format!("🔵 success raw value: {:?}", success_val.as_ref().map(|v| format!("{:?}", v))).into());
-
-                    let success = success_val
+                    let success = js_sys::Reflect::get(&payload, &"success".into())
+                        .ok()
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     let message = js_sys::Reflect::get(&payload, &"message".into())
                         .ok()
                         .and_then(|v| v.as_string());
-
-                    web_sys::console::log_1(&format!("🔵 Parsed: source_id={:?}, success={}, message={:?}", source_id, success, message).into());
 
                     if let Some(source_id) = source_id {
                         web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE EVENT: {} (success={})", source_id, success).into());
@@ -689,9 +679,71 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    // Callback to cut frame segment
+    let on_cut_frames = {
+        let selected_frame_dir = selected_frame_dir.clone();
+        let frame_directories = frame_directories.clone();
+        let project_id = project_id.clone();
+        let conversion_message = conversion_message.clone();
+        let conversion_success_folder = conversion_success_folder.clone();
+        let error_message = error_message.clone();
+
+        Callback::from(move |(start_index, end_index): (usize, usize)| {
+            if let Some(frame_dir) = &*selected_frame_dir {
+                let folder_path = frame_dir.directory_path.clone();
+                let project_id = (*project_id).clone();
+                let frame_directories = frame_directories.clone();
+                let conversion_message = conversion_message.clone();
+                let conversion_success_folder = conversion_success_folder.clone();
+                let error_message = error_message.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
+                        "request": {
+                            "folderPath": folder_path,
+                            "startIndex": start_index,
+                            "endIndex": end_index
+                        }
+                    })).unwrap();
+
+                    match tauri_invoke("cut_frames", args).await {
+                        result => {
+                            match serde_wasm_bindgen::from_value::<String>(result) {
+                                Ok(msg) => {
+                                    web_sys::console::log_1(&format!("✅ Frames cut successfully: {}", msg).into());
+                                    
+                                    // Parse folder path from message
+                                    if let Some(start) = msg.find("saved to: ") {
+                                        let after_prefix = &msg[start + 10..];
+                                        if let Some(end) = after_prefix.find(" (") {
+                                            let folder_path = after_prefix[..end].to_string();
+                                            conversion_success_folder.set(Some(folder_path));
+                                        }
+                                    }
+                                    conversion_message.set(Some(msg));
+
+                                    // Refresh frame directories
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                    if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                        frame_directories.set(frames);
+                                    }
+                                }
+                                Err(e) => {
+                                    web_sys::console::log_1(&format!("❌ Failed to cut frames: {:?}", e).into());
+                                    error_message.set(Some("Failed to cut frames.".to_string()));
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        })
+    };
+
     // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
     let _trigger = *conversions_update_trigger;
+
     let conversions_html = {
         let conversions = active_conversions_ref.borrow();
         if !conversions.is_empty() {
@@ -700,15 +752,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     {conversions.values().map(|conv| {
                         html! {
                             <div class="conversion-progress" key={conv.source_id.clone()}>
-                                <span class="conversion-progress-text">
-                                    {format!("Converting {}: {:.0}%", conv.name, conv.percentage)}
-                                </span>
-                                <div class="conversion-progress-bar">
-                                    <div
-                                        class="conversion-progress-fill"
-                                        style={format!("width: {}%", conv.percentage)}
-                                    />
-                                </div>
+                                <span class="conversion-progress-text">{format!("Converting {}: {:.0}%", conv.name, conv.percentage)}</span>
+                                <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", conv.percentage)} /></div>
                             </div>
                         }
                     }).collect::<Html>()}
@@ -1363,6 +1408,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         });
                                                     })
                                                 }}
+                                                on_cut_frames={Some(on_cut_frames.clone())}
+                                                is_cutting={false}
                                             />
                                         }
                                     } else {

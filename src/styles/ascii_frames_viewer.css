@@ -51,8 +51,9 @@
 .frame-info-overlay {
     position: absolute;
     bottom: 8px;
+    left: 8px;
     right: 8px;
-    padding: 4px 8px;
+    padding: 4px 12px;
     background: rgba(0, 0, 0, 0.75);
     color: #ffffff;
     font-size: 0.875rem;
@@ -60,6 +61,27 @@
     border-radius: 4px;
     pointer-events: none;
     z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.frame-info-overlay .info-left,
+.frame-info-overlay .info-center,
+.frame-info-overlay .info-right {
+    flex: 1;
+}
+
+.frame-info-overlay .info-left {
+    text-align: left;
+}
+
+.frame-info-overlay .info-center {
+    text-align: center;
+}
+
+.frame-info-overlay .info-right {
+    text-align: right;
 }
 
 .loading-frames,

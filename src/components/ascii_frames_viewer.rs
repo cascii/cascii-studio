@@ -696,7 +696,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" disabled={frame_count == 0} />
                         <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" disabled={frame_count == 0} />
                     </div>
-                    <button class="ctrl-btn" type="button" disabled={props.is_cutting || props.on_cut_frames.is_none() || frame_count == 0} title="Cut frame segment" onclick={{
+                    <button id="cut-frames-button" class="ctrl-btn" type="button" disabled={props.is_cutting || props.on_cut_frames.is_none() || frame_count == 0} title="Cut frame segment" onclick={{
                             let left_value = left_value.clone();
                             let right_value = right_value.clone();
                             let on_cut_frames = props.on_cut_frames.clone();
@@ -733,10 +733,12 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
                     <div style="flex: 1;"></div>
-                    <button type="button" class="ctrl-btn" onclick={{
+                    <button type="button" title="Step forward one frame" id="move-frame-forward" class="ctrl-btn" onclick={{
                             let current_index = current_index.clone();
                             let frames = frames.clone();
                             let is_playing = is_playing.clone();
+                            let left_value = left_value.clone();
+                            let right_value = right_value.clone();
                             Callback::from(move |_| {
                                 // Pause if playing
                                 if *is_playing {
@@ -745,17 +747,27 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                 // Advance one frame
                                 let frame_count = frames.len();
                                 if frame_count > 0 {
+                                    // Calculate range boundaries
+                                    let max_idx = frame_count.saturating_sub(1) as f64;
+                                    let range_start = (*left_value * max_idx).round() as usize;
+                                    let range_end = (*right_value * max_idx).round() as usize;
+                                    
                                     let current = *current_index;
-                                    let next = if current + 1 >= frame_count {
-                                        0
+                                    
+                                    // If we are already at or past the end of the range, loop to start
+                                    // Otherwise just go to next frame
+                                    let next = if current >= range_end {
+                                        range_start
                                     } else {
                                         current + 1
                                     };
-                                    current_index.set(next);
+                                    
+                                    // Ensure we don't go out of bounds of the actual frames
+                                    let valid_next = next.min(frame_count.saturating_sub(1));
+                                    current_index.set(valid_next);
                                 }
                             })
-                        }}
-                        title="Step forward one frame">
+                        }}>
                         <Icon icon_id={IconId::LucideSkipForward} width={"20"} height={"20"} />
                     </button>
                 </div>

@@ -743,7 +743,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
     let _trigger = *conversions_update_trigger;
-
     let conversions_html = {
         let conversions = active_conversions_ref.borrow();
         if !conversions.is_empty() {
@@ -1109,13 +1108,14 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     // Conversion success notification
                     if let Some(folder_path) = &*conversion_success_folder {
-                        <div class="conversion-notification">
+                        <div class="conversion-notification" style="z-index: 1000;">
                             <span class="conversion-notification-text">{"ASCII frames generated"}</span>
                             <div class="conversion-notification-actions">
                                 <button
                                     class="nav-btn"
                                     type="button"
                                     title="Open folder"
+                                    style="position: relative; z-index: 1001; margin-right: 5px;"
                                     onclick={{
                                         let folder_path = folder_path.clone();
                                         Callback::from(move |_| {
@@ -1133,6 +1133,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     class="nav-btn"
                                     type="button"
                                     title="Dismiss"
+                                    style="position: relative; z-index: 1001;"
                                     onclick={{
                                         let conversion_success_folder = conversion_success_folder.clone();
                                         let conversion_message = conversion_message.clone();

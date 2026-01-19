@@ -27,9 +27,15 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     html! {
         <aside class="sidebar">
             if props.has_active_project {
-                <button class={get_btn_class("project", &props.current_page)} title="Project" type="button" onclick={nav("project")}>
-                    <Icon icon_id={IconId::LucideBrush} width={"28"} height={"28"} />
-                </button>
+                if props.current_page == "montage" {
+                    <button class={get_btn_class("montage", &props.current_page)} title="Montage" type="button" onclick={nav("montage")}>
+                        <Icon icon_id={IconId::LucideFilm} width={"28"} height={"28"} />
+                    </button>
+                } else {
+                    <button class={get_btn_class("project", &props.current_page)} title="Project" type="button" onclick={nav("project")}>
+                        <Icon icon_id={IconId::LucideBrush} width={"28"} height={"28"} />
+                    </button>
+                }
             }
             <button class={get_btn_class("home", &props.current_page)} title="Home" type="button" onclick={nav("home")}>
                 <Icon icon_id={IconId::LucideHome} width={"28"} height={"28"} />

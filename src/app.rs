@@ -23,6 +23,15 @@ pub fn app() -> Html {
         })
     };
 
+    let on_open_montage = {
+        let current_page = current_page.clone();
+        let active_project_id = active_project_id.clone();
+        Callback::from(move |project_id: String| {
+            active_project_id.set(Some(project_id));
+            current_page.set("montage".to_string());
+        })
+    };
+
     html! {
         <>
             <Sidebar
@@ -35,7 +44,7 @@ pub fn app() -> Html {
                     match current_page.as_str() {
                         "home"      => html! { <pages::home::HomePage /> },
                         "new"       => html! { <pages::new::NewPage on_open_project={on_open_project.clone()} /> },
-                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} /> },
+                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> },
                         "settings"  => html! { <pages::settings::SettingsPage /> },
                         "library"   => html! { <pages::library::LibraryPage /> },
                         "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
@@ -43,7 +52,14 @@ pub fn app() -> Html {
                             if let Some(id) = &*active_project_id {
                                 html! { <pages::project::ProjectPage project_id={id.clone()} /> }
                             } else {
-                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} /> }
+                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> }
+                            }
+                        },
+                        "montage" => {
+                            if let Some(id) = &*active_project_id {
+                                html! { <pages::montage::MontagePage project_id={id.clone()} /> }
+                            } else {
+                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> }
                             }
                         },
                         _ => html! { <pages::home::HomePage /> },

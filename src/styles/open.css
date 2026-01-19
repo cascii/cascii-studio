@@ -37,6 +37,10 @@
     width: 60px;
 }
 
+.project-table th.open-actions-column {
+    width: 80px;
+}
+
 .project-table tbody tr {
     transition: background-color 0.2s;
     position: relative;
@@ -86,6 +90,50 @@
 }
 
 .delete-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Open action buttons (paintbrush and film) */
+.open-actions-cell {
+    padding: 1rem 0.5rem !important;
+}
+
+.open-actions-cell > button {
+    display: inline-flex;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+.open-action-btn {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: opacity 0.2s, background-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none;
+}
+
+.project-table tbody tr:hover .open-action-btn {
+    opacity: 1;
+}
+
+.open-action-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.open-action-btn:active {
+    transform: scale(0.95);
+}
+
+.open-action-btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
 }

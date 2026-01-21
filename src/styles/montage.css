@@ -1,21 +1,45 @@
 /* Montage Page Styles */
 
 .montage-page {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
+    max-width: 100%;
+    padding: 1rem;
     color: #f6f6f6;
+    height: 100%;
+    box-sizing: border-box;
+    margin-left: -80px;
+    padding-left: 72px;
 }
 
 .montage-page h1 {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     color: #f6f6f6;
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 300;
     opacity: 0.8;
 }
 
-.montage-content {
+.montage-layout {
+    display: flex;
+    gap: 0;
+    height: 100%;
+}
+
+.montage-page .left-sidebar {
+    width: 250px;
+    min-width: 250px;
+    background: #2a2a2a;
+    border-radius: 0;
+    padding: 0.5rem;
+    overflow-y: auto;
+    margin-right: 1rem;
+}
+
+.montage-page .main-content {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.montage-workspace {
     background: #2a2a2a;
     border-radius: 8px;
     padding: 2rem;
@@ -25,7 +49,250 @@
     justify-content: center;
 }
 
-.montage-content p {
+.montage-workspace p {
     color: #888;
     font-size: 1.2rem;
+}
+
+/* Sidebar sections */
+.sidebar-section {
+    margin-bottom: 0.5rem;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.section-header:hover {
+    background-color: #3a3a3a;
+}
+
+.section-title {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.section-count {
+    font-size: 0.75rem;
+    color: #888;
+}
+
+.section-content {
+    padding-left: 0.5rem;
+}
+
+.empty-message {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    color: #666;
+    font-style: italic;
+}
+
+.list-item {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    cursor: grab;
+}
+
+.item-name {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.clickable {
+    cursor: grab;
+    position: relative;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.clickable:active {
+    cursor: grabbing;
+}
+
+.clickable:hover {
+    background-color: #4a4a4a;
+}
+
+
+/* Timeline styles */
+.timeline-container {
+    margin-top: 1rem;
+    background: #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px dashed transparent;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.timeline-container.drag-over {
+    background-color: #2f2f2f;
+    border-color: #666;
+}
+
+.timeline-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.timeline-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #ccc;
+}
+
+.timeline-hint {
+    font-size: 0.75rem;
+    color: #666;
+    font-style: italic;
+}
+
+.timeline-track {
+    min-height: 80px;
+    padding: 1rem;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: stretch;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.timeline-placeholder {
+    width: 100%;
+    text-align: center;
+    color: #666;
+    font-size: 0.875rem;
+    padding: 1.5rem;
+    pointer-events: none;
+}
+
+.timeline-items-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+    pointer-events: none;
+    align-items: stretch;
+}
+
+.timeline-items-row > * {
+    pointer-events: auto;
+}
+
+.timeline-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    cursor: grab;
+    transition: transform 0.1s, box-shadow 0.2s;
+    min-width: 100px;
+    max-width: 100px;
+    flex: 0 0 100px;
+}
+
+.timeline-item-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.timeline-item:active {
+    cursor: grabbing;
+}
+
+.timeline-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-item.source {
+    background: #343434;
+    border: 1px solid #4a4a4a;
+}
+
+.timeline-item.ascii {
+    background: #343434;
+    border: 1px solid #4a4a4a;
+}
+
+.timeline-item.cut {
+    background: #343434;
+    border: 1px solid #4a4a4a;
+}
+
+.timeline-item-name {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+
+.timeline-item-remove {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: color 0.2s, background-color 0.2s;
+    margin-top: auto;
+    align-self: flex-end;
+}
+
+.timeline-item-remove:hover {
+    color: #fff;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.timeline-item-index {
+    font-size: 0.75rem;
+    font-weight: 600;
+    min-width: 16px;
+    text-align: center;
+}
+
+/* Pointer-drag ghost (for Tauri webview pointer-based drag) */
+.pointer-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 999999;
+    pointer-events: none;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: rgba(60, 60, 60, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #f6f6f6;
+    font-size: 0.75rem;
+    max-width: 320px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    transform: none;
 }

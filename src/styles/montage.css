@@ -184,10 +184,11 @@
 
 .timeline-items-row {
     display: flex;
-    gap: 8px;
+    gap: 0;
     flex-wrap: nowrap;
     pointer-events: none;
     align-items: stretch;
+    width: 100%;
 }
 
 .timeline-items-row > * {
@@ -201,12 +202,17 @@
     justify-content: space-between;
     gap: 6px;
     padding: 0.5rem 0.75rem;
-    border-radius: 4px;
+    border-radius: 0;
     cursor: grab;
-    transition: transform 0.1s, box-shadow 0.2s;
-    min-width: 100px;
-    max-width: 100px;
-    flex: 0 0 100px;
+    transition: background-color 0.2s;
+    flex: 1 1 0;
+    min-width: 0;
+    background: #343434;
+    border-right: 1px solid #4a4a4a;
+}
+
+.timeline-item:last-child {
+    border-right: none;
 }
 
 .timeline-item:active {
@@ -214,23 +220,13 @@
 }
 
 .timeline-item:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: #3a3a3a;
 }
 
-.timeline-item.source {
-    background: #343434;
-    border: 1px solid #4a4a4a;
-}
-
-.timeline-item.ascii {
-    background: #343434;
-    border: 1px solid #4a4a4a;
-}
-
+.timeline-item.source,
+.timeline-item.ascii,
 .timeline-item.cut {
-    background: #343434;
-    border: 1px solid #4a4a4a;
+    /* All types share the same base styling now */
 }
 
 .timeline-item-name {

@@ -1,11 +1,11 @@
 use yew::prelude::*;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use chrono::{DateTime, Utc};
 use yew_icons::{Icon, IconId};
 use std::rc::Rc;
-use web_sys::DragEvent;
 use gloo::events::EventListener;
 
 use super::open::Project;
@@ -27,13 +27,15 @@ window.__dragGhostEl = null;
 window.__lastPointerX = 0;
 window.__lastPointerY = 0;
 window.__justDroppedOnTimeline = false;
+window.__dropTargetIndex = null;
+window.__pendingDropIndex = null;
+window.__dropIndicatorEl = null;
 
 function ensureDragGhost() {
   if (window.__dragGhostEl) return window.__dragGhostEl;
 
   const el = document.createElement('div');
   el.className = 'pointer-drag-ghost';
-  // Inline styles so it's visible even if CSS doesn't load
   el.style.position = 'fixed';
   el.style.zIndex = '999999';
   el.style.pointerEvents = 'none';
@@ -57,6 +59,24 @@ function ensureDragGhost() {
   return el;
 }
 
+function ensureDropIndicator() {
+  if (window.__dropIndicatorEl) return window.__dropIndicatorEl;
+
+  const el = document.createElement('div');
+  el.className = 'drop-indicator';
+  el.style.position = 'absolute';
+  el.style.width = '3px';
+  el.style.background = '#4a9eff';
+  el.style.borderRadius = '2px';
+  el.style.pointerEvents = 'none';
+  el.style.display = 'none';
+  el.style.zIndex = '1000';
+  el.style.boxShadow = '0 0 8px rgba(74, 158, 255, 0.6)';
+  document.body.appendChild(el);
+  window.__dropIndicatorEl = el;
+  return el;
+}
+
 function updateDragGhostContent() {
   const el = ensureDragGhost();
   try {
@@ -72,7 +92,6 @@ function showDragGhost() {
   const el = ensureDragGhost();
   updateDragGhostContent();
   el.style.display = 'block';
-  // Place it immediately so it's visible even before first mousemove
   moveDragGhost(window.__lastPointerX || 0, window.__lastPointerY || 0);
 }
 
@@ -81,13 +100,86 @@ function hideDragGhost() {
   window.__dragGhostEl.style.display = 'none';
 }
 
+function hideDropIndicator() {
+  if (!window.__dropIndicatorEl) return;
+  window.__dropIndicatorEl.style.display = 'none';
+  // Don't clear __dropTargetIndex here - it's needed by the drop handler
+}
+
 function moveDragGhost(x, y) {
   const el = ensureDragGhost();
-  // Offset so it doesn't sit directly under the cursor
   const offsetX = 12;
   const offsetY = 14;
   el.style.left = `${x + offsetX}px`;
   el.style.top = `${y + offsetY}px`;
+}
+
+function updateDropIndicator(x, y) {
+  const track = document.querySelector('.timeline-track');
+  const itemsRow = document.querySelector('.timeline-items-row');
+  if (!track || !itemsRow) {
+    hideDropIndicator();
+    return;
+  }
+
+  const items = itemsRow.querySelectorAll('.timeline-item');
+  if (items.length === 0) {
+    hideDropIndicator();
+    return;
+  }
+
+  const indicator = ensureDropIndicator();
+  const trackRect = track.getBoundingClientRect();
+
+  // Check if mouse is within track vertically
+  if (y < trackRect.top || y > trackRect.bottom) {
+    hideDropIndicator();
+    return;
+  }
+
+  let targetIndex = items.length; // Default to end
+  let indicatorX = 0;
+  let indicatorTop = 0;
+  let indicatorHeight = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const rect = item.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+
+    if (x < midX) {
+      targetIndex = i;
+      indicatorX = rect.left - 4;
+      indicatorTop = rect.top;
+      indicatorHeight = rect.height;
+      break;
+    }
+
+    // If we're past the last item's midpoint, place at end
+    if (i === items.length - 1) {
+      indicatorX = rect.right + 1;
+      indicatorTop = rect.top;
+      indicatorHeight = rect.height;
+    }
+  }
+
+  // Don't show indicator if dragging timeline item to its own position or adjacent
+  try {
+    const data = window.__dragData ? JSON.parse(window.__dragData) : null;
+    if (data && data.origin === 'timeline' && data.index !== undefined) {
+      const fromIndex = data.index;
+      if (targetIndex === fromIndex || targetIndex === fromIndex + 1) {
+        hideDropIndicator();
+        return;
+      }
+    }
+  } catch (_) {}
+
+  window.__dropTargetIndex = targetIndex;
+  indicator.style.display = 'block';
+  indicator.style.left = `${indicatorX}px`;
+  indicator.style.top = `${indicatorTop}px`;
+  indicator.style.height = `${indicatorHeight}px`;
 }
 
 export function setDragData(data) {
@@ -101,12 +193,20 @@ export function getDragData() {
 
 export function clearDragData() {
   window.__dragData = null;
+  window.__dropTargetIndex = null;
+  hideDropIndicator();
 }
 
 export function getPendingDrop() {
   const data = window.__pendingDrop;
   window.__pendingDrop = null;
   return data;
+}
+
+export function getDropTargetIndex() {
+  const idx = window.__pendingDropIndex;
+  window.__pendingDropIndex = null;
+  return idx;
 }
 
 export function consumeJustDropped() {
@@ -118,6 +218,7 @@ export function consumeJustDropped() {
 export function startPointerDrag() {
   window.__isPointerDragging = true;
   window.__isPointerOverTimeline = false;
+  window.__dropTargetIndex = null;
   console.log('Pointer drag started');
   showDragGhost();
 }
@@ -138,60 +239,23 @@ export function startPointerDragAt(x, y) {
 
   document.addEventListener('dragover', function(e) {
     e.preventDefault();
-
-    const container = document.querySelector('.timeline-container');
-    if (container && window.__dragData) {
-      const rect = container.getBoundingClientRect();
-      const isOver = e.clientX >= rect.left && e.clientX <= rect.right &&
-                     e.clientY >= rect.top && e.clientY <= rect.bottom;
-
-      if (isOver) {
-        if (!container.classList.contains('drag-over')) {
-          console.log('Drag over timeline-container');
-        }
-        container.classList.add('drag-over');
-      } else {
-        container.classList.remove('drag-over');
-      }
-    }
   }, true);
 
   document.addEventListener('drop', function(e) {
     e.preventDefault();
-    console.log('Document drop at:', e.clientX, e.clientY);
-
-    const container = document.querySelector('.timeline-container');
-    if (container) {
-      const rect = container.getBoundingClientRect();
-      const isOver = e.clientX >= rect.left && e.clientX <= rect.right &&
-                     e.clientY >= rect.top && e.clientY <= rect.bottom;
-
-      container.classList.remove('drag-over');
-
-      if (isOver && window.__dragData) {
-        console.log('Drop on timeline-container, storing pending drop');
-        window.__pendingDrop = window.__dragData;
-      }
-      window.__dragData = null;
-    }
   }, true);
 
   document.addEventListener('dragend', function(e) {
-    console.log('Drag ended');
-    const container = document.querySelector('.timeline-container');
-    if (container) {
-      container.classList.remove('drag-over');
-    }
+    hideDropIndicator();
     hideDragGhost();
   }, true);
 
-  // Pointer-based fallback for webviews that don't fire dragover/drop reliably
+  // Pointer-based drag for webviews
   document.addEventListener('mousemove', function(e) {
     if (!window.__isPointerDragging || !window.__dragData) return;
 
     window.__lastPointerX = e.clientX;
     window.__lastPointerY = e.clientY;
-    // Keep a visual "ghost" under the cursor while dragging
     moveDragGhost(e.clientX, e.clientY);
 
     const container = document.querySelector('.timeline-container');
@@ -207,12 +271,14 @@ export function startPointerDragAt(x, y) {
         window.__isPointerOverTimeline = true;
       }
       container.classList.add('drag-over');
+      updateDropIndicator(e.clientX, e.clientY);
     } else {
       if (window.__isPointerOverTimeline) {
         console.log('Pointer left timeline-container');
         window.__isPointerOverTimeline = false;
       }
       container.classList.remove('drag-over');
+      hideDropIndicator();
     }
   }, true);
 
@@ -220,20 +286,31 @@ export function startPointerDragAt(x, y) {
     if (!window.__isPointerDragging) return;
     console.log('Pointer released');
 
+    // Save the target index BEFORE hiding the indicator
+    const savedTargetIndex = window.__dropTargetIndex;
+
     const container = document.querySelector('.timeline-container');
     if (container) container.classList.remove('drag-over');
     hideDragGhost();
+    hideDropIndicator();
 
     if (window.__isPointerOverTimeline && window.__dragData) {
-      console.log('Pointer drop on timeline-container, storing pending drop');
+      console.log('Pointer drop on timeline, target index:', savedTargetIndex);
+      console.log('Drag data:', window.__dragData);
       window.__pendingDrop = window.__dragData;
+      window.__pendingDropIndex = savedTargetIndex;
       window.__justDroppedOnTimeline = true;
+      console.log('Dispatching cascii:timeline-drop event');
       window.dispatchEvent(new CustomEvent('cascii:timeline-drop'));
+      console.log('Event dispatched');
+    } else {
+      console.log('Drop NOT on timeline. isPointerOverTimeline:', window.__isPointerOverTimeline, 'dragData:', !!window.__dragData);
     }
 
     window.__dragData = null;
     window.__isPointerDragging = false;
     window.__isPointerOverTimeline = false;
+    window.__dropTargetIndex = null;
   }, true);
 
   console.log('Drag listeners setup complete');
@@ -257,6 +334,9 @@ extern "C" {
 
     #[wasm_bindgen(js_name = consumeJustDropped)]
     fn consume_just_dropped() -> bool;
+
+    #[wasm_bindgen(js_name = getDropTargetIndex)]
+    fn get_drop_target_index() -> Option<usize>;
 
     #[wasm_bindgen(js_name = startPointerDrag)]
     fn start_pointer_drag();
@@ -343,9 +423,6 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
     // Timeline state
     let timeline_items = use_state(|| Vec::<TimelineItem>::new());
-    // Drag state
-    let dragging_index = use_state(|| None::<usize>);
-    let is_timeline_drag_over = use_state(|| false);
 
     // Load project details and data
     {
@@ -460,11 +537,20 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let timeline_items_ref = timeline_items_ref.clone();
             let window = web_sys::window().expect("window exists");
             let listener = EventListener::new(&window, "cascii:timeline-drop", move |_| {
-                web_sys::console::log_1(&"Rust received cascii:timeline-drop".into());
+                web_sys::console::log_1(&"=== Rust received cascii:timeline-drop ===".into());
+                let target_index = get_drop_target_index();
+                web_sys::console::log_1(&format!("Drop target index: {:?}", target_index).into());
+
                 if let Some(data_str) = get_pending_drop() {
-                    web_sys::console::log_1(&format!("Processing pending drop: {}", data_str).into());
-                    if let Ok(drag_data) = serde_json::from_str::<DragData>(&data_str) {
+                    web_sys::console::log_1(&format!("Pending drop data: {}", data_str).into());
+                    match serde_json::from_str::<DragData>(&data_str) {
+                        Ok(drag_data) => {
+                            web_sys::console::log_1(&format!("Parsed drag data - origin: {}, index: {:?}", drag_data.origin, drag_data.index).into());
+                            let mut items = timeline_items_ref.borrow().clone();
+                            web_sys::console::log_1(&format!("Current items count: {}", items.len()).into());
+
                         if drag_data.origin == "sidebar" {
+                            // Adding new item from sidebar
                             let type_enum = match drag_data.item_type.as_str() {
                                 "source" => TimelineItemType::Source,
                                 "frame" => TimelineItemType::AsciiConversion,
@@ -472,33 +558,56 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 _ => return,
                             };
 
-                            // Read the current items from the ref (always up-to-date)
-                            let mut items = timeline_items_ref.borrow().clone();
                             let new_item = TimelineItem {
                                 id: make_unique_timeline_item_id(&drag_data.id),
                                 name: drag_data.name,
                                 item_type: type_enum,
                                 original_id: drag_data.id,
                             };
-                            items.push(new_item);
+
+                            if let Some(idx) = target_index {
+                                if idx <= items.len() {
+                                    items.insert(idx, new_item);
+                                } else {
+                                    items.push(new_item);
+                                }
+                            } else {
+                                items.push(new_item);
+                            }
                             timeline_items.set(items);
+                        } else if drag_data.origin == "timeline" {
+                            // Reordering existing timeline item
+                            if let Some(from_index) = drag_data.index {
+                                if let Some(to_index) = target_index {
+                                    web_sys::console::log_1(&format!("Moving item from {} to {}", from_index, to_index).into());
+                                    if from_index < items.len() {
+                                        let item = items.remove(from_index);
+                                        // Adjust target index after removal
+                                        let adjusted_to = if to_index > from_index {
+                                            (to_index - 1).min(items.len())
+                                        } else {
+                                            to_index.min(items.len())
+                                        };
+                                        items.insert(adjusted_to, item);
+                                        timeline_items.set(items);
+                                    }
+                                } else {
+                                    web_sys::console::log_1(&"No target index for timeline reorder".into());
+                                }
+                            }
+                        }
+                        },
+                        Err(e) => {
+                            web_sys::console::log_1(&format!("Failed to parse drag data: {:?}", e).into());
                         }
                     }
+                } else {
+                    web_sys::console::log_1(&"No pending drop data".into());
                 }
             });
             || drop(listener)
         });
     }
-
-    // Helper: extract DragData from either our JS global or DataTransfer
-    let read_drag_data = Rc::new(move |e: &DragEvent| -> Option<DragData> {
-        let data_str = get_drag_data().or_else(|| {
-            e.data_transfer()
-                .and_then(|dt| dt.get_data("text/plain").ok())
-                .filter(|s| !s.is_empty())
-        })?;
-        serde_json::from_str::<DragData>(&data_str).ok()
-    });
 
     // Remove item from timeline
     let on_remove_timeline_item = {
@@ -512,51 +621,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
-    // Move item in timeline
-    let move_timeline_item = {
-        let timeline_items = timeline_items.clone();
-        Rc::new(move |from_index: usize, to_index: usize| {
-            let mut items = (*timeline_items).clone();
-            if from_index < items.len() {
-                let item = items.remove(from_index);
-                // Adjust to_index if we removed an item before it
-                let insert_idx = if to_index > from_index {
-                    to_index.min(items.len())
-                } else {
-                    to_index
-                };
-
-                // Clamp
-                let final_idx = if insert_idx > items.len() { items.len() } else { insert_idx };
-                items.insert(final_idx, item);
-                timeline_items.set(items);
-            }
-        })
-    };
-
-    // Drag handlers for Sidebar Items
-    let _on_sidebar_drag_start = |item_type: String, id: String, name: String| {
-        Callback::from(move |e: DragEvent| {
-            web_sys::console::log_1(&format!("Sidebar drag start: {}", name).into());
-            let data = DragData {
-                origin: "sidebar".to_string(),
-                item_type: item_type.clone(),
-                id: id.clone(),
-                name: name.clone(),
-                index: None,
-            };
-            if let Ok(json_str) = serde_json::to_string(&data) {
-                set_drag_data(&json_str);
-                // Also set on DataTransfer for compatibility
-                if let Some(data_transfer) = e.data_transfer() {
-                    let _ = data_transfer.set_data("text/plain", &json_str);
-                    data_transfer.set_effect_allowed("copyMove");
-                }
-            }
-        })
-    };
-
-    // Pointer-based "grab" start for sidebar items (fallback path)
+    // Pointer-based drag start for sidebar items
     let on_sidebar_pointer_down = |item_type: String, id: String, name: String| {
         Callback::from(move |e: MouseEvent| {
             // Only start drag on left mouse button
@@ -578,107 +643,6 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
-    let _on_sidebar_drag_end = {
-        let timeline_items = timeline_items.clone();
-        Callback::from(move |_: DragEvent| {
-            web_sys::console::log_1(&"Sidebar drag end".into());
-
-            // Check if there's a pending drop from JavaScript
-            if let Some(data_str) = get_pending_drop() {
-                web_sys::console::log_1(&format!("Processing pending drop: {}", data_str).into());
-                if let Ok(drag_data) = serde_json::from_str::<DragData>(&data_str) {
-                    if drag_data.origin == "sidebar" {
-                        let type_enum = match drag_data.item_type.as_str() {
-                            "source" => TimelineItemType::Source,
-                            "frame" => TimelineItemType::AsciiConversion,
-                            "cut" => TimelineItemType::VideoCut,
-                            _ => return,
-                        };
-
-                        let mut items = (*timeline_items).clone();
-                        let new_item = TimelineItem {
-                            id: make_unique_timeline_item_id(&drag_data.id),
-                            name: drag_data.name,
-                            item_type: type_enum,
-                            original_id: drag_data.id,
-                        };
-                        items.push(new_item);
-                        timeline_items.set(items);
-                    }
-                }
-            }
-
-            clear_drag_data();
-        })
-    };
-
-    // Drag/Drop handlers for the timeline container/track (sidebar -> timeline)
-    let on_timeline_drag_enter = {
-        let is_timeline_drag_over = is_timeline_drag_over.clone();
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default();
-            e.stop_propagation();
-            if !*is_timeline_drag_over {
-                web_sys::console::log_1(&"Timeline drag enter".into());
-            }
-            is_timeline_drag_over.set(true);
-        })
-    };
-
-    let on_timeline_drag_over = {
-        let is_timeline_drag_over = is_timeline_drag_over.clone();
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default(); // Required to allow drop
-            e.stop_propagation();
-
-            // This fires a lot; only log the first time we consider ourselves "over"
-            if !*is_timeline_drag_over {
-                web_sys::console::log_1(&"Timeline drag over".into());
-                is_timeline_drag_over.set(true);
-            }
-
-            if let Some(dt) = e.data_transfer() {
-                dt.set_drop_effect("copy");
-            }
-        })
-    };
-
-    let on_timeline_drag_leave = {
-        let is_timeline_drag_over = is_timeline_drag_over.clone();
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default();
-            e.stop_propagation();
-            if *is_timeline_drag_over {
-                web_sys::console::log_1(&"Timeline drag leave".into());
-            }
-            is_timeline_drag_over.set(false);
-        })
-    };
-
-    let on_timeline_drop = {
-        let add_to_timeline = add_to_timeline.clone();
-        let is_timeline_drag_over = is_timeline_drag_over.clone();
-        let read_drag_data = read_drag_data.clone();
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default();
-            e.stop_propagation();
-            web_sys::console::log_1(&"Timeline drop".into());
-
-            is_timeline_drag_over.set(false);
-
-            if let Some(data) = read_drag_data.as_ref()(&e) {
-                web_sys::console::log_1(&format!("Timeline drop data: {:?}", data).into());
-                if data.origin == "sidebar" {
-                    add_to_timeline(&data.item_type, data.id, data.name, None);
-                }
-            } else {
-                web_sys::console::log_1(&"Timeline drop: no drag data found".into());
-            }
-
-            clear_drag_data();
-        })
-    };
-
     // Click to add (alternative to drag)
     let on_sidebar_click = {
         let add_to_timeline = add_to_timeline.clone();
@@ -695,64 +659,33 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         }
     };
 
-    // Drag/Drop handlers for Timeline Items
-    let on_item_drag_start = {
-        let dragging_index = dragging_index.clone();
-        Callback::from(move |(index, e): (usize, DragEvent)| {
-            web_sys::console::log_1(&format!("Item drag start: {}", index).into());
-            dragging_index.set(Some(index));
+    // Pointer-based drag handler for timeline items (for reordering)
+    let on_timeline_item_pointer_down = |index: usize, name: String| {
+        Callback::from(move |e: MouseEvent| {
+            // Only start drag on left mouse button
+            if e.button() != 0 {
+                return;
+            }
+            // Don't start drag if clicking on the remove button
+            if let Some(target) = e.target() {
+                if let Some(element) = target.dyn_ref::<web_sys::Element>() {
+                    if element.closest(".timeline-item-remove").ok().flatten().is_some() {
+                        return;
+                    }
+                }
+            }
+            web_sys::console::log_1(&format!("Timeline item pointer down: index={}", index).into());
             let data = DragData {
                 origin: "timeline".to_string(),
                 item_type: "".to_string(),
                 id: "".to_string(),
-                name: "".to_string(),
+                name: name.clone(),
                 index: Some(index),
             };
             if let Ok(json_str) = serde_json::to_string(&data) {
                 set_drag_data(&json_str);
-                if let Some(data_transfer) = e.data_transfer() {
-                    let _ = data_transfer.set_data("text/plain", &json_str);
-                    data_transfer.set_effect_allowed("copyMove");
-                }
+                start_pointer_drag_at(e.client_x(), e.client_y());
             }
-        })
-    };
-
-    let on_item_drag_end = {
-        let dragging_index = dragging_index.clone();
-        Callback::from(move |_| {
-            dragging_index.set(None);
-            clear_drag_data();
-        })
-    };
-
-    let on_item_drop = {
-        let add_to_timeline = add_to_timeline.clone();
-        let move_timeline_item = move_timeline_item.clone();
-        Callback::from(move |(target_index, e): (usize, DragEvent)| {
-            e.prevent_default();
-            e.stop_propagation();
-
-            let data_str = get_drag_data().or_else(|| {
-                e.data_transfer()
-                    .and_then(|dt| dt.get_data("text/plain").ok())
-                    .filter(|s| !s.is_empty())
-            });
-
-            if let Some(data_str) = data_str {
-                if let Ok(data) = serde_json::from_str::<DragData>(&data_str) {
-                    if data.origin == "sidebar" {
-                        add_to_timeline(&data.item_type, data.id, data.name, Some(target_index));
-                    } else if data.origin == "timeline" {
-                        if let Some(from_index) = data.index {
-                            if from_index != target_index {
-                                move_timeline_item(from_index, target_index);
-                            }
-                        }
-                    }
-                }
-            }
-            clear_drag_data();
         })
     };
 
@@ -874,11 +807,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
 
                     // Timeline axis - drag events handled by JavaScript
-                    <div class={classes!("timeline-container", (*is_timeline_drag_over).then_some("drag-over"))} ondragenter={on_timeline_drag_enter.clone()} ondragover={on_timeline_drag_over.clone()} ondragleave={on_timeline_drag_leave.clone()} ondrop={on_timeline_drop.clone()}>
+                    <div class="timeline-container">
                         <div class="timeline-header">
                             <span class="timeline-title">{"Timeline"}</span>
                         </div>
-                        <div class="timeline-track" ondragenter={on_timeline_drag_enter} ondragover={on_timeline_drag_over} ondragleave={on_timeline_drag_leave} ondrop={on_timeline_drop}>
+                        <div class="timeline-track">
                             if timeline_items.is_empty() {
                                 <div class="timeline-placeholder">
                                     {"Click items in the sidebar to add them here"}
@@ -891,23 +824,12 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             TimelineItemType::AsciiConversion => "timeline-item ascii",
                                             TimelineItemType::VideoCut => "timeline-item cut",
                                         };
-                                        let on_drag_start = on_item_drag_start.clone();
-                                        let on_drop = on_item_drop.clone();
                                         let on_remove = on_remove_timeline_item.clone();
-                                        let on_drag_end = on_item_drag_end.clone();
+                                        let item_name = item.name.clone();
 
                                         html! {
-                                            <div class={item_class} key={item.id.clone()} draggable="true" ondragstart={move |e| on_drag_start.emit((index, e))} ondragend={on_drag_end} ondragover={Callback::from(|e: DragEvent| {
-                                                    e.prevent_default(); // Allow drop
-                                                    if let Some(dt) = e.data_transfer() {
-                                                        dt.set_drop_effect("move");
-                                                    }
-                                                })}
-                                                ondrop={move |e| on_drop.emit((index, e))} title={item.name.clone()}>
-                                                <div class="timeline-item-header">
-                                                    <span class="timeline-item-index">{index + 1}</span>
-                                                    <span class="timeline-item-name">{&item.name}</span>
-                                                </div>
+                                            <div class={item_class} key={item.id.clone()} onmousedown={on_timeline_item_pointer_down(index, item_name)} title={item.name.clone()}>
+                                                <span class="timeline-item-name">{&item.name}</span>
                                                 <button
                                                     class="timeline-item-remove"
                                                     onclick={Callback::from(move |e: MouseEvent| {

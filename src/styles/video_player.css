@@ -106,6 +106,15 @@
 .video-player .ctrl-btn:active {
     background: #2a2a2a;
 }
+
+/* Color toggle button - muted when disabled */
+.video-player .color-toggle-btn:not(.active) {
+    opacity: 0.5;
+}
+
+.video-player .color-toggle-btn:not(.active):hover {
+    opacity: 0.8;
+}
   
 /* Range slider styling - rounded pill design */
 .video-player .progress,
@@ -287,6 +296,6 @@
 }
 
 /* Align button with input boxes when in settings row */
-.video-player .settings-info + .ctrl-btn {
+.video-player #conversion-settings .ctrl-btn {
   align-self: flex-end;
 }

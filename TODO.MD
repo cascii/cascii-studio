@@ -21,3 +21,4 @@ println should only happen if debug mode on in settings
 
 bugs:
 - should not auto switch to other frames that just finished loading
+- displays 0% even after conversions succeeds

@@ -106,7 +106,7 @@
 }
 
 .open-action-btn {
-    opacity: 0;
+    opacity: 0.7;
     background: none;
     border: none;
     color: #ffffff;

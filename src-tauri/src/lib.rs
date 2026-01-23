@@ -863,6 +863,8 @@ struct ConvertToAsciiRequest {
     project_id: String,
     source_file_id: String,
     custom_name: Option<String>,
+    #[serde(default)]
+    color: bool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -945,6 +947,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let luminance_for_db = request.luminance;
     let font_ratio_for_db = request.font_ratio;
     let columns_for_db = request.columns;
+    let color_for_db = request.color;
 
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
@@ -954,7 +957,8 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
             let conv_opts = ConversionOptions::default()
                 .with_columns(request_clone.columns)
                 .with_font_ratio(request_clone.font_ratio)
-                .with_luminance(request_clone.luminance);
+                .with_luminance(request_clone.luminance)
+                .with_extract_colors(request_clone.color);
 
             if is_image {
                 // Convert single image
@@ -1028,6 +1032,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                 columns: columns_for_db,
                                 fps,
                                 frame_speed: fps,
+                                color: color_for_db,
                             },
                             creation_date: Utc::now(),
                             total_size,

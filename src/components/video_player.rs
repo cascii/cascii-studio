@@ -14,6 +14,7 @@ struct ConvertToAsciiRequest {
     project_id: String,
     source_file_id: String,
     custom_name: Option<String>,
+    color: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -140,6 +141,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     // Dual range selector state (0..1)
     let left_value = use_state(|| 0.0f64);
     let right_value = use_state(|| 1.0f64);
+
+    // Color generation toggle state
+    let generate_colors = use_state(|| true);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;
@@ -618,12 +622,14 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let font_ratio = props.font_ratio;
         let columns = props.columns;
         let fps = props.fps;
+        let generate_colors = generate_colors.clone();
 
         let on_conversion_start = props.on_conversion_start.clone();
         let on_conversion_complete = props.on_conversion_complete.clone();
         let on_error_message_change = props.on_error_message_change.clone();
 
         Callback::from(move |_| {
+            let color = *generate_colors;
             let (Some(project_id), Some(source_file_id), Some(file_path)) =
                 (project_id.clone(), source_file_id.clone(), source_file_path.clone())
             else {
@@ -655,7 +661,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 // Start conversion (returns immediately, progress/completion handled by global listeners)
                 web_sys::console::log_1(&format!("🚀 Starting tauri_invoke for: {}", source_file_id_for_complete).into());
-                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name}};
+                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color}};
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
 
@@ -691,7 +697,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 <div class="timestamp-overlay">{timestamp}</div>
             </div>
 
-            <div class="controls">
+            <div class="controls" id="video-controls">
                 <div class="control-row" id="video-progress">
                     <input class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
                     <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
@@ -738,6 +744,16 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                             <input type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input.clone()} />
                         </div>
                     </div>
+                    <button class={classes!("ctrl-btn", "color-toggle-btn", (*generate_colors).then_some("active"))} type="button" onclick={{
+                        let generate_colors = generate_colors.clone();
+                        Callback::from(move |_| generate_colors.set(!*generate_colors))
+                    }} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
+                        if *generate_colors {
+                            <Icon icon_id={IconId::LucideBrush} width={"20"} height={"20"} />
+                        } else {
+                            <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
+                        }
+                    </button>
                     <button class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
                         <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />
                     </button>

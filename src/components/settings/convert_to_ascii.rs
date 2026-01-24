@@ -15,6 +15,7 @@ struct ConvertToAsciiRequest {
     project_id: String,
     source_file_id: String,
     color: bool,
+    extract_audio: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,10 +65,20 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
     // State for color generation toggle
     let generate_colors = use_state(|| true);
 
+    // State for audio extraction toggle
+    let extract_audio = use_state(|| false);
+
     let on_toggle_colors = {
         let generate_colors = generate_colors.clone();
         Callback::from(move |_| {
             generate_colors.set(!*generate_colors);
+        })
+    };
+
+    let on_toggle_audio = {
+        let extract_audio = extract_audio.clone();
+        Callback::from(move |_| {
+            extract_audio.set(!*extract_audio);
         })
     };
 
@@ -138,6 +149,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
         let fps = props.fps;
         let project_id = props.project_id.clone();
         let generate_colors = generate_colors.clone();
+        let extract_audio = extract_audio.clone();
         let on_is_converting_change = props.on_is_converting_change.clone();
         let on_conversion_message_change = props.on_conversion_message_change.clone();
         let on_error_message_change = props.on_error_message_change.clone();
@@ -145,6 +157,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
 
         Callback::from(move |_| {
             let color = *generate_colors;
+            let extract_audio = *extract_audio;
             if let Some(source) = &selected_source {
                 let file_path = source.file_path.clone();
                 let source_file_id = source.id.clone();
@@ -159,7 +172,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let invoke_args = ConvertToAsciiInvokeArgs {
-                        request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id: project_id_clone.clone(), source_file_id, color}
+                        request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id: project_id_clone.clone(), source_file_id, color, extract_audio}
                     };
 
                     let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
@@ -248,6 +261,9 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                     } else {
                                         <Icon icon_id={IconId::LucideXCircle} width={"18"} height={"18"} />
                                     }
+                                </button>
+                                <button class={classes!("audio-toggle-btn", (*extract_audio).then_some("active"))} onclick={on_toggle_audio} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
+                                    <Icon icon_id={IconId::LucideVolume2} width={"18"} height={"18"} />
                                 </button>
                                 <button class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>
                                     if props.is_converting {

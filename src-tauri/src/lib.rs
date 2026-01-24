@@ -865,6 +865,8 @@ struct ConvertToAsciiRequest {
     custom_name: Option<String>,
     #[serde(default)]
     color: bool,
+    #[serde(default)]
+    extract_audio: bool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -948,6 +950,15 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let font_ratio_for_db = request.font_ratio;
     let columns_for_db = request.columns;
     let color_for_db = request.color;
+    let extract_audio_flag = request.extract_audio;
+    let is_image_for_audio = is_image;  // Copy for use in audio extraction check
+    
+    // Clone values for audio extraction
+    let input_path_for_audio = input_path.clone();
+    let project_dir_for_audio = project_dir.clone();
+    let random_suffix_for_audio = random_suffix.clone();
+    let source_id_for_audio = request.source_file_id.clone();
+    let project_id_for_audio = request.project_id.clone();
 
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
@@ -1042,11 +1053,55 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                         match database::add_ascii_conversion(&conversion) {
                             Ok(_) => {
                                 println!("✅ Conversion complete: {}", source_id_for_complete);
+                                
+                                // Extract audio if flag is set and it's a video
+                                let mut audio_message = String::new();
+                                println!("🔊 Audio extraction check: flag={}, is_image={}", extract_audio_flag, is_image_for_audio);
+                                if extract_audio_flag && !is_image_for_audio {
+                                    println!("🎵 Starting audio extraction...");
+                                    let audio_dir = project_dir_for_audio.join("audio");
+                                    match extract_audio_from_video(&input_path_for_audio, &audio_dir, &random_suffix_for_audio) {
+                                        Ok((audio_folder_path, audio_size, duration)) => {
+                                            // Save audio extraction to database
+                                            let audio_folder_name = audio_folder_path.file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or("audio")
+                                                .to_string();
+                                            
+                                            let audio_extraction = database::AudioExtraction {
+                                                id: Uuid::new_v4().to_string(),
+                                                folder_name: audio_folder_name,
+                                                folder_path: audio_folder_path.to_str().unwrap_or("").to_string(),
+                                                source_file_id: source_id_for_audio.clone(),
+                                                project_id: project_id_for_audio.clone(),
+                                                creation_date: Utc::now(),
+                                                total_size: audio_size,
+                                                audio_track_beginning: 0.0,
+                                                audio_track_end: duration,
+                                                custom_name: None,
+                                            };
+                                            
+                                            match database::add_audio_extraction(&audio_extraction) {
+                                                Ok(_) => {
+                                                    audio_message = format!(" + Audio extracted ({} bytes)", audio_size);
+                                                    println!("✅ Audio extraction saved to database");
+                                                }
+                                                Err(e) => {
+                                                    println!("❌ Failed to save audio to database: {}", e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("❌ Failed to extract audio: {}", e);
+                                        }
+                                    }
+                                }
+                                
                                 let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
                                     source_id: source_id_for_complete,
                                     success: true,
-                                    message: format!("ASCII frames saved to: {} ({} frames, {} bytes)",
-                                        result_path.display(), frame_count, total_size),
+                                    message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}",
+                                        result_path.display(), frame_count, total_size, audio_message),
                                 });
                             }
                             Err(e) => {
@@ -1124,6 +1179,61 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     }
 
     Ok((frame_count, total_size))
+}
+
+fn extract_audio_from_video(
+    input_path: &PathBuf,
+    audio_dir: &PathBuf,
+    random_suffix: &str,
+) -> Result<(PathBuf, i64, f64), String> {
+    use std::process::{Command, Stdio};
+
+    // Get video duration for audio_track_end
+    let duration = get_video_duration(input_path.to_str().unwrap_or("")).unwrap_or(0.0) as f64;
+
+    // Create audio directory
+    fs::create_dir_all(audio_dir)
+        .map_err(|e| format!("Failed to create audio directory: {}", e))?;
+
+    // Generate output filename
+    let file_stem = input_path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("audio");
+    let folder_name = format!("{}_audio{}", file_stem, random_suffix);
+    let output_folder = audio_dir.join(&folder_name);
+
+    fs::create_dir_all(&output_folder)
+        .map_err(|e| format!("Failed to create audio output folder: {}", e))?;
+
+    let output_file = output_folder.join(format!("{}.mp3", file_stem));
+
+    println!("🎵 Extracting audio from: {} to: {}", input_path.display(), output_file.display());
+
+    // Run ffmpeg to extract audio
+    let status = Command::new("ffmpeg")
+        .arg("-i").arg(input_path)
+        .arg("-vn")  // No video
+        .arg("-acodec").arg("libmp3lame")
+        .arg("-q:a").arg("2")  // High quality
+        .arg("-y")  // Overwrite
+        .arg(&output_file)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg for audio extraction: {}. Make sure ffmpeg is installed.", e))?;
+
+    if !status.success() {
+        return Err(format!("ffmpeg audio extraction failed with status: {}", status));
+    }
+
+    // Calculate file size
+    let file_size = fs::metadata(&output_file)
+        .map_err(|e| format!("Failed to get audio file size: {}", e))?
+        .len() as i64;
+
+    println!("✅ Audio extracted: {} ({} bytes, duration: {}s)", output_file.display(), file_size, duration);
+
+    Ok((output_folder, file_size, duration))
 }
 
 // ============== Video Cuts Commands ==============

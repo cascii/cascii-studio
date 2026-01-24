@@ -437,6 +437,39 @@
     color: #8bb3dc;
 }
 
+.audio-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    min-width: 42px;
+    padding: 0;
+    background-color: #3a3a3a;
+    color: #888;
+    border: 1px solid #555;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.audio-toggle-btn:hover {
+    background-color: #4a4a4a;
+    border-color: #666;
+    color: #aaa;
+}
+
+.audio-toggle-btn.active {
+    background-color: #3a3a3a;
+    border-color: #555;
+    color: #888;
+}
+
+.audio-toggle-btn.active:hover {
+    background-color: #5a4a6a;
+    border-color: #8a6aaf;
+    color: #a37acc;
+}
+
 .btn-convert {
     flex: 1;
     padding: 0.75rem;

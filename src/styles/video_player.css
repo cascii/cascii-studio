@@ -115,6 +115,19 @@
 .video-player .color-toggle-btn:not(.active):hover {
     opacity: 0.8;
 }
+
+/* Audio toggle button styling */
+.video-player .audio-toggle-btn:not(.active) {
+    opacity: 0.5;
+}
+
+.video-player .audio-toggle-btn:not(.active):hover {
+    opacity: 0.8;
+}
+
+.video-player .audio-toggle-btn.active:hover {
+    color: #a37acc;
+}
   
 /* Range slider styling - rounded pill design */
 .video-player .progress,

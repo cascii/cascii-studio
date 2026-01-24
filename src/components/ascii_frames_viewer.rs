@@ -64,6 +64,71 @@ struct FrameFile {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+struct ColorData {
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+}
+
+/// A loaded frame: text content + optional color data
+#[derive(Clone, Debug)]
+struct Frame {
+    content: String,
+    colors: Option<ColorData>,
+}
+
+/// Build an HTML string with colored spans for each character
+fn build_colored_html(content: &str, colors: &ColorData) -> String {
+    let mut html = String::with_capacity(content.len() * 40);
+    let mut row: u32 = 0;
+    let mut col: u32 = 0;
+
+    for ch in content.chars() {
+        if ch == '\n' {
+            html.push('\n');
+            row += 1;
+            col = 0;
+            continue;
+        }
+
+        if row < colors.height && col < colors.width {
+            let idx = ((row * colors.width + col) * 3) as usize;
+            if idx + 2 < colors.rgb.len() {
+                let r = colors.rgb[idx];
+                let g = colors.rgb[idx + 1];
+                let b = colors.rgb[idx + 2];
+                // Skip styling for spaces or very dark colors (both r,g,b < 5)
+                if ch == ' ' || (r < 5 && g < 5 && b < 5) {
+                    html.push(ch);
+                } else {
+                    html.push_str(&format!(
+                        "<span style=\"color:rgb({},{},{})\">",
+                        r, g, b
+                    ));
+                    // Escape HTML entities
+                    match ch {
+                        '<' => html.push_str("&lt;"),
+                        '>' => html.push_str("&gt;"),
+                        '&' => html.push_str("&amp;"),
+                        '"' => html.push_str("&quot;"),
+                        _ => html.push(ch),
+                    }
+                    html.push_str("</span>");
+                }
+            } else {
+                html.push(ch);
+            }
+        } else {
+            html.push(ch);
+        }
+
+        col += 1;
+    }
+
+    html
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct AsciiConversion {
     id: String,
     folder_name: String,
@@ -83,6 +148,8 @@ pub struct ConversionSettings {
     pub luminance: u8,
     pub columns: u32,
     pub frame_speed: u32,
+    #[serde(default)]
+    pub color: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,11 +201,14 @@ pub struct AsciiFramesViewerProps {
     /// Whether a cut operation is in progress
     #[prop_or(false)]
     pub is_cutting: bool,
+    /// Whether color data was generated for these frames (from ascii_conversions.color)
+    #[prop_or(false)]
+    pub has_color: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
 pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
-    let frames = use_state(|| Vec::<String>::new());
+    let frames = use_state(|| Vec::<Frame>::new());
     let current_index = use_state(|| 0usize);
     let current_index_ref = use_mut_ref(|| 0usize);
     let is_playing = use_state(|| false);
@@ -151,6 +221,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Store interval handle for animation
     let interval_handle: Rc<RefCell<Option<Interval>>> = use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
+    // Color display toggle
+    let color_enabled = use_state(|| false);
 
     // Auto-sizing state
     let container_ref = use_node_ref();
@@ -175,6 +247,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let current_index = current_index.clone();
         let interval_handle = interval_handle.clone();
         let is_playing = is_playing.clone();
+        let has_color = props.has_color;
+        let color_enabled = color_enabled.clone();
 
         let loading_progress_clone = loading_progress.clone();
         let left_value = left_value.clone();
@@ -191,6 +265,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             is_playing.set(false); // Stop playback when loading new frames
             left_value.set(0.0);
             right_value.set(1.0);
+            color_enabled.set(false); // Reset color state on new directory
 
             // Cancel any running animation interval
             interval_handle.borrow_mut().take();
@@ -217,7 +292,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                 let total_count = if total_frames > 0 { total_frames } else { frame_files.len() };
                                 loading_progress_clone.set((0, total_count));
 
-                                // Load all frame contents
+                                // Load all frame contents (and color data if available)
                                 let mut loaded_frames = Vec::new();
                                 for (i, frame_file) in frame_files.into_iter().enumerate() {
                                     let args = serde_wasm_bindgen::to_value(&json!({ "filePath": frame_file.path })).unwrap();
@@ -225,7 +300,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                         result => {
                                             match serde_wasm_bindgen::from_value::<String>(result) {
                                                 Ok(content) => {
-                                                    loaded_frames.push(content);
+                                                    // Try to load matching .colors file if color was generated
+                                                    let colors = if has_color {
+                                                        let colors_args = serde_wasm_bindgen::to_value(
+                                                            &json!({ "txtFilePath": frame_file.path }),
+                                                        ).unwrap();
+                                                        match tauri_invoke("read_colors_file", colors_args).await {
+                                                            result => {
+                                                                serde_wasm_bindgen::from_value::<Option<ColorData>>(result)
+                                                                    .unwrap_or(None)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        None
+                                                    };
+
+                                                    loaded_frames.push(Frame { content, colors });
                                                     loading_progress_clone.set((i + 1, total_count));
                                                 }
                                                 Err(e) => {
@@ -474,7 +564,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
             // Get the first frame to determine dimensions
             if let Some(first_frame) = frames.first() {
-                let lines: Vec<&str> = first_frame.lines().collect();
+                let lines: Vec<&str> = first_frame.content.lines().collect();
                 let row_count = lines.len();
                 let col_count = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
@@ -672,12 +762,24 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <div class="no-frames">{"No frames available"}</div>
                 } else {
                     <pre class="ascii-frame-content" style={font_size_style.clone()}>{
-                        frames.get(current_frame).cloned().unwrap_or_default()
+                        if let Some(frame) = frames.get(current_frame) {
+                            if *color_enabled {
+                                if let Some(ref colors) = frame.colors {
+                                    Html::from_html_unchecked(AttrValue::from(build_colored_html(&frame.content, colors)))
+                                } else {
+                                    Html::from(frame.content.clone())
+                                }
+                            } else {
+                                Html::from(frame.content.clone())
+                            }
+                        } else {
+                            Html::from("")
+                        }
                     }</pre>
                     <div class="frame-info-overlay">
                         <span class="info-left">{format!("Speed: {}", display_fps)}</span>
                         <span class="info-center">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
-                        <span class="info-right">{format!("({}-{})", range_start_frame + 1, range_end_frame + 1)}</span>
+                        <span class="info-right">{if *color_enabled && props.has_color { "Color" } else { "" }}</span>
                     </div>
                 }
             </div>
@@ -731,6 +833,25 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                             })
                         }}>
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
+                    </button>
+                    <button type="button"
+                        class={classes!("ctrl-btn", "color-btn", if props.has_color && *color_enabled { Some("active") } else { None }, if !props.has_color { Some("disabled") } else { None })}
+                        title={if !props.has_color { "No color generated for the frames" } else if *color_enabled { "Color display enabled" } else { "Color display disabled" }}
+                        disabled={!props.has_color}
+                        onclick={{
+                            let color_enabled = color_enabled.clone();
+                            let has_color = props.has_color;
+                            Callback::from(move |_| {
+                                if has_color {
+                                    color_enabled.set(!*color_enabled);
+                                }
+                            })
+                        }}>
+                        if *color_enabled && props.has_color {
+                            <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
+                        } else {
+                            <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
+                        }
                     </button>
                     <div style="flex: 1;"></div>
                     <button type="button" title="Step backward one frame" id="move-frame-backward" class="ctrl-btn" onclick={{

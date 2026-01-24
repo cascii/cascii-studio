@@ -15,6 +15,7 @@ struct ConvertToAsciiRequest {
     source_file_id: String,
     custom_name: Option<String>,
     color: bool,
+    extract_audio: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -144,6 +145,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     // Color generation toggle state
     let generate_colors = use_state(|| true);
+
+    // Audio extraction toggle state
+    let extract_audio = use_state(|| false);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;
@@ -623,6 +627,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let columns = props.columns;
         let fps = props.fps;
         let generate_colors = generate_colors.clone();
+        let extract_audio = extract_audio.clone();
 
         let on_conversion_start = props.on_conversion_start.clone();
         let on_conversion_complete = props.on_conversion_complete.clone();
@@ -630,6 +635,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
         Callback::from(move |_| {
             let color = *generate_colors;
+            let extract_audio = *extract_audio;
             let (Some(project_id), Some(source_file_id), Some(file_path)) =
                 (project_id.clone(), source_file_id.clone(), source_file_path.clone())
             else {
@@ -661,7 +667,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 // Start conversion (returns immediately, progress/completion handled by global listeners)
                 web_sys::console::log_1(&format!("🚀 Starting tauri_invoke for: {}", source_file_id_for_complete).into());
-                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color}};
+                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color, extract_audio}};
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
 
@@ -753,6 +759,12 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         } else {
                             <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
                         }
+                    </button>
+                    <button class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
+                        let extract_audio = extract_audio.clone();
+                        Callback::from(move |_| extract_audio.set(!*extract_audio))
+                    }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
+                        <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
                     </button>
                     <button class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
                         <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />

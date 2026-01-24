@@ -1,8 +1,8 @@
 [package]
 name = "cascii_studio"
-version = "0.106.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.108.0"
+description = "ASCII art studio"
+authors = ["hjoncour"]
 edition = "2021"
 
 [lib]

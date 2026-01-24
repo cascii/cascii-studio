@@ -247,7 +247,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let current_index = current_index.clone();
         let interval_handle = interval_handle.clone();
         let is_playing = is_playing.clone();
-        let has_color = props.has_color;
         let color_enabled = color_enabled.clone();
 
         let loading_progress_clone = loading_progress.clone();
@@ -300,19 +299,15 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                         result => {
                                             match serde_wasm_bindgen::from_value::<String>(result) {
                                                 Ok(content) => {
-                                                    // Try to load matching .colors file if color was generated
-                                                    let colors = if has_color {
-                                                        let colors_args = serde_wasm_bindgen::to_value(
-                                                            &json!({ "txtFilePath": frame_file.path }),
-                                                        ).unwrap();
-                                                        match tauri_invoke("read_colors_file", colors_args).await {
-                                                            result => {
-                                                                serde_wasm_bindgen::from_value::<Option<ColorData>>(result)
-                                                                    .unwrap_or(None)
-                                                            }
+                                                    // Try to load matching .colors file
+                                                    let colors_args = serde_wasm_bindgen::to_value(
+                                                        &json!({ "txtFilePath": frame_file.path }),
+                                                    ).unwrap();
+                                                    let colors = match tauri_invoke("read_colors_file", colors_args).await {
+                                                        result => {
+                                                            serde_wasm_bindgen::from_value::<Option<ColorData>>(result)
+                                                                .unwrap_or(None)
                                                         }
-                                                    } else {
-                                                        None
                                                     };
 
                                                     loaded_frames.push(Frame { content, colors });
@@ -751,6 +746,39 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
     let font_size_style = format!("font-size: {:.2}px;", *calculated_font_size);
 
+    // Build frame content (colored or plain) - computed before html! macro
+    let frame_html = if frame_count > 0 {
+        if let Some(frame) = frames.get(current_frame) {
+            if *color_enabled {
+                if let Some(ref colors) = frame.colors {
+                    let colored = build_colored_html(&frame.content, colors);
+                    Html::from_html_unchecked(AttrValue::from(colored))
+                } else {
+                    Html::from(frame.content.clone())
+                }
+            } else {
+                Html::from(frame.content.clone())
+            }
+        } else {
+            Html::from("")
+        }
+    } else {
+        Html::from("")
+    };
+
+    // Check if any loaded frame actually has color data
+    let frames_have_color_data = frame_count > 0
+        && frames.iter().any(|f| f.colors.is_some());
+
+    // Effective color availability: prop from database OR detected from loaded frames
+    let color_available = props.has_color || frames_have_color_data;
+
+    let has_colors = *color_enabled && color_available
+        && frames
+            .get(current_frame)
+            .map(|f| f.colors.is_some())
+            .unwrap_or(false);
+
     html! {
         <div class="ascii-frames-viewer">
             <div class="frames-display" ref={container_ref}>
@@ -762,24 +790,12 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <div class="no-frames">{"No frames available"}</div>
                 } else {
                     <pre class="ascii-frame-content" style={font_size_style.clone()}>{
-                        if let Some(frame) = frames.get(current_frame) {
-                            if *color_enabled {
-                                if let Some(ref colors) = frame.colors {
-                                    Html::from_html_unchecked(AttrValue::from(build_colored_html(&frame.content, colors)))
-                                } else {
-                                    Html::from(frame.content.clone())
-                                }
-                            } else {
-                                Html::from(frame.content.clone())
-                            }
-                        } else {
-                            Html::from("")
-                        }
+                        frame_html
                     }</pre>
                     <div class="frame-info-overlay">
                         <span class="info-left">{format!("Speed: {}", display_fps)}</span>
                         <span class="info-center">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
-                        <span class="info-right">{if *color_enabled && props.has_color { "Color" } else { "" }}</span>
+                        <span class="info-right">{if has_colors { "Color" } else { "" }}</span>
                     </div>
                 }
             </div>
@@ -835,23 +851,16 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
                     <button type="button"
-                        class={classes!("ctrl-btn", "color-btn", if props.has_color && *color_enabled { Some("active") } else { None }, if !props.has_color { Some("disabled") } else { None })}
-                        title={if !props.has_color { "No color generated for the frames" } else if *color_enabled { "Color display enabled" } else { "Color display disabled" }}
-                        disabled={!props.has_color}
+                        class={classes!("ctrl-btn", "color-btn", if color_available && *color_enabled { Some("active") } else { None }, if !color_available { Some("disabled") } else { None })}
+                        title={if !color_available { "No color generated for the frames" } else if *color_enabled { "Color display enabled" } else { "Color display disabled" }}
+                        disabled={!color_available}
                         onclick={{
                             let color_enabled = color_enabled.clone();
-                            let has_color = props.has_color;
                             Callback::from(move |_| {
-                                if has_color {
-                                    color_enabled.set(!*color_enabled);
-                                }
+                                color_enabled.set(!*color_enabled);
                             })
                         }}>
-                        if *color_enabled && props.has_color {
-                            <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
-                        } else {
-                            <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
-                        }
+                        <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
                     </button>
                     <div style="flex: 1;"></div>
                     <button type="button" title="Step backward one frame" id="move-frame-backward" class="ctrl-btn" onclick={{

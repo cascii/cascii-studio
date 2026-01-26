@@ -690,43 +690,46 @@ pub struct FrameFile {
     pub index: u32,
 }
 
+fn extract_frame_index(stem: &str, fallback: u32) -> u32 {
+    if stem.starts_with("frame_") {
+        stem.strip_prefix("frame_")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0)
+    } else {
+        let num_str: String = stem.chars().filter(|c| c.is_ascii_digit()).collect();
+        num_str.parse::<u32>().unwrap_or(fallback)
+    }
+}
+
 fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
+    use std::collections::HashSet;
+
     if !dir.exists() {
         return Err("Directory does not exist".to_string());
     }
-    
+
+    // Collect unique stems from both .txt and .cframe files
+    let mut seen_stems: HashSet<String> = HashSet::new();
     let mut frames = Vec::new();
-    
+
     match fs::read_dir(dir) {
         Ok(entries) => {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext == "txt" {
-                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                                // Extract frame index from filename (e.g., "frame_0001.txt" -> 1)
-                                let index = if file_name.starts_with("frame_") {
-                                    file_name
-                                        .strip_prefix("frame_")
-                                        .and_then(|s| s.strip_suffix(".txt"))
-                                        .and_then(|s| s.parse::<u32>().ok())
-                                        .unwrap_or(0)
-                                } else {
-                                    // Try to extract number from filename
-                                    file_name
-                                        .chars()
-                                        .filter(|c| c.is_ascii_digit())
-                                        .collect::<String>()
-                                        .parse::<u32>()
-                                        .unwrap_or(0)
-                                };
-                                
-                                frames.push(FrameFile {
-                                    path: path.to_str().unwrap_or("").to_string(),
-                                    name: file_name.to_string(),
-                                    index,
-                                });
+                        if ext == "txt" || ext == "cframe" {
+                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                if seen_stems.insert(stem.to_string()) {
+                                    let index = extract_frame_index(stem, frames.len() as u32);
+                                    // Use .txt path as canonical reference
+                                    let txt_path = dir.join(format!("{}.txt", stem));
+                                    frames.push(FrameFile {
+                                        path: txt_path.to_string_lossy().to_string(),
+                                        name: format!("{}.txt", stem),
+                                        index,
+                                    });
+                                }
                             }
                         }
                     }
@@ -737,10 +740,10 @@ fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
             return Err(format!("Failed to read directory: {}", e));
         }
     }
-    
-    // Sort by index
-    frames.sort_by(|a, b| a.index.cmp(&b.index));
-    
+
+    // Sort by index, then by name for stable ordering
+    frames.sort_by(|a, b| a.index.cmp(&b.index).then_with(|| a.name.cmp(&b.name)));
+
     Ok(frames)
 }
 
@@ -752,8 +755,48 @@ fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
 
 #[tauri::command]
 fn read_frame_file(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path)
-        .map_err(|e| format!("Failed to read frame file: {}", e))
+    // Try to read .txt file first
+    if let Ok(content) = fs::read_to_string(&file_path) {
+        return Ok(content);
+    }
+
+    // Fall back to extracting text from .cframe file
+    let txt_path = PathBuf::from(&file_path);
+    let cframe_path = txt_path.with_extension("cframe");
+
+    if !cframe_path.exists() {
+        return Err(format!("Neither .txt nor .cframe file exists for: {}", file_path));
+    }
+
+    let data = fs::read(&cframe_path)
+        .map_err(|e| format!("Failed to read cframe file: {}", e))?;
+
+    if data.len() < 8 {
+        return Err("CFrame file too small (missing header)".to_string());
+    }
+
+    let width = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    let height = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+    let pixel_count = width * height;
+    let expected_size = 8 + pixel_count * 4;
+
+    if data.len() < expected_size {
+        return Err(format!("CFrame file size mismatch: expected {} bytes, got {}", expected_size, data.len()));
+    }
+
+    // Reconstruct text with newlines from cframe chars
+    let mut text = String::with_capacity(pixel_count + height);
+    for row in 0..height {
+        for col in 0..width {
+            let idx = row * width + col;
+            let offset = 8 + idx * 4;
+            let ch = data[offset] as char;
+            text.push(ch);
+        }
+        text.push('\n');
+    }
+
+    Ok(text)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -796,6 +839,60 @@ fn read_colors_file(txt_file_path: String) -> Result<Option<ColorData>, String> 
     let rgb = data[8..expected_size].to_vec();
 
     Ok(Some(ColorData { width, height, rgb }))
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct CFrameData {
+    pub width: u32,
+    pub height: u32,
+    pub chars: Vec<u8>,  // ASCII characters (width*height)
+    pub rgb: Vec<u8>,    // RGB flat array (width*height*3)
+}
+
+/// Given a .txt frame file path, look for a matching .cframe file and read it.
+/// The .cframe binary format: 4 bytes width (u32 LE) + 4 bytes height (u32 LE)
+/// + width*height*4 bytes (char, r, g, b per position).
+#[tauri::command]
+fn read_cframe_file(txt_file_path: String) -> Result<Option<CFrameData>, String> {
+    let txt_path = PathBuf::from(&txt_file_path);
+    let cframe_path = txt_path.with_extension("cframe");
+
+    if !cframe_path.exists() {
+        return Ok(None);
+    }
+
+    let data = fs::read(&cframe_path)
+        .map_err(|e| format!("Failed to read cframe file: {}", e))?;
+
+    if data.len() < 8 {
+        return Err("CFrame file too small (missing header)".to_string());
+    }
+
+    let width = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let height = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let pixel_count = width as usize * height as usize;
+    let expected_size = 8 + pixel_count * 4;
+
+    if data.len() < expected_size {
+        return Err(format!(
+            "CFrame file size mismatch: expected {} bytes, got {}",
+            expected_size,
+            data.len()
+        ));
+    }
+
+    let mut chars = Vec::with_capacity(pixel_count);
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+
+    for i in 0..pixel_count {
+        let offset = 8 + i * 4;
+        chars.push(data[offset]);      // char
+        rgb.push(data[offset + 1]);    // r
+        rgb.push(data[offset + 2]);    // g
+        rgb.push(data[offset + 3]);    // b
+    }
+
+    Ok(Some(CFrameData { width, height, chars, rgb }))
 }
 
 #[tauri::command]
@@ -915,9 +1012,11 @@ struct ConvertToAsciiRequest {
 struct ConversionProgress {
     source_id: String,
     name: String,
+    phase: String,  // "extracting_frames", "extracting_audio", "converting_frames", "complete"
     completed: usize,
     total: usize,
     percentage: f64,
+    message: String,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -929,7 +1028,7 @@ struct ConversionComplete {
 
 #[tauri::command]
 async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
-    use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
+    use cascii::{AsciiConverter, ConversionOptions, OutputMode, Progress, ProgressPhase, VideoOptions};
 
     let input_path = PathBuf::from(&request.file_path);
 
@@ -1011,7 +1110,11 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                 .with_columns(request_clone.columns)
                 .with_font_ratio(request_clone.font_ratio)
                 .with_luminance(request_clone.luminance)
-                .with_extract_colors(request_clone.color);
+                .with_output_mode(if request_clone.color {
+                    OutputMode::TextAndColor
+                } else {
+                    OutputMode::TextOnly
+                });
 
             if is_image {
                 // Convert single image
@@ -1032,32 +1135,36 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                     start: None,
                     end: None,
                     columns: request_clone.columns,
+                    extract_audio: false,  // Audio extraction handled separately
                 };
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
                 let app_clone = app.clone();
                 let source_id = source_id_for_progress.clone();
                 let name = display_name.clone();
-                converter.convert_video_with_progress(
+                converter.convert_video_with_detailed_progress(
                     &input_path_clone,
                     &output_dir_clone,
                     &video_opts,
                     &conv_opts,
                     false,
-                    Some(move |completed: usize, total: usize| {
-                        let percentage = if total > 0 {
-                            (completed as f64 / total as f64) * 100.0
-                        } else {
-                            0.0
+                    move |progress: Progress| {
+                        let phase_str = match progress.phase {
+                            ProgressPhase::ExtractingFrames => "extracting_frames",
+                            ProgressPhase::ExtractingAudio => "extracting_audio",
+                            ProgressPhase::ConvertingFrames => "converting_frames",
+                            ProgressPhase::Complete => "complete",
                         };
                         let _ = app_clone.emit("conversion-progress", ConversionProgress {
                             source_id: source_id.clone(),
                             name: name.clone(),
-                            completed,
-                            total,
-                            percentage,
+                            phase: phase_str.to_string(),
+                            completed: progress.completed,
+                            total: progress.total,
+                            percentage: progress.percentage,
+                            message: progress.message.clone(),
                         });
-                    }),
+                    },
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;
 
                 Ok(output_dir_clone)
@@ -1200,7 +1307,9 @@ fn generate_random_suffix() -> String {
 }
 
 fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
-    let mut frame_count = 0i32;
+    use std::collections::HashSet;
+
+    let mut seen_stems: HashSet<String> = HashSet::new();
     let mut total_size = 0i64;
 
     let entries = fs::read_dir(dir)
@@ -1210,8 +1319,12 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
         let path = entry.path();
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if ext == "txt" {
-                    frame_count += 1;
+                // Count both .txt and .cframe files, deduplicate by stem
+                if ext == "txt" || ext == "cframe" {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        seen_stems.insert(stem.to_string());
+                    }
+                    // Sum all file sizes (both .txt and .cframe)
                     if let Ok(metadata) = fs::metadata(&path) {
                         total_size += metadata.len() as i64;
                     }
@@ -1220,7 +1333,7 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
         }
     }
 
-    Ok((frame_count, total_size))
+    Ok((seen_stems.len() as i32, total_size))
 }
 
 fn extract_audio_from_video(
@@ -1557,6 +1670,7 @@ pub fn run() {
             get_frame_files,
             read_frame_file,
             read_colors_file,
+            read_cframe_file,
             delete_project,
             delete_frame_directory,
             update_frame_custom_name,

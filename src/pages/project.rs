@@ -1342,6 +1342,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         html! {
                                             <AsciiFramesViewer
                                                 directory_path={frame_dir.directory_path.clone()}
+                                                has_color={selected_frame_settings.as_ref().map(|s| s.color).unwrap_or(false)}
                                                 fps={{
                                                     match *selected_speed {
                                                         crate::components::ascii_frames_viewer::SpeedSelection::Custom => {

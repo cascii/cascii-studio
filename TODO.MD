@@ -1,3 +1,6 @@
+- option to save frames
+    -   preview --> immediately do frame
+
 .cascii filetype
 - zipped text frames.
 - color

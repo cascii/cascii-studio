@@ -1,8 +1,8 @@
 [package]
 name = "cascii_studio"
-version = "0.105.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.110.0"
+description = "ASCII art studio"
+authors = ["hjoncour"]
 edition = "2021"
 
 [lib]
@@ -25,7 +25,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 url = "2.5.0"
 tokio = { version = "1", features = ["full"] }
-cascii = "0.5"
+cascii = { path = "../../cascii" }
 rand = "0.8"
 
 [features]

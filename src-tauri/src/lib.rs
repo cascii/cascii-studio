@@ -8,6 +8,7 @@ use std::time::Duration;
 use chrono::Utc;
 use uuid::Uuid;
 use tauri::Emitter;
+use tokio::sync::mpsc;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PreparedMedia {
@@ -873,9 +874,11 @@ struct ConvertToAsciiRequest {
 struct ConversionProgress {
     source_id: String,
     name: String,
+    phase: String,  // "extracting_frames", "extracting_audio", "converting_frames", "complete"
     completed: usize,
     total: usize,
     percentage: f64,
+    message: String,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -960,6 +963,17 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let source_id_for_audio = request.source_file_id.clone();
     let project_id_for_audio = request.project_id.clone();
 
+    // Create a channel for progress updates - decouples computation from event emission
+    let (progress_tx, mut progress_rx) = mpsc::channel::<ConversionProgress>(100);
+
+    // Spawn a task to handle progress events asynchronously
+    let app_for_progress = app.clone();
+    tokio::spawn(async move {
+        while let Some(progress) = progress_rx.recv().await {
+            let _ = app_for_progress.emit("conversion-progress", progress);
+        }
+    });
+
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
         let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
@@ -969,7 +983,11 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                 .with_columns(request_clone.columns)
                 .with_font_ratio(request_clone.font_ratio)
                 .with_luminance(request_clone.luminance)
-                .with_extract_colors(request_clone.color);
+                .with_output_mode(if request_clone.color {
+                    cascii::OutputMode::TextAndColor
+                } else {
+                    cascii::OutputMode::TextOnly
+                });
 
             if is_image {
                 // Convert single image
@@ -984,38 +1002,44 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
 
                 Ok(output_dir_clone)
             } else {
-                // Convert video with progress callback
+                // Convert video with detailed progress callback
+                use cascii::{Progress, ProgressPhase};
+
                 let video_opts = VideoOptions {
                     fps,
                     start: None,
                     end: None,
                     columns: request_clone.columns,
+                    extract_audio: false,  // Audio extraction handled separately
                 };
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
-                let app_clone = app.clone();
                 let source_id = source_id_for_progress.clone();
                 let name = display_name.clone();
-                converter.convert_video_with_progress(
+                converter.convert_video_with_detailed_progress(
                     &input_path_clone,
                     &output_dir_clone,
                     &video_opts,
                     &conv_opts,
                     false,
-                    Some(move |completed: usize, total: usize| {
-                        let percentage = if total > 0 {
-                            (completed as f64 / total as f64) * 100.0
-                        } else {
-                            0.0
+                    move |progress: Progress| {
+                        let phase_str = match progress.phase {
+                            ProgressPhase::ExtractingFrames => "extracting_frames",
+                            ProgressPhase::ExtractingAudio => "extracting_audio",
+                            ProgressPhase::ConvertingFrames => "converting_frames",
+                            ProgressPhase::Complete => "complete",
                         };
-                        let _ = app_clone.emit("conversion-progress", ConversionProgress {
+                        // Send progress through channel (non-blocking for compute thread)
+                        let _ = progress_tx.blocking_send(ConversionProgress {
                             source_id: source_id.clone(),
                             name: name.clone(),
-                            completed,
-                            total,
-                            percentage,
+                            phase: phase_str.to_string(),
+                            completed: progress.completed,
+                            total: progress.total,
+                            percentage: progress.percentage,
+                            message: progress.message.clone(),
                         });
-                    }),
+                    },
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;
 
                 Ok(output_dir_clone)

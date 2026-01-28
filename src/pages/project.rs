@@ -69,7 +69,9 @@ struct FileProgress {
 struct ActiveConversion {
     source_id: String,
     name: String,
+    phase: String,
     percentage: f64,
+    message: String,
 }
 
 // Wasm binding to our custom JS shim for convertFileSrc
@@ -317,16 +319,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     let name = js_sys::Reflect::get(&payload, &"name".into())
                         .ok()
                         .and_then(|v| v.as_string());
+                    let phase = js_sys::Reflect::get(&payload, &"phase".into())
+                        .ok()
+                        .and_then(|v| v.as_string())
+                        .unwrap_or_else(|| "converting_frames".to_string());
                     let percentage = js_sys::Reflect::get(&payload, &"percentage".into())
                         .ok()
                         .and_then(|v| v.as_f64());
+                    let message = js_sys::Reflect::get(&payload, &"message".into())
+                        .ok()
+                        .and_then(|v| v.as_string())
+                        .unwrap_or_default();
 
                     if let (Some(source_id), Some(name), Some(percentage)) = (source_id, name, percentage) {
                         // Update the ref directly
                         active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
                             source_id,
                             name,
+                            phase,
                             percentage,
+                            message,
                         });
                         // Trigger a re-render
                         conversions_update_trigger.set(*conversions_update_trigger + 1);
@@ -749,10 +761,29 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             html! {
                 <div class="conversions-container">
                     {conversions.values().map(|conv| {
+                        // Display different text based on conversion phase
+                        // Show actual percentage when available (percentage > 0), otherwise show indeterminate
+                        let (status_text, show_progress_bar) = match conv.phase.as_str() {
+                            "extracting_frames" => {
+                                if conv.percentage > 0.0 {
+                                    (format!("{}: Extracting frames {:.0}%", conv.name, conv.percentage), true)
+                                } else {
+                                    (format!("{}: Extracting frames...", conv.name), false)
+                                }
+                            },
+                            "extracting_audio" => (format!("{}: Extracting audio...", conv.name), false),
+                            "converting_frames" => (format!("{}: Converting {:.0}%", conv.name, conv.percentage), true),
+                            "complete" => (format!("{}: Complete!", conv.name), true),
+                            _ => (format!("{}: {:.0}%", conv.name, conv.percentage), true),
+                        };
                         html! {
                             <div class="conversion-progress" key={conv.source_id.clone()}>
-                                <span class="conversion-progress-text">{format!("Converting {}: {:.0}%", conv.name, conv.percentage)}</span>
-                                <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", conv.percentage)} /></div>
+                                <span class="conversion-progress-text">{status_text}</span>
+                                if show_progress_bar {
+                                    <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", conv.percentage)} /></div>
+                                } else {
+                                    <div class="conversion-progress-bar conversion-progress-indeterminate" />
+                                }
                             </div>
                         }
                     }).collect::<Html>()}
@@ -1153,8 +1184,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 <div class="main-content">
                     <h1>{ project.as_ref().map(|p| p.project_name.clone()).unwrap_or_else(|| "Loading Project...".into()) }</h1>
 
-                    if let Some(error) = &*error_message {
-                        <div class="alert alert-error">{error}</div>
+                    // Only show error message when there are no active conversions
+                    // (to avoid showing stale errors during conversion)
+                    if active_conversions_ref.borrow().is_empty() {
+                        if let Some(error) = &*error_message {
+                            <div class="alert alert-error">{error}</div>
+                        }
                     }
 
                     if *is_adding_files && !file_progress_map.is_empty() {
@@ -1255,12 +1290,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 on_conversion_start={Some({
                                                     let active_conversions_ref = active_conversions_ref.clone();
                                                     let conversions_update_trigger = conversions_update_trigger.clone();
+                                                    let error_message = error_message.clone();
                                                     Callback::from(move |(source_id, name): (String, String)| {
                                                         web_sys::console::log_1(&format!("🟢 CONVERSION START: {} ({})", name, source_id).into());
+                                                        // Clear any previous error message when starting new conversion
+                                                        error_message.set(None);
                                                         active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
                                                             source_id,
                                                             name,
+                                                            phase: "extracting_frames".to_string(),
                                                             percentage: 0.0,
+                                                            message: "Starting...".to_string(),
                                                         });
                                                         web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
                                                         conversions_update_trigger.set(*conversions_update_trigger + 1);

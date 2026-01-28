@@ -265,7 +265,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                 <button class={classes!("audio-toggle-btn", (*extract_audio).then_some("active"))} onclick={on_toggle_audio} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                                     <Icon icon_id={IconId::LucideVolume2} width={"18"} height={"18"} />
                                 </button>
-                                <button class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>
+                                <button id="convert-to-ascii-btn" class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>
                                     if props.is_converting {
                                         {"Converting..."}
                                     } else {

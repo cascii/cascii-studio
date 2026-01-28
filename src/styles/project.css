@@ -763,6 +763,32 @@
     transition: width 0.1s ease-out;
 }
 
+/* Indeterminate progress bar animation for extraction phases */
+.conversion-progress-indeterminate {
+    position: relative;
+}
+
+.conversion-progress-indeterminate::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, transparent, #7a7aff, transparent);
+    border-radius: 3px;
+    animation: indeterminate-progress 1.5s infinite ease-in-out;
+}
+
+@keyframes indeterminate-progress {
+    0% {
+        left: -30%;
+    }
+    100% {
+        left: 100%;
+    }
+}
+
 /* Conversion success notification in sidebar */
 .conversion-notification {
     display: flex;

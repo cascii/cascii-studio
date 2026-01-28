@@ -126,6 +126,12 @@ pub struct VideoPlayerProps {
     pub on_cut_video: Option<Callback<(f64, f64)>>,
     #[prop_or_default]
     pub is_cutting: Option<bool>,
+
+    // ---- Default settings from settings.json ----
+    #[prop_or(true)]
+    pub color_frames_default: bool,
+    #[prop_or(false)]
+    pub extract_audio_default: bool,
 }
 
 #[function_component(VideoPlayer)]
@@ -143,11 +149,13 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let left_value = use_state(|| 0.0f64);
     let right_value = use_state(|| 1.0f64);
 
-    // Color generation toggle state
-    let generate_colors = use_state(|| true);
+    // Color generation toggle state (initialized from settings)
+    let color_default = props.color_frames_default;
+    let generate_colors = use_state(move || color_default);
 
-    // Audio extraction toggle state
-    let extract_audio = use_state(|| false);
+    // Audio extraction toggle state (initialized from settings)
+    let audio_default = props.extract_audio_default;
+    let extract_audio = use_state(move || audio_default);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;

@@ -17,7 +17,14 @@ pub struct Settings {
     pub default_behavior: DefaultBehavior,
     pub delete_mode: DeleteMode,
     pub debug_logs: bool,
+    #[serde(default = "default_color_frames")]
+    pub color_frames_default: bool,
+    #[serde(default = "default_extract_audio")]
+    pub extract_audio_default: bool,
 }
+
+fn default_color_frames() -> bool { true }
+fn default_extract_audio() -> bool { false }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -27,6 +34,8 @@ impl Default for Settings {
             default_behavior: DefaultBehavior::Move,
             delete_mode: DeleteMode::Soft,
             debug_logs: true,
+            color_frames_default: true,
+            extract_audio_default: false,
         }
     }
 }
@@ -120,6 +129,26 @@ pub fn settings_page() -> Html {
         })
     };
 
+    let on_color_frames_change = {
+        let settings = settings.clone();
+        Callback::from(move |e: Event| {
+            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+            let mut s = (*settings).clone();
+            s.color_frames_default = v;
+            settings.set(s);
+        })
+    };
+
+    let on_extract_audio_change = {
+        let settings = settings.clone();
+        Callback::from(move |e: Event| {
+            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+            let mut s = (*settings).clone();
+            s.extract_audio_default = v;
+            settings.set(s);
+        })
+    };
+
     let on_save = {
         let settings = settings.clone();
         Callback::from(move |_| {
@@ -165,6 +194,16 @@ pub fn settings_page() -> Html {
                 <div class="form-group row">
                     <label for="dbg">{"Debug logs"}</label>
                     <input id="dbg" type="checkbox" checked={settings.debug_logs} onchange={on_debug_change} />
+                </div>
+
+                <div class="form-group row">
+                    <label for="color-frames">{"Color frames by default"}</label>
+                    <input id="color-frames" type="checkbox" checked={settings.color_frames_default} onchange={on_color_frames_change} />
+                </div>
+
+                <div class="form-group row">
+                    <label for="extract-audio">{"Extract audio by default"}</label>
+                    <input id="extract-audio" type="checkbox" checked={settings.extract_audio_default} onchange={on_extract_audio_change} />
                 </div>
 
                 <div class="form-group center">

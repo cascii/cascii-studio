@@ -157,17 +157,33 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let current_conversion_id = use_state(|| None::<String>);
     let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
     let loop_enabled = use_state(|| true);
+    let color_frames_default = use_state(|| true);
+    let extract_audio_default = use_state(|| false);
 
-    // Load loop_enabled setting from settings.json on mount
+    // Load settings from settings.json on mount
     {
         let loop_enabled = loop_enabled.clone();
+        let color_frames_default = color_frames_default.clone();
+        let extract_audio_default = extract_audio_default.clone();
         use_effect(move || {
             let loop_enabled = loop_enabled.clone();
+            let color_frames_default = color_frames_default.clone();
+            let extract_audio_default = extract_audio_default.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let result = tauri_invoke("load_settings", JsValue::NULL).await;
                 if let Ok(loop_val) = js_sys::Reflect::get(&result, &"loop_enabled".into()) {
                     if let Some(enabled) = loop_val.as_bool() {
                         loop_enabled.set(enabled);
+                    }
+                }
+                if let Ok(color_val) = js_sys::Reflect::get(&result, &"color_frames_default".into()) {
+                    if let Some(enabled) = color_val.as_bool() {
+                        color_frames_default.set(enabled);
+                    }
+                }
+                if let Ok(audio_val) = js_sys::Reflect::get(&result, &"extract_audio_default".into()) {
+                    if let Some(enabled) = audio_val.as_bool() {
+                        extract_audio_default.set(enabled);
                     }
                 }
             });
@@ -1320,6 +1336,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                                                 on_cut_video={Some(on_cut_video.clone())}
                                                 is_cutting={Some(*is_cutting)}
+
+                                                color_frames_default={*color_frames_default}
+                                                extract_audio_default={*extract_audio_default}
                                             />
                                             }
                                         } else {

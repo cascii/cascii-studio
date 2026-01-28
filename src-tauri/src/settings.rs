@@ -16,9 +16,15 @@ pub struct Settings {
     pub debug_logs: bool,
     #[serde(default = "default_loop_enabled")]
     pub loop_enabled: bool,
+    #[serde(default = "default_color_frames")]
+    pub color_frames_default: bool,
+    #[serde(default = "default_extract_audio")]
+    pub extract_audio_default: bool,
 }
 
 fn default_loop_enabled() -> bool { true }
+fn default_color_frames() -> bool { true }
+fn default_extract_audio() -> bool { false }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -29,6 +35,8 @@ impl Default for Settings {
             delete_mode: DeleteMode::Soft,
             debug_logs: true,
             loop_enabled: true,
+            color_frames_default: true,
+            extract_audio_default: false,
         }
     }
 }

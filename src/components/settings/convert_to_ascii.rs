@@ -58,15 +58,21 @@ pub struct ConvertToAsciiProps {
     pub on_error_message_change: Callback<Option<String>>,
     pub project_id: String,
     pub on_refresh_frames: Callback<()>,
+    #[prop_or(true)]
+    pub color_frames_default: bool,
+    #[prop_or(false)]
+    pub extract_audio_default: bool,
 }
 
 #[function_component(ConvertToAscii)]
 pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
-    // State for color generation toggle
-    let generate_colors = use_state(|| true);
+    // State for color generation toggle (initialized from settings)
+    let color_default = props.color_frames_default;
+    let generate_colors = use_state(move || color_default);
 
-    // State for audio extraction toggle
-    let extract_audio = use_state(|| false);
+    // State for audio extraction toggle (initialized from settings)
+    let audio_default = props.extract_audio_default;
+    let extract_audio = use_state(move || audio_default);
 
     let on_toggle_colors = {
         let generate_colors = generate_colors.clone();
@@ -255,14 +261,14 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                             </div>
 
                             <div class="convert-actions">
-                                <button class={classes!("color-toggle-btn", (*generate_colors).then_some("active"))} onclick={on_toggle_colors} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
+                                <button id="color-toggle-btn" class={classes!("color-toggle-btn", (*generate_colors).then_some("active"))} onclick={on_toggle_colors} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
                                     if *generate_colors {
                                         <Icon icon_id={IconId::LucideBrush} width={"18"} height={"18"} />
                                     } else {
                                         <Icon icon_id={IconId::LucideXCircle} width={"18"} height={"18"} />
                                     }
                                 </button>
-                                <button class={classes!("audio-toggle-btn", (*extract_audio).then_some("active"))} onclick={on_toggle_audio} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
+                                <button id="audio-toggle-btn" class={classes!("audio-toggle-btn", (*extract_audio).then_some("active"))} onclick={on_toggle_audio} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                                     <Icon icon_id={IconId::LucideVolume2} width={"18"} height={"18"} />
                                 </button>
                                 <button class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>

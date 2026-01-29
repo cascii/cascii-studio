@@ -9,6 +9,7 @@ use std::rc::Rc;
 use gloo::events::EventListener;
 
 use super::open::Project;
+use super::project::SourceContent;
 
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
@@ -343,18 +344,6 @@ extern "C" {
 
     #[wasm_bindgen(js_name = startPointerDragAt)]
     fn start_pointer_drag_at(x: i32, y: i32);
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct SourceContent {
-    pub id: String,
-    pub content_type: String,
-    pub project_id: String,
-    pub date_added: DateTime<Utc>,
-    pub size: i64,
-    pub file_path: String,
-    #[serde(default)]
-    pub custom_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

@@ -1,6 +1,6 @@
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use crate::pages::project::SourceContent;
+use crate::pages::project::{SourceContent, ContentType};
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -247,7 +247,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                 </div>
 
                                 {
-                                    if props.selected_source.as_ref().map(|s| s.content_type == "Video").unwrap_or(false) {
+                                    if props.selected_source.as_ref().map(|s| s.content_type == ContentType::Video).unwrap_or(false) {
                                         html! {
                                             <div class="setting-row">
                                                 <label>{"FPS:"}</label>

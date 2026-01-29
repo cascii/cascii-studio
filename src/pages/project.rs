@@ -87,19 +87,32 @@ extern "C" {
     fn app_convert_file_src(path: &str) -> String;
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    Image,
+    Video,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PreparedMedia {
     pub cached_abs_path: String,
-    pub media_kind: String,
+    pub media_kind: MediaKind,
     pub mime_type: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum ContentType {
+    Image,
+    Video,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SourceContent {
     pub id: String,
-    pub content_type: String, // "Image" or "Video"
+    pub content_type: ContentType,
     pub project_id: String,
     pub date_added: DateTime<Utc>,
     pub size: i64,
@@ -1018,7 +1031,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     // Use source_file_id (the original source's ID) for DB foreign key compatibility
                                     let source = SourceContent {
                                         id: cut.source_file_id.clone(),
-                                        content_type: "Video".to_string(),
+                                        content_type: ContentType::Video,
                                         project_id: cut.project_id.clone(),
                                         date_added: chrono::Utc::now(),
                                         size: cut.size,
@@ -1056,7 +1069,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 // Use source_file_id (the original source's ID) for DB foreign key compatibility
                                                 let source = SourceContent {
                                                     id: cut_clone.source_file_id.clone(),
-                                                    content_type: "Video".to_string(),
+                                                    content_type: ContentType::Video,
                                                     project_id: cut_clone.project_id.clone(),
                                                     date_added: chrono::Utc::now(),
                                                     size: cut_clone.size,
@@ -1222,11 +1235,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     if *is_loading_media {
                                         html! { <div class="loading">{"Loading media..."}</div> }
                                     } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
-                                        if source.content_type == "Image" {
+                                        if source.content_type == ContentType::Image {
                                             html! {
                                                 <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
                                             }
-                                        } else if source.content_type == "Video" {
+                                        } else if source.content_type == ContentType::Video {
                                             html! { 
                                                 <VideoPlayer
                                                 src={url.clone()}

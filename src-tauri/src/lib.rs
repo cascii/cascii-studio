@@ -9,10 +9,17 @@ use chrono::Utc;
 use uuid::Uuid;
 use tauri::Emitter;
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    Image,
+    Video,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PreparedMedia {
     pub cached_abs_path: String,
-    pub media_kind: String,  // "image" or "video"
+    pub media_kind: MediaKind,
     pub mime_type: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
@@ -45,11 +52,11 @@ fn guess_mime_type(path: &Path) -> Option<String> {
     }
 }
 
-fn determine_media_kind(path: &Path) -> String {
+fn determine_media_kind(path: &Path) -> MediaKind {
     if is_video_file(path.to_str().unwrap_or("")) {
-        "video".to_string()
+        MediaKind::Video
     } else {
-        "image".to_string()
+        MediaKind::Image
     }
 }
 

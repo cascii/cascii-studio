@@ -138,7 +138,7 @@ pub struct AsciiFramesViewerProps {
 
 #[function_component(AsciiFramesViewer)]
 pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
-    let frames = use_state(|| Vec::<String>::new());
+    let frames = use_state(|| Vec::<Rc<String>>::new());
     let current_index = use_state(|| 0usize);
     let current_index_ref = use_mut_ref(|| 0usize);
     let is_playing = use_state(|| false);
@@ -225,7 +225,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                         result => {
                                             match serde_wasm_bindgen::from_value::<String>(result) {
                                                 Ok(content) => {
-                                                    loaded_frames.push(content);
+                                                    loaded_frames.push(Rc::new(content));
                                                     loading_progress_clone.set((i + 1, total_count));
                                                 }
                                                 Err(e) => {
@@ -672,7 +672,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <div class="no-frames">{"No frames available"}</div>
                 } else {
                     <pre class="ascii-frame-content" style={font_size_style.clone()}>{
-                        frames.get(current_frame).cloned().unwrap_or_default()
+                        frames.get(current_frame).map(|s| s.as_str()).unwrap_or("")
                     }</pre>
                     <div class="frame-info-overlay">
                         <span class="info-left">{format!("Speed: {}", display_fps)}</span>

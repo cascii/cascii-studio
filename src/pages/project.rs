@@ -329,16 +329,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         });
     }
 
+    // Storage for listener cleanup (prevents memory leaks)
+    let progress_listener_handle = use_mut_ref(|| None::<JsValue>);
+    let progress_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
+    let complete_listener_handle = use_mut_ref(|| None::<JsValue>);
+    let complete_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
+
     // Global listener for conversion progress events
     {
         let active_conversions_ref = active_conversions_ref.clone();
-        let conversions_update_trigger = conversions_update_trigger.clone();
-        use_effect(move || {
+        let progress_listener_handle = progress_listener_handle.clone();
+        let progress_listener_closure = progress_listener_closure.clone();
+
+        use_effect_with((), move |_| {
             let active_conversions_ref = active_conversions_ref.clone();
-            let conversions_update_trigger = conversions_update_trigger.clone();
+            let progress_listener_handle = progress_listener_handle.clone();
+            let progress_listener_closure_storage = progress_listener_closure.clone();
 
             // Create a callback that updates the active conversions map
-            let progress_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+            // Note: No re-render trigger here - polling handles UI updates
+            let progress_callback = Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
                 if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
                     let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
                         .ok()
@@ -351,31 +361,62 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         .and_then(|v| v.as_f64());
 
                     if let (Some(source_id), Some(name), Some(percentage)) = (source_id, name, percentage) {
-                        // Update the ref directly
+                        // Update the ref directly - NO re-render trigger here
+                        // UI updates are handled by polling in a separate effect
                         active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
                             source_id,
                             name,
                             percentage,
                         });
-                        // Trigger a re-render
-                        conversions_update_trigger.set(*conversions_update_trigger + 1);
                     }
                 }
             });
 
             let js_callback = progress_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
 
-            // Set up the listener
+            // Store closure to keep it alive (will be dropped on cleanup)
+            *progress_listener_closure_storage.borrow_mut() = Some(progress_callback);
+
+            // Set up the listener and store handle for cleanup
+            let handle_storage = progress_listener_handle.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let unlisten = tauri_listen("conversion-progress", &js_callback).await;
-                // Store the unlisten handle - we'll keep the callback alive with forget
-                std::mem::forget(unlisten);
+                *handle_storage.borrow_mut() = Some(unlisten);
             });
 
-            // Keep the closure alive
-            progress_callback.forget();
+            // Cleanup on unmount
+            let progress_listener_handle = progress_listener_handle.clone();
+            let progress_listener_closure = progress_listener_closure.clone();
+            move || {
+                // Unlisten and drop closure
+                if let Some(unlisten) = progress_listener_handle.borrow_mut().take() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        tauri_unlisten(unlisten).await;
+                    });
+                }
+                progress_listener_closure.borrow_mut().take();
+            }
+        });
+    }
 
-            || ()
+    // Polling-based UI updates for conversion progress (decoupled from event frequency)
+    // Updates UI at ~10fps max, regardless of how many progress events arrive
+    {
+        let active_conversions_ref = active_conversions_ref.clone();
+        let conversions_update_trigger = conversions_update_trigger.clone();
+        use_effect_with((), move |_| {
+            let active_conversions_ref = active_conversions_ref.clone();
+            let conversions_update_trigger = conversions_update_trigger.clone();
+
+            let interval = gloo_timers::callback::Interval::new(100, move || {
+                // Only trigger re-render if there are active conversions
+                if !active_conversions_ref.borrow().is_empty() {
+                    conversions_update_trigger.set(js_sys::Date::now() as u32);
+                }
+            });
+
+            // Cleanup on unmount
+            move || drop(interval)
         });
     }
 
@@ -388,8 +429,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let error_message = error_message.clone();
         let frame_directories = frame_directories.clone();
         let project_id = project_id.clone();
+        let complete_listener_handle = complete_listener_handle.clone();
+        let complete_listener_closure = complete_listener_closure.clone();
 
-        use_effect(move || {
+        use_effect_with((), move |_| {
             let active_conversions_ref = active_conversions_ref.clone();
             let conversions_update_trigger = conversions_update_trigger.clone();
             let conversion_message = conversion_message.clone();
@@ -397,8 +440,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let error_message = error_message.clone();
             let frame_directories = frame_directories.clone();
             let project_id = project_id.clone();
+            let complete_listener_handle = complete_listener_handle.clone();
+            let complete_listener_closure_storage = complete_listener_closure.clone();
 
-            let complete_callback = wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+            let complete_callback = Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
                 if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
                     let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
                         .ok()
@@ -453,14 +498,28 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
             let js_callback = complete_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
 
+            // Store closure to keep it alive (will be dropped on cleanup)
+            *complete_listener_closure_storage.borrow_mut() = Some(complete_callback);
+
+            // Set up the listener and store handle for cleanup
+            let handle_storage = complete_listener_handle.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let unlisten = tauri_listen("conversion-complete", &js_callback).await;
-                std::mem::forget(unlisten);
+                *handle_storage.borrow_mut() = Some(unlisten);
             });
 
-            complete_callback.forget();
-
-            || ()
+            // Cleanup on unmount
+            let complete_listener_handle = complete_listener_handle.clone();
+            let complete_listener_closure = complete_listener_closure.clone();
+            move || {
+                // Unlisten and drop closure
+                if let Some(unlisten) = complete_listener_handle.borrow_mut().take() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        tauri_unlisten(unlisten).await;
+                    });
+                }
+                complete_listener_closure.borrow_mut().take();
+            }
         });
     }
 

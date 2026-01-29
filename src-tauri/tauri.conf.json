@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "cascii_studio",
-  "version": "0.105.0",
+  "version": "0.106.5",
   "identifier": "com.hjoncour.cascii-studio",
   "build": {
     "beforeDevCommand": "trunk serve",

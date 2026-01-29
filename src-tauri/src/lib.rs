@@ -994,8 +994,16 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
                 let app_clone = app.clone();
-                let source_id = source_id_for_progress.clone();
-                let name = display_name.clone();
+
+                // Pre-clone strings ONCE outside the hot loop (not per-frame)
+                let source_id_owned = source_id_for_progress.clone();
+                let name_owned = display_name.clone();
+
+                // Atomic tracker for throttling - only emit when percentage changes
+                use std::sync::atomic::{AtomicU8, Ordering};
+                let last_reported_percent = std::sync::Arc::new(AtomicU8::new(0));
+                let last_percent_clone = std::sync::Arc::clone(&last_reported_percent);
+
                 converter.convert_video_with_progress(
                     &input_path_clone,
                     &output_dir_clone,
@@ -1004,17 +1012,19 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                     false,
                     Some(move |completed: usize, total: usize| {
                         let percentage = if total > 0 {
-                            (completed as f64 / total as f64) * 100.0
+                            ((completed as f64 / total as f64) * 100.0) as u8
                         } else {
-                            0.0
+                            0
                         };
-                        let _ = app_clone.emit("conversion-progress", ConversionProgress {
-                            source_id: source_id.clone(),
-                            name: name.clone(),
-                            completed,
-                            total,
-                            percentage,
-                        });
+
+                        let last = last_percent_clone.load(Ordering::Relaxed);
+
+                        // Only emit when percentage actually changes OR on completion
+                        if percentage > last || completed == total {
+                            last_percent_clone.store(percentage, Ordering::Relaxed);
+
+                            let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(), name: name_owned.clone(), completed, total, percentage: percentage as f64});
+                        }
                     }),
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;
 
@@ -1106,36 +1116,20 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                             }
                             Err(e) => {
                                 println!("❌ Failed to save to database: {}", e);
-                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                                    source_id: source_id_for_complete,
-                                    success: false,
-                                    message: format!("Failed to save conversion to database: {}", e),
-                                });
+                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: format!("Failed to save conversion to database: {}", e)});
                             }
                         }
                     }
                     Err(e) => {
-                        let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                            source_id: source_id_for_complete,
-                            success: false,
-                            message: e,
-                        });
+                        let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
                     }
                 }
             }
             Ok(Err(e)) => {
-                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                    source_id: source_id_for_complete,
-                    success: false,
-                    message: e,
-                });
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
             }
             Err(e) => {
-                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                    source_id: source_id_for_complete,
-                    success: false,
-                    message: format!("Task failed: {}", e),
-                });
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: format!("Task failed: {}", e)});
             }
         }
     });

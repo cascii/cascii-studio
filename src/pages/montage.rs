@@ -3,7 +3,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use chrono::{DateTime, Utc};
 use yew_icons::{Icon, IconId};
 use std::rc::Rc;
 use gloo::events::EventListener;

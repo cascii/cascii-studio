@@ -891,61 +891,147 @@ struct ConversionComplete {
 
 /// Check if a command exists on the system PATH
 fn command_exists(cmd: &str) -> bool {
-    std::process::Command::new(cmd)
-        .arg("--version")
+    // Try running the command directly
+    if let Ok(status) = std::process::Command::new(cmd)
+        .arg("-version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Get FfmpegConfig - uses system ffmpeg if available, otherwise bundled sidecar
-fn get_ffmpeg_config(app: &tauri::AppHandle) -> cascii::FfmpegConfig {
-    use tauri::Manager;
-
-    // Check if ffmpeg is available on system PATH
-    if command_exists("ffmpeg") && command_exists("ffprobe") {
-        println!("✓ Using system ffmpeg");
-        return cascii::FfmpegConfig::new();
+    {
+        if status.success() {
+            return true;
+        }
     }
 
-    // Try to use bundled sidecar in app resources
-    println!("⚠ System ffmpeg not found, looking for bundled binaries...");
+    // Fallback: use 'which' on Unix or 'where' on Windows
+    #[cfg(unix)]
+    {
+        std::process::Command::new("which")
+            .arg(cmd)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("where")
+            .arg(cmd)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
 
-    let mut config = cascii::FfmpegConfig::new();
-    let mut found_ffmpeg = false;
-    let mut found_ffprobe = false;
+/// Check if system ffmpeg is available (exposed as Tauri command)
+#[tauri::command]
+fn check_system_ffmpeg() -> bool {
+    let ffmpeg_exists = command_exists("ffmpeg");
+    let ffprobe_exists = command_exists("ffprobe");
+    let available = ffmpeg_exists && ffprobe_exists;
+    println!("🔍 System ffmpeg check: ffmpeg={}, ffprobe={}, available={}",
+             ffmpeg_exists, ffprobe_exists, available);
+    available
+}
 
-    // Get the resource directory where bundled binaries would be
+/// Get sidecar ffmpeg paths if they exist
+fn get_sidecar_paths(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
+    use tauri::Manager;
+
+    #[cfg(target_os = "windows")]
+    let (ffmpeg_name, ffprobe_name) = ("ffmpeg.exe", "ffprobe.exe");
+    #[cfg(not(target_os = "windows"))]
+    let (ffmpeg_name, ffprobe_name) = ("ffmpeg", "ffprobe");
+
+    // List of directories to check for sidecar binaries
+    let mut dirs_to_check: Vec<PathBuf> = Vec::new();
+
+    // Check resource directory (for production builds)
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let binaries_dir = resource_dir.join("binaries");
+        dirs_to_check.push(resource_dir.join("binaries"));
+        dirs_to_check.push(resource_dir);
+    }
 
-        // Check for platform-specific binary names
-        #[cfg(target_os = "windows")]
-        let (ffmpeg_name, ffprobe_name) = ("ffmpeg.exe", "ffprobe.exe");
-        #[cfg(not(target_os = "windows"))]
-        let (ffmpeg_name, ffprobe_name) = ("ffmpeg", "ffprobe");
+    // Check relative to executable (for development)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            dirs_to_check.push(exe_dir.join("binaries"));
+            // Go up to find src-tauri/binaries in dev mode
+            if let Some(parent) = exe_dir.parent() {
+                if let Some(grandparent) = parent.parent() {
+                    if let Some(great_grandparent) = grandparent.parent() {
+                        dirs_to_check.push(great_grandparent.join("src-tauri").join("binaries"));
+                    }
+                }
+            }
+        }
+    }
 
+    // Check current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs_to_check.push(cwd.join("src-tauri").join("binaries"));
+        dirs_to_check.push(cwd.join("binaries"));
+    }
+
+    // Try each directory
+    for binaries_dir in &dirs_to_check {
         let ffmpeg_path = binaries_dir.join(ffmpeg_name);
         let ffprobe_path = binaries_dir.join(ffprobe_name);
 
-        if ffmpeg_path.exists() {
-            println!("✓ Using bundled ffmpeg: {}", ffmpeg_path.display());
-            config = config.with_ffmpeg(ffmpeg_path);
-            found_ffmpeg = true;
-        }
+        println!("🔍 Checking for sidecar in: {}", binaries_dir.display());
 
-        if ffprobe_path.exists() {
-            println!("✓ Using bundled ffprobe: {}", ffprobe_path.display());
-            config = config.with_ffprobe(ffprobe_path);
-            found_ffprobe = true;
+        if ffmpeg_path.exists() && ffprobe_path.exists() {
+            println!("✓ Found sidecar binaries in: {}", binaries_dir.display());
+            return Some((ffmpeg_path, ffprobe_path));
         }
     }
 
-    if !found_ffmpeg || !found_ffprobe {
-        println!("⚠ Warning: ffmpeg/ffprobe not found. Video conversion will fail.");
-        println!("  Please install ffmpeg or place binaries in the app's binaries folder.");
+    println!("⚠ Sidecar binaries not found in any checked location");
+    None
+}
+
+/// Check if sidecar ffmpeg is available (exposed as Tauri command)
+#[tauri::command]
+fn check_sidecar_ffmpeg(app: tauri::AppHandle) -> bool {
+    let available = get_sidecar_paths(&app).is_some();
+    println!("🔍 Sidecar ffmpeg check: {}", if available { "available" } else { "not found" });
+    available
+}
+
+/// Get FfmpegConfig based on user settings
+fn get_ffmpeg_config(app: &tauri::AppHandle, ffmpeg_source: &settings::FfmpegSource) -> cascii::FfmpegConfig {
+    match ffmpeg_source {
+        settings::FfmpegSource::System => {
+            if command_exists("ffmpeg") && command_exists("ffprobe") {
+                println!("🎬 Using system ffmpeg (from settings)");
+                cascii::FfmpegConfig::new()
+            } else {
+                // Fall back to sidecar if system not available
+                println!("⚠ System ffmpeg not found, falling back to sidecar...");
+                get_sidecar_config(app)
+            }
+        }
+        settings::FfmpegSource::Sidecar => {
+            println!("🎬 Using sidecar ffmpeg (from settings)");
+            get_sidecar_config(app)
+        }
+    }
+}
+
+/// Get FfmpegConfig for sidecar binaries
+fn get_sidecar_config(app: &tauri::AppHandle) -> cascii::FfmpegConfig {
+    let mut config = cascii::FfmpegConfig::new();
+
+    if let Some((ffmpeg_path, ffprobe_path)) = get_sidecar_paths(app) {
+        println!("✓ Using bundled ffmpeg: {}", ffmpeg_path.display());
+        println!("✓ Using bundled ffprobe: {}", ffprobe_path.display());
+        config = config.with_ffmpeg(ffmpeg_path).with_ffprobe(ffprobe_path);
+    } else {
+        println!("⚠ Warning: Sidecar ffmpeg/ffprobe not found. Video conversion will fail.");
+        println!("  Please place ffmpeg binaries in the app's binaries folder.");
     }
 
     config
@@ -1026,8 +1112,9 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let source_id_for_audio = request.source_file_id.clone();
     let project_id_for_audio = request.project_id.clone();
 
-    // Get ffmpeg config (check system first, fall back to bundled sidecar)
-    let ffmpeg_config = get_ffmpeg_config(&app);
+    // Get ffmpeg config based on user settings
+    let current_settings = settings::load();
+    let ffmpeg_config = get_ffmpeg_config(&app, &current_settings.ffmpeg_source);
 
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
@@ -1584,7 +1671,9 @@ pub fn run() {
             get_project_cuts,
             delete_cut,
             rename_cut,
-            cut_frames
+            cut_frames,
+            check_system_ffmpeg,
+            check_sidecar_ffmpeg
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

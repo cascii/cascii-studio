@@ -889,6 +889,68 @@ struct ConversionComplete {
     message: String,
 }
 
+/// Check if a command exists on the system PATH
+fn command_exists(cmd: &str) -> bool {
+    std::process::Command::new(cmd)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Get FfmpegConfig - uses system ffmpeg if available, otherwise bundled sidecar
+fn get_ffmpeg_config(app: &tauri::AppHandle) -> cascii::FfmpegConfig {
+    use tauri::Manager;
+
+    // Check if ffmpeg is available on system PATH
+    if command_exists("ffmpeg") && command_exists("ffprobe") {
+        println!("✓ Using system ffmpeg");
+        return cascii::FfmpegConfig::new();
+    }
+
+    // Try to use bundled sidecar in app resources
+    println!("⚠ System ffmpeg not found, looking for bundled binaries...");
+
+    let mut config = cascii::FfmpegConfig::new();
+    let mut found_ffmpeg = false;
+    let mut found_ffprobe = false;
+
+    // Get the resource directory where bundled binaries would be
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let binaries_dir = resource_dir.join("binaries");
+
+        // Check for platform-specific binary names
+        #[cfg(target_os = "windows")]
+        let (ffmpeg_name, ffprobe_name) = ("ffmpeg.exe", "ffprobe.exe");
+        #[cfg(not(target_os = "windows"))]
+        let (ffmpeg_name, ffprobe_name) = ("ffmpeg", "ffprobe");
+
+        let ffmpeg_path = binaries_dir.join(ffmpeg_name);
+        let ffprobe_path = binaries_dir.join(ffprobe_name);
+
+        if ffmpeg_path.exists() {
+            println!("✓ Using bundled ffmpeg: {}", ffmpeg_path.display());
+            config = config.with_ffmpeg(ffmpeg_path);
+            found_ffmpeg = true;
+        }
+
+        if ffprobe_path.exists() {
+            println!("✓ Using bundled ffprobe: {}", ffprobe_path.display());
+            config = config.with_ffprobe(ffprobe_path);
+            found_ffprobe = true;
+        }
+    }
+
+    if !found_ffmpeg || !found_ffprobe {
+        println!("⚠ Warning: ffmpeg/ffprobe not found. Video conversion will fail.");
+        println!("  Please install ffmpeg or place binaries in the app's binaries folder.");
+    }
+
+    config
+}
+
 #[tauri::command]
 async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
@@ -964,16 +1026,24 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let source_id_for_audio = request.source_file_id.clone();
     let project_id_for_audio = request.project_id.clone();
 
+    // Get ffmpeg config (check system first, fall back to bundled sidecar)
+    let ffmpeg_config = get_ffmpeg_config(&app);
+
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
         let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
-            let converter = AsciiConverter::new();
+            let converter = AsciiConverter::new().with_ffmpeg_config(ffmpeg_config);
 
+            let output_mode = if request_clone.color {
+                cascii::OutputMode::TextAndColor
+            } else {
+                cascii::OutputMode::TextOnly
+            };
             let conv_opts = ConversionOptions::default()
                 .with_columns(request_clone.columns)
                 .with_font_ratio(request_clone.font_ratio)
                 .with_luminance(request_clone.luminance)
-                .with_extract_colors(request_clone.color);
+                .with_output_mode(output_mode);
 
             if is_image {
                 // Convert single image
@@ -994,6 +1064,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                     start: None,
                     end: None,
                     columns: request_clone.columns,
+                    extract_audio: false, // Audio extraction handled separately
                 };
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
@@ -1025,11 +1096,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                         // Only emit when percentage actually changes OR on completion
                         if percentage > last || completed == total {
                             last_percent_clone.store(percentage, Ordering::Relaxed);
-
-                            let _ = app_clone.emit("conversion-progress", ConversionProgress {
-                                source_id: source_id_owned.clone(),
-                                percentage,
-                            });
+                            let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(),percentage});
                         }
                     }),
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;
@@ -1113,12 +1180,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                     }
                                 }
                                 
-                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                                    source_id: source_id_for_complete,
-                                    success: true,
-                                    message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}",
-                                        result_path.display(), frame_count, total_size, audio_message),
-                                });
+                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: true, message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}", result_path.display(), frame_count, total_size, audio_message)});
                             }
                             Err(e) => {
                                 println!("❌ Failed to save to database: {}", e);
@@ -1181,11 +1243,7 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     Ok((frame_count, total_size))
 }
 
-fn extract_audio_from_video(
-    input_path: &PathBuf,
-    audio_dir: &PathBuf,
-    random_suffix: &str,
-) -> Result<(PathBuf, i64, f64), String> {
+fn extract_audio_from_video(input_path: &PathBuf, audio_dir: &PathBuf, random_suffix: &str) -> Result<(PathBuf, i64, f64), String> {
     use std::process::{Command, Stdio};
 
     // Get video duration for audio_track_end

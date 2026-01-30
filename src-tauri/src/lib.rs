@@ -879,10 +879,7 @@ struct ConvertToAsciiRequest {
 #[derive(Clone, serde::Serialize)]
 struct ConversionProgress {
     source_id: String,
-    name: String,
-    completed: usize,
-    total: usize,
-    percentage: f64,
+    percentage: u8,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1002,9 +999,8 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
                 let app_clone = app.clone();
 
-                // Pre-clone strings ONCE outside the hot loop (not per-frame)
+                // Pre-clone source_id ONCE outside the hot loop (not per-frame)
                 let source_id_owned = source_id_for_progress.clone();
-                let name_owned = display_name.clone();
 
                 // Atomic tracker for throttling - only emit when percentage changes
                 use std::sync::atomic::{AtomicU8, Ordering};
@@ -1030,7 +1026,10 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                         if percentage > last || completed == total {
                             last_percent_clone.store(percentage, Ordering::Relaxed);
 
-                            let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(), name: name_owned.clone(), completed, total, percentage: percentage as f64});
+                            let _ = app_clone.emit("conversion-progress", ConversionProgress {
+                                source_id: source_id_owned.clone(),
+                                percentage,
+                            });
                         }
                     }),
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;

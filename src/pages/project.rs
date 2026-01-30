@@ -65,12 +65,8 @@ struct FileProgress {
     percentage: Option<f32>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct ActiveConversion {
-    source_id: String,
-    name: String,
-    percentage: f64,
-}
+// Active conversions: source_id -> percentage (u8)
+// Names are looked up from source_files when rendering to avoid redundant storage
 
 // Wasm binding to our custom JS shim for convertFileSrc
 #[wasm_bindgen(inline_js = r#"
@@ -155,7 +151,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let columns = use_state(|| 200u32);
     let fps = use_state(|| 30u32);
     // Use Rc<RefCell<>> for conversions to allow mutation from async closures
-    let active_conversions_ref = use_mut_ref(|| HashMap::<String, ActiveConversion>::new());
+    let active_conversions_ref = use_mut_ref(|| HashMap::<String, u8>::new());
     let conversions_update_trigger = use_state(|| 0u32); // Trigger re-renders when conversions change
     let conversion_message = use_state(|| Option::<String>::None);
     let conversion_success_folder = use_state(|| Option::<String>::None);
@@ -353,21 +349,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     let source_id = js_sys::Reflect::get(&payload, &"source_id".into())
                         .ok()
                         .and_then(|v| v.as_string());
-                    let name = js_sys::Reflect::get(&payload, &"name".into())
-                        .ok()
-                        .and_then(|v| v.as_string());
                     let percentage = js_sys::Reflect::get(&payload, &"percentage".into())
                         .ok()
-                        .and_then(|v| v.as_f64());
+                        .and_then(|v| v.as_f64())
+                        .map(|p| p as u8);
 
-                    if let (Some(source_id), Some(name), Some(percentage)) = (source_id, name, percentage) {
+                    if let (Some(source_id), Some(percentage)) = (source_id, percentage) {
                         // Update the ref directly - NO re-render trigger here
                         // UI updates are handled by polling in a separate effect
-                        active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
-                            source_id,
-                            name,
-                            percentage,
-                        });
+                        active_conversions_ref.borrow_mut().insert(source_id, percentage);
                     }
                 }
             });
@@ -834,13 +824,30 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let conversions_html = {
         let conversions = active_conversions_ref.borrow();
         if !conversions.is_empty() {
+            // Helper to look up source name by ID
+            let get_source_name = |source_id: &str| -> String {
+                source_files.iter()
+                    .find(|s| s.id == source_id)
+                    .map(|s| {
+                        s.custom_name.clone().unwrap_or_else(|| {
+                            std::path::Path::new(&s.file_path)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("Unknown")
+                                .to_string()
+                        })
+                    })
+                    .unwrap_or_else(|| "Unknown".to_string())
+            };
+
             html! {
                 <div class="conversions-container">
-                    {conversions.values().map(|conv| {
+                    {conversions.iter().map(|(source_id, percentage)| {
+                        let name = get_source_name(source_id);
                         html! {
-                            <div class="conversion-progress" key={conv.source_id.clone()}>
-                                <span class="conversion-progress-text">{format!("Converting {}: {:.0}%", conv.name, conv.percentage)}</span>
-                                <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", conv.percentage)} /></div>
+                            <div class="conversion-progress" key={source_id.clone()}>
+                                <span class="conversion-progress-text">{format!("Converting {}: {}%", name, percentage)}</span>
+                                <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", percentage)} /></div>
                             </div>
                         }
                     }).collect::<Html>()}
@@ -1345,11 +1352,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let conversions_update_trigger = conversions_update_trigger.clone();
                                                     Callback::from(move |(source_id, name): (String, String)| {
                                                         web_sys::console::log_1(&format!("🟢 CONVERSION START: {} ({})", name, source_id).into());
-                                                        active_conversions_ref.borrow_mut().insert(source_id.clone(), ActiveConversion {
-                                                            source_id,
-                                                            name,
-                                                            percentage: 0.0,
-                                                        });
+                                                        active_conversions_ref.borrow_mut().insert(source_id.clone(), 0u8);
                                                         web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
                                                         conversions_update_trigger.set(*conversions_update_trigger + 1);
                                                     })

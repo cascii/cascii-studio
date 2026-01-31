@@ -113,41 +113,46 @@ def update_tauri_conf(file_path, new_version):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: bump_version.py <commit_message>", file=sys.stderr)
+        print("Usage: bump_version.py <commit_message> [base_version]", file=sys.stderr)
         sys.exit(1)
-    
+
     commit_msg = sys.argv[1]
+    base_version = sys.argv[2] if len(sys.argv) > 2 else None
+
     bump_type = get_bump_type_from_commit(commit_msg)
-    
+
     if not bump_type:
         # No version bump needed
         sys.exit(0)
-    
+
     # Paths
     root_dir = Path(__file__).parent.parent
     src_tauri_cargo_toml = root_dir / 'src-tauri' / 'Cargo.toml'
     root_cargo_toml = root_dir / 'Cargo.toml'
     tauri_conf = root_dir / 'src-tauri' / 'tauri.conf.json'
-    
+
     # Get current version from tauri.conf.json
     with open(tauri_conf, 'r') as f:
         config = json.load(f)
     current_version = config['version']
-    
+
+    # Use base_version if provided (for calculating bump from original), otherwise use current
+    version_to_bump = base_version if base_version else current_version
+
     # Bump version - returns 3-component SemVer (x.y.z)
-    new_version = bump_version(current_version, bump_type)
-    
+    new_version = bump_version(version_to_bump, bump_type)
+
     if new_version == current_version:
         print(f"No version change: {current_version}")
         sys.exit(0)
-    
+
     # Update files with same 3-component version format
     src_tauri_updated = update_cargo_toml(src_tauri_cargo_toml, new_version)
     root_updated = update_cargo_toml(root_cargo_toml, new_version)
     tauri_updated = update_tauri_conf(tauri_conf, new_version)
-    
+
     if src_tauri_updated or root_updated or tauri_updated:
-        print(f"Version bumped: {current_version} -> {new_version} ({bump_type})")
+        print(f"Version bumped: {version_to_bump} -> {new_version} ({bump_type})")
         if src_tauri_updated:
             print(f"Updated: {src_tauri_cargo_toml.relative_to(root_dir)}")
         if root_updated:

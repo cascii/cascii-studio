@@ -49,6 +49,8 @@ cargo tauri build --debug
 
 This will build a debug version for your current platform and ensure all assets (including icons) are properly bundled. For production builds, use `cargo tauri build` without the `--debug` flag.
 
+To see the output, use [decorator](https://github.com/cascii/decorator)
+
 ## Application Data Locations
 
 ### Database

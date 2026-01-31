@@ -2,20 +2,25 @@
 
 This folder is for bundling ffmpeg/ffprobe with the application for distribution.
 
-## Development
+**Note:** The binaries are NOT stored in git. They are downloaded automatically during CI builds.
 
-During development, the app uses system-installed ffmpeg. No binaries needed here.
+## CI/CD
 
-## Distribution
+The GitHub Actions workflows automatically download platform-specific ffmpeg binaries:
+- macOS: https://evermeet.cx/ffmpeg/
+- Windows: https://www.gyan.dev/ffmpeg/builds/
+- Linux: https://johnvansickle.com/ffmpeg/
 
-For distribution to users who may not have ffmpeg installed:
+## Local Development
 
-1. Download ffmpeg static builds for your target platforms:
-   - macOS: https://evermeet.cx/ffmpeg/
-   - Windows: https://www.gyan.dev/ffmpeg/builds/
-   - Linux: https://johnvansickle.com/ffmpeg/
+For local development, you have two options:
 
-2. Place the binaries in this folder:
+1. **Use system ffmpeg** (recommended): Install ffmpeg via your package manager
+   - macOS: `brew install ffmpeg`
+   - Linux: `apt install ffmpeg` or equivalent
+   - Windows: `choco install ffmpeg` or download manually
+
+2. **Use bundled binaries**: Download and place binaries here manually:
    ```
    binaries/
    ├── ffmpeg      (macOS/Linux executable)
@@ -24,13 +29,12 @@ For distribution to users who may not have ffmpeg installed:
    └── ffprobe.exe (Windows executable)
    ```
 
-3. The app will automatically detect and use these bundled binaries when system ffmpeg is not available.
-
 ## How it works
 
 The app checks for ffmpeg in this order:
-1. System PATH (ffmpeg/ffprobe commands)
-2. Bundled binaries in app resources
+1. User preference from Settings (System or Sidecar)
+2. System PATH (ffmpeg/ffprobe commands)
+3. Bundled binaries in app resources
 
 This allows the app to work for:
 - Developers with ffmpeg installed

@@ -51,6 +51,42 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Download FFmpeg binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p src-tauri/binaries
+          # Download ffmpeg
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg.zip
+          unzip -o ffmpeg.zip -d src-tauri/binaries/
+          # Download ffprobe
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
+          unzip -o ffprobe.zip -d src-tauri/binaries/
+          chmod +x src-tauri/binaries/ffmpeg src-tauri/binaries/ffprobe
+          ls -la src-tauri/binaries/
+
+      - name: Download FFmpeg binaries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -L "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          mv ffmpeg-*-amd64-static/ffmpeg src-tauri/binaries/
+          mv ffmpeg-*-amd64-static/ffprobe src-tauri/binaries/
+          chmod +x src-tauri/binaries/ffmpeg src-tauri/binaries/ffprobe
+          ls -la src-tauri/binaries/
+
+      - name: Download FFmpeg binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extract -Force
+          $ffmpegDir = Get-ChildItem -Path ffmpeg-extract -Directory | Select-Object -First 1
+          Copy-Item "$($ffmpegDir.FullName)/bin/ffmpeg.exe" -Destination src-tauri/binaries/
+          Copy-Item "$($ffmpegDir.FullName)/bin/ffprobe.exe" -Destination src-tauri/binaries/
+          Get-ChildItem src-tauri/binaries/
+
       - name: Build frontend
         run: trunk build --release
 

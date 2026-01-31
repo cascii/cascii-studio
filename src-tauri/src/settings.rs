@@ -7,6 +7,14 @@ pub enum DefaultBehavior { Move, Copy }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeleteMode { Soft, Hard }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum FfmpegSource {
+    /// Use ffmpeg from system PATH
+    System,
+    /// Use bundled ffmpeg sidecar
+    Sidecar
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub id: Option<i64>,
@@ -20,11 +28,14 @@ pub struct Settings {
     pub color_frames_default: bool,
     #[serde(default = "default_extract_audio")]
     pub extract_audio_default: bool,
+    #[serde(default = "default_ffmpeg_source")]
+    pub ffmpeg_source: FfmpegSource,
 }
 
 fn default_loop_enabled() -> bool { true }
 fn default_color_frames() -> bool { true }
 fn default_extract_audio() -> bool { false }
+fn default_ffmpeg_source() -> FfmpegSource { FfmpegSource::System }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -37,6 +48,7 @@ impl Default for Settings {
             loop_enabled: true,
             color_frames_default: true,
             extract_audio_default: false,
+            ffmpeg_source: FfmpegSource::System,
         }
     }
 }

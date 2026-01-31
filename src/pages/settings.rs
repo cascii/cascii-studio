@@ -11,6 +11,9 @@ pub enum DefaultBehavior { Move, Copy }
 pub enum DeleteMode { Soft, Hard }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub enum FfmpegSource { System, Sidecar }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct Settings {
     pub id: Option<i64>,
     pub output_directory: String,
@@ -21,10 +24,13 @@ pub struct Settings {
     pub color_frames_default: bool,
     #[serde(default = "default_extract_audio")]
     pub extract_audio_default: bool,
+    #[serde(default = "default_ffmpeg_source")]
+    pub ffmpeg_source: FfmpegSource,
 }
 
 fn default_color_frames() -> bool { true }
 fn default_extract_audio() -> bool { false }
+fn default_ffmpeg_source() -> FfmpegSource { FfmpegSource::System }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -36,6 +42,7 @@ impl Default for Settings {
             debug_logs: true,
             color_frames_default: true,
             extract_audio_default: false,
+            ffmpeg_source: FfmpegSource::System,
         }
     }
 }
@@ -49,14 +56,31 @@ extern "C" {
 #[function_component(SettingsPage)]
 pub fn settings_page() -> Html {
     let settings = use_state(Settings::default);
+    let system_ffmpeg_available = use_state(|| false);
+    let sidecar_ffmpeg_available = use_state(|| false);
 
-    { // load once
+    { // load settings and check ffmpeg availability
         let settings = settings.clone();
+        let system_ffmpeg_available = system_ffmpeg_available.clone();
+        let sidecar_ffmpeg_available = sidecar_ffmpeg_available.clone();
         use_effect_with((), move |_| {
             spawn_local(async move {
+                // Load settings
                 let v = invoke("load_settings", JsValue::NULL).await;
                 if let Ok(s) = serde_wasm_bindgen::from_value::<Settings>(v) {
                     settings.set(s);
+                }
+
+                // Check system ffmpeg availability
+                let system_result = invoke("check_system_ffmpeg", JsValue::NULL).await;
+                if let Some(available) = system_result.as_bool() {
+                    system_ffmpeg_available.set(available);
+                }
+
+                // Check sidecar ffmpeg availability
+                let sidecar_result = invoke("check_sidecar_ffmpeg", JsValue::NULL).await;
+                if let Some(available) = sidecar_result.as_bool() {
+                    sidecar_ffmpeg_available.set(available);
                 }
             });
             || ()
@@ -149,6 +173,16 @@ pub fn settings_page() -> Html {
         })
     };
 
+    let on_ffmpeg_source_change = {
+        let settings = settings.clone();
+        Callback::from(move |e: Event| {
+            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let mut s = (*settings).clone();
+            s.ffmpeg_source = if v == "Sidecar" { FfmpegSource::Sidecar } else { FfmpegSource::System };
+            settings.set(s);
+        })
+    };
+
     let on_save = {
         let settings = settings.clone();
         Callback::from(move |_| {
@@ -204,6 +238,34 @@ pub fn settings_page() -> Html {
                 <div class="form-group row">
                     <label for="extract-audio">{"Extract audio by default"}</label>
                     <input id="extract-audio" type="checkbox" checked={settings.extract_audio_default} onchange={on_extract_audio_change} />
+                </div>
+
+                <div class="form-group row">
+                    <label for="ffmpeg-source">{"FFmpeg source"}</label>
+                    <select id="ffmpeg-source" onchange={on_ffmpeg_source_change}>
+                        <option
+                            value="System"
+                            selected={settings.ffmpeg_source == FfmpegSource::System}
+                            disabled={!*system_ffmpeg_available}
+                        >
+                            if *system_ffmpeg_available {
+                                {"System (installed)"}
+                            } else {
+                                {"System (not found)"}
+                            }
+                        </option>
+                        <option
+                            value="Sidecar"
+                            selected={settings.ffmpeg_source == FfmpegSource::Sidecar}
+                            disabled={!*sidecar_ffmpeg_available}
+                        >
+                            if *sidecar_ffmpeg_available {
+                                {"Bundled (sidecar)"}
+                            } else {
+                                {"Bundled (not found)"}
+                            }
+                        </option>
+                    </select>
                 </div>
 
                 <div class="form-group center">

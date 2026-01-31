@@ -889,6 +889,154 @@ struct ConversionComplete {
     message: String,
 }
 
+/// Check if a command exists on the system PATH
+fn command_exists(cmd: &str) -> bool {
+    // Try running the command directly
+    if let Ok(status) = std::process::Command::new(cmd)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        if status.success() {
+            return true;
+        }
+    }
+
+    // Fallback: use 'which' on Unix or 'where' on Windows
+    #[cfg(unix)]
+    {
+        std::process::Command::new("which")
+            .arg(cmd)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("where")
+            .arg(cmd)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
+/// Check if system ffmpeg is available (exposed as Tauri command)
+#[tauri::command]
+fn check_system_ffmpeg() -> bool {
+    let ffmpeg_exists = command_exists("ffmpeg");
+    let ffprobe_exists = command_exists("ffprobe");
+    let available = ffmpeg_exists && ffprobe_exists;
+    println!("🔍 System ffmpeg check: ffmpeg={}, ffprobe={}, available={}",
+             ffmpeg_exists, ffprobe_exists, available);
+    available
+}
+
+/// Get sidecar ffmpeg paths if they exist
+fn get_sidecar_paths(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
+    use tauri::Manager;
+
+    #[cfg(target_os = "windows")]
+    let (ffmpeg_name, ffprobe_name) = ("ffmpeg.exe", "ffprobe.exe");
+    #[cfg(not(target_os = "windows"))]
+    let (ffmpeg_name, ffprobe_name) = ("ffmpeg", "ffprobe");
+
+    // List of directories to check for sidecar binaries
+    let mut dirs_to_check: Vec<PathBuf> = Vec::new();
+
+    // Check resource directory (for production builds)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        dirs_to_check.push(resource_dir.join("binaries"));
+        dirs_to_check.push(resource_dir);
+    }
+
+    // Check relative to executable (for development)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            dirs_to_check.push(exe_dir.join("binaries"));
+            // Go up to find src-tauri/binaries in dev mode
+            if let Some(parent) = exe_dir.parent() {
+                if let Some(grandparent) = parent.parent() {
+                    if let Some(great_grandparent) = grandparent.parent() {
+                        dirs_to_check.push(great_grandparent.join("src-tauri").join("binaries"));
+                    }
+                }
+            }
+        }
+    }
+
+    // Check current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs_to_check.push(cwd.join("src-tauri").join("binaries"));
+        dirs_to_check.push(cwd.join("binaries"));
+    }
+
+    // Try each directory
+    for binaries_dir in &dirs_to_check {
+        let ffmpeg_path = binaries_dir.join(ffmpeg_name);
+        let ffprobe_path = binaries_dir.join(ffprobe_name);
+
+        println!("🔍 Checking for sidecar in: {}", binaries_dir.display());
+
+        if ffmpeg_path.exists() && ffprobe_path.exists() {
+            println!("✓ Found sidecar binaries in: {}", binaries_dir.display());
+            return Some((ffmpeg_path, ffprobe_path));
+        }
+    }
+
+    println!("⚠ Sidecar binaries not found in any checked location");
+    None
+}
+
+/// Check if sidecar ffmpeg is available (exposed as Tauri command)
+#[tauri::command]
+fn check_sidecar_ffmpeg(app: tauri::AppHandle) -> bool {
+    let available = get_sidecar_paths(&app).is_some();
+    println!("🔍 Sidecar ffmpeg check: {}", if available { "available" } else { "not found" });
+    available
+}
+
+/// Get FfmpegConfig based on user settings
+fn get_ffmpeg_config(app: &tauri::AppHandle, ffmpeg_source: &settings::FfmpegSource) -> cascii::FfmpegConfig {
+    match ffmpeg_source {
+        settings::FfmpegSource::System => {
+            if command_exists("ffmpeg") && command_exists("ffprobe") {
+                println!("🎬 Using system ffmpeg (from settings)");
+                cascii::FfmpegConfig::new()
+            } else {
+                // Fall back to sidecar if system not available
+                println!("⚠ System ffmpeg not found, falling back to sidecar...");
+                get_sidecar_config(app)
+            }
+        }
+        settings::FfmpegSource::Sidecar => {
+            println!("🎬 Using sidecar ffmpeg (from settings)");
+            get_sidecar_config(app)
+        }
+    }
+}
+
+/// Get FfmpegConfig for sidecar binaries
+fn get_sidecar_config(app: &tauri::AppHandle) -> cascii::FfmpegConfig {
+    let mut config = cascii::FfmpegConfig::new();
+
+    if let Some((ffmpeg_path, ffprobe_path)) = get_sidecar_paths(app) {
+        println!("✓ Using bundled ffmpeg: {}", ffmpeg_path.display());
+        println!("✓ Using bundled ffprobe: {}", ffprobe_path.display());
+        config = config.with_ffmpeg(ffmpeg_path).with_ffprobe(ffprobe_path);
+    } else {
+        println!("⚠ Warning: Sidecar ffmpeg/ffprobe not found. Video conversion will fail.");
+        println!("  Please place ffmpeg binaries in the app's binaries folder.");
+    }
+
+    config
+}
+
 #[tauri::command]
 async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
@@ -964,16 +1112,25 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let source_id_for_audio = request.source_file_id.clone();
     let project_id_for_audio = request.project_id.clone();
 
+    // Get ffmpeg config based on user settings
+    let current_settings = settings::load();
+    let ffmpeg_config = get_ffmpeg_config(&app, &current_settings.ffmpeg_source);
+
     // Spawn the conversion in a background task (don't await - returns immediately)
     tokio::spawn(async move {
         let conversion_result = tokio::task::spawn_blocking(move || -> Result<PathBuf, String> {
-            let converter = AsciiConverter::new();
+            let converter = AsciiConverter::new().with_ffmpeg_config(ffmpeg_config);
 
+            let output_mode = if request_clone.color {
+                cascii::OutputMode::TextAndColor
+            } else {
+                cascii::OutputMode::TextOnly
+            };
             let conv_opts = ConversionOptions::default()
                 .with_columns(request_clone.columns)
                 .with_font_ratio(request_clone.font_ratio)
                 .with_luminance(request_clone.luminance)
-                .with_extract_colors(request_clone.color);
+                .with_output_mode(output_mode);
 
             if is_image {
                 // Convert single image
@@ -994,6 +1151,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                     start: None,
                     end: None,
                     columns: request_clone.columns,
+                    extract_audio: false, // Audio extraction handled separately
                 };
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
@@ -1025,11 +1183,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                         // Only emit when percentage actually changes OR on completion
                         if percentage > last || completed == total {
                             last_percent_clone.store(percentage, Ordering::Relaxed);
-
-                            let _ = app_clone.emit("conversion-progress", ConversionProgress {
-                                source_id: source_id_owned.clone(),
-                                percentage,
-                            });
+                            let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(),percentage});
                         }
                     }),
                 ).map_err(|e| format!("Failed to convert video: {}", e))?;
@@ -1113,12 +1267,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                     }
                                 }
                                 
-                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {
-                                    source_id: source_id_for_complete,
-                                    success: true,
-                                    message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}",
-                                        result_path.display(), frame_count, total_size, audio_message),
-                                });
+                                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: true, message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}", result_path.display(), frame_count, total_size, audio_message)});
                             }
                             Err(e) => {
                                 println!("❌ Failed to save to database: {}", e);
@@ -1181,11 +1330,7 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     Ok((frame_count, total_size))
 }
 
-fn extract_audio_from_video(
-    input_path: &PathBuf,
-    audio_dir: &PathBuf,
-    random_suffix: &str,
-) -> Result<(PathBuf, i64, f64), String> {
+fn extract_audio_from_video(input_path: &PathBuf, audio_dir: &PathBuf, random_suffix: &str) -> Result<(PathBuf, i64, f64), String> {
     use std::process::{Command, Stdio};
 
     // Get video duration for audio_track_end
@@ -1526,7 +1671,9 @@ pub fn run() {
             get_project_cuts,
             delete_cut,
             rename_cut,
-            cut_frames
+            cut_frames,
+            check_system_ffmpeg,
+            check_sidecar_ffmpeg
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

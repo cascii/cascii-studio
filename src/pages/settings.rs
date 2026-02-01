@@ -243,22 +243,14 @@ pub fn settings_page() -> Html {
                 <div class="form-group row">
                     <label for="ffmpeg-source">{"FFmpeg source"}</label>
                     <select id="ffmpeg-source" onchange={on_ffmpeg_source_change}>
-                        <option
-                            value="System"
-                            selected={settings.ffmpeg_source == FfmpegSource::System}
-                            disabled={!*system_ffmpeg_available}
-                        >
+                        <option value="System" selected={settings.ffmpeg_source == FfmpegSource::System} disabled={!*system_ffmpeg_available}>
                             if *system_ffmpeg_available {
                                 {"System (installed)"}
                             } else {
                                 {"System (not found)"}
                             }
                         </option>
-                        <option
-                            value="Sidecar"
-                            selected={settings.ffmpeg_source == FfmpegSource::Sidecar}
-                            disabled={!*sidecar_ffmpeg_available}
-                        >
+                        <option value="Sidecar" selected={settings.ffmpeg_source == FfmpegSource::Sidecar} disabled={!*sidecar_ffmpeg_available}>
                             if *sidecar_ffmpeg_available {
                                 {"Bundled (sidecar)"}
                             } else {

@@ -14,6 +14,8 @@ web-sys = { version = "0.3", features = [
     "HtmlVideoElement",
     "HtmlInputElement",
     "HtmlSelectElement",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
     "Event",
     "InputEvent",
     "EventTarget",

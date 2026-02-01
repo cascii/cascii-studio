@@ -36,6 +36,7 @@ once_cell = "1.19"
 futures = "0.3"
 yew_icons = { version = "0.8.0", features = [
     "LucideBrush",
+    "LucideCamera",
     "LucideHome",
     "LucidePlus",
     "LucideFolderOpen",

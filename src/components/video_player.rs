@@ -23,6 +23,24 @@ struct ConvertToAsciiInvokeArgs {
     request: ConvertToAsciiRequest,
 }
 
+#[derive(Serialize, Deserialize)]
+struct CreatePreviewRequest {
+    video_path: String,
+    timestamp: f64,
+    luminance: u8,
+    font_ratio: f32,
+    columns: u32,
+    fps: u32,
+    color: bool,
+    project_id: String,
+    source_file_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CreatePreviewInvokeArgs {
+    request: CreatePreviewRequest,
+}
+
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
   const g = globalThis.__TAURI__;
@@ -132,6 +150,11 @@ pub struct VideoPlayerProps {
     pub color_frames_default: bool,
     #[prop_or(false)]
     pub extract_audio_default: bool,
+
+    // ---- Preview creation ----
+    /// Callback when a preview is created (emits the created Preview)
+    #[prop_or_default]
+    pub on_preview_created: Option<Callback<serde_json::Value>>,
 }
 
 #[function_component(VideoPlayer)]
@@ -156,6 +179,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     // Audio extraction toggle state (initialized from settings)
     let audio_default = props.extract_audio_default;
     let extract_audio = use_state(move || audio_default);
+
+    // Preview creation state
+    let is_creating_preview = use_state(|| false);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;
@@ -624,6 +650,80 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
+    let on_create_preview = {
+        let video_ref = video_ref.clone();
+        let project_id = props.project_id.clone();
+        let source_file_id = props.source_file_id.clone();
+        let source_file_path = props.source_file_path.clone();
+        let luminance = props.luminance;
+        let font_ratio = props.font_ratio;
+        let columns = props.columns;
+        let fps = props.fps;
+        let generate_colors = generate_colors.clone();
+        let is_creating_preview = is_creating_preview.clone();
+        let on_preview_created = props.on_preview_created.clone();
+        let on_error_message_change = props.on_error_message_change.clone();
+
+        Callback::from(move |_| {
+            let color = *generate_colors;
+            let (Some(project_id), Some(source_file_id), Some(file_path)) =
+                (project_id.clone(), source_file_id.clone(), source_file_path.clone())
+            else {
+                return;
+            };
+
+            // Get current timestamp from video element
+            let timestamp = if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                v.current_time()
+            } else {
+                0.0
+            };
+
+            is_creating_preview.set(true);
+            if let Some(cb) = &on_error_message_change {
+                cb.emit(None);
+            }
+
+            let is_creating_preview = is_creating_preview.clone();
+            let on_preview_created = on_preview_created.clone();
+            let on_error_message_change = on_error_message_change.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let request = CreatePreviewRequest {
+                    video_path: file_path,
+                    timestamp,
+                    luminance,
+                    font_ratio,
+                    columns,
+                    fps,
+                    color,
+                    project_id,
+                    source_file_id,
+                };
+                let invoke_args = CreatePreviewInvokeArgs { request };
+                let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
+                let result = tauri_invoke("create_preview", args).await;
+
+                is_creating_preview.set(false);
+
+                match serde_wasm_bindgen::from_value::<serde_json::Value>(result.clone()) {
+                    Ok(preview) => {
+                        web_sys::console::log_1(&format!("✅ Preview created successfully").into());
+                        if let Some(cb) = &on_preview_created {
+                            cb.emit(preview);
+                        }
+                    }
+                    Err(e) => {
+                        web_sys::console::log_1(&format!("❌ Failed to create preview: {:?}", e).into());
+                        if let Some(cb) = &on_error_message_change {
+                            cb.emit(Some("Failed to create preview. Please try again.".to_string()));
+                        }
+                    }
+                }
+            });
+        })
+    };
+
     let on_convert_click = {
         let project_id = props.project_id.clone();
         let source_file_id = props.source_file_id.clone();
@@ -773,6 +873,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         Callback::from(move |_| extract_audio.set(!*extract_audio))
                     }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                         <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
+                    </button>
+                    <button class="ctrl-btn" type="button" onclick={on_create_preview.clone()} disabled={*is_creating_preview || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Create preview of current frame">
+                        <Icon icon_id={IconId::LucideCamera} width={"20"} height={"20"} />
                     </button>
                     <button class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
                         <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />

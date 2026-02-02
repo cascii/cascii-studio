@@ -124,6 +124,29 @@ pub struct AudioExtraction {
     pub custom_name: Option<String>, // Custom display name
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewSettings {
+    pub luminance: u8,
+    pub font_ratio: f32,
+    pub columns: u32,
+    pub fps: u32,
+    pub color: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Preview {
+    pub id: String,
+    pub folder_name: String,         // Name of the preview folder
+    pub folder_path: String,         // Full path to the preview folder
+    pub frame_count: i32,            // Always 1 for previews
+    pub source_file_id: String,      // Foreign key to source_content
+    pub project_id: String,          // Foreign key to projects
+    pub settings: PreviewSettings,   // Conversion settings
+    pub creation_date: DateTime<Utc>,
+    pub total_size: i64,             // Total size of all files in bytes
+    pub custom_name: Option<String>, // Custom display name
+}
+
 fn app_support_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_default())
@@ -339,6 +362,39 @@ pub fn init_database() -> SqlResult<Connection> {
         [],
     )?;
 
+    // Create previews table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS previews (
+            id TEXT PRIMARY KEY,
+            folder_name TEXT NOT NULL,
+            folder_path TEXT NOT NULL,
+            frame_count INTEGER NOT NULL DEFAULT 1,
+            source_file_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            luminance INTEGER NOT NULL,
+            font_ratio REAL NOT NULL,
+            columns INTEGER NOT NULL,
+            fps INTEGER NOT NULL,
+            color INTEGER NOT NULL DEFAULT 0,
+            creation_date TEXT NOT NULL,
+            total_size INTEGER NOT NULL DEFAULT 0,
+            custom_name TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (source_file_id) REFERENCES source_content(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Create indexes for previews
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_previews_project_id ON previews(project_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_previews_source_id ON previews(source_file_id)",
+        [],
+    )?;
+
     Ok(conn)
 }
 
@@ -519,6 +575,17 @@ pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
     }
     result?;
 
+    // Delete associated previews (foreign key constraint)
+    let result = conn.execute(
+        "DELETE FROM previews WHERE source_file_id = ?1",
+        [source_id],
+    );
+    match &result {
+        Ok(rows) => println!("🗑️ DB: Deleted {} associated previews", rows),
+        Err(e) => println!("🗑️ DB: Error deleting previews: {}", e),
+    }
+    result?;
+
     // Delete the source content
     let result = conn.execute(
         "DELETE FROM source_content WHERE id = ?1",
@@ -548,7 +615,7 @@ pub fn update_project_size_and_frames(project_id: &str, size: i64, frames: i32) 
 
 pub fn delete_project(project_id: &str) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
     // Delete all ascii conversions first
     conn.execute(
         "DELETE FROM ascii_conversions WHERE project_id = ?1",
@@ -566,13 +633,19 @@ pub fn delete_project(project_id: &str) -> SqlResult<()> {
         "DELETE FROM cuts WHERE project_id = ?1",
         [project_id],
     )?;
-    
+
+    // Delete all previews
+    conn.execute(
+        "DELETE FROM previews WHERE project_id = ?1",
+        [project_id],
+    )?;
+
     // Delete all source content (should be handled by CASCADE, but being explicit)
     conn.execute(
         "DELETE FROM source_content WHERE project_id = ?1",
         [project_id],
     )?;
-    
+
     // Delete the project
     conn.execute(
         "DELETE FROM projects WHERE id = ?1",
@@ -925,4 +998,195 @@ pub fn update_audio_custom_name(audio_id: &str, custom_name: Option<String>) -> 
 
     result?;
     Ok(())
+}
+
+// ============== Previews CRUD ==============
+
+pub fn add_preview(preview: &Preview) -> SqlResult<()> {
+    let conn = init_database()?;
+
+    // Round font_ratio to 2 decimal places
+    let font_ratio_rounded = (preview.settings.font_ratio as f64 * 100.0).round() / 100.0;
+
+    conn.execute(
+        "INSERT INTO previews (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            preview.id,
+            preview.folder_name,
+            preview.folder_path,
+            preview.frame_count,
+            preview.source_file_id,
+            preview.project_id,
+            preview.settings.luminance,
+            font_ratio_rounded,
+            preview.settings.columns,
+            preview.settings.fps,
+            preview.settings.color,
+            preview.creation_date.to_rfc3339(),
+            preview.total_size,
+            preview.custom_name,
+        ],
+    )?;
+
+    Ok(())
+}
+
+pub fn get_project_previews(project_id: &str) -> SqlResult<Vec<Preview>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+         FROM previews
+         WHERE project_id = ?1
+         ORDER BY creation_date DESC"
+    )?;
+
+    let previews = stmt.query_map([project_id], |row| {
+        let date_str: String = row.get(11)?;
+        Ok(Preview {
+            id: row.get(0)?,
+            folder_name: row.get(1)?,
+            folder_path: row.get(2)?,
+            frame_count: row.get(3)?,
+            source_file_id: row.get(4)?,
+            project_id: row.get(5)?,
+            settings: PreviewSettings {
+                luminance: row.get(6)?,
+                font_ratio: row.get(7)?,
+                columns: row.get(8)?,
+                fps: row.get(9)?,
+                color: row.get::<_, i32>(10)? != 0,
+            },
+            creation_date: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
+            total_size: row.get(12)?,
+            custom_name: row.get(13)?,
+        })
+    })?.collect::<SqlResult<Vec<_>>>()?;
+    Ok(previews)
+}
+
+pub fn get_preview(preview_id: &str) -> SqlResult<Option<Preview>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+         FROM previews
+         WHERE id = ?1
+         LIMIT 1"
+    )?;
+
+    let mut rows = stmt.query([preview_id])?;
+
+    if let Some(row) = rows.next()? {
+        let date_str: String = row.get(11)?;
+        Ok(Some(Preview {
+            id: row.get(0)?,
+            folder_name: row.get(1)?,
+            folder_path: row.get(2)?,
+            frame_count: row.get(3)?,
+            source_file_id: row.get(4)?,
+            project_id: row.get(5)?,
+            settings: PreviewSettings {
+                luminance: row.get(6)?,
+                font_ratio: row.get(7)?,
+                columns: row.get(8)?,
+                fps: row.get(9)?,
+                color: row.get::<_, i32>(10)? != 0,
+            },
+            creation_date: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
+            total_size: row.get(12)?,
+            custom_name: row.get(13)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn delete_preview(preview_id: &str) -> SqlResult<()> {
+    println!("🗑️ DB: Deleting preview: {}", preview_id);
+    let conn = init_database()?;
+    let result = conn.execute("DELETE FROM previews WHERE id = ?1", [preview_id]);
+
+    match &result {
+        Ok(rows_affected) => println!("🗑️ DB: Delete successful, {} rows affected", rows_affected),
+        Err(e) => println!("🗑️ DB: Delete failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
+pub fn delete_preview_by_folder_path(folder_path: &str) -> SqlResult<()> {
+    println!("🗑️ DB: Deleting preview by folder path: {}", folder_path);
+    let conn = init_database()?;
+    let result = conn.execute(
+        "DELETE FROM previews WHERE folder_path = ?1",
+        [folder_path],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("🗑️ DB: Delete successful, {} rows affected", rows_affected),
+        Err(e) => println!("🗑️ DB: Delete failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
+pub fn update_preview_custom_name(preview_id: &str, custom_name: Option<String>) -> SqlResult<()> {
+    println!("📝 DB: Updating preview custom_name for {} to {:?}", preview_id, custom_name);
+    let conn = init_database()?;
+    let result = conn.execute(
+        "UPDATE previews SET custom_name = ?1 WHERE id = ?2",
+        params![custom_name, preview_id],
+    );
+
+    match &result {
+        Ok(rows_affected) => println!("📝 DB: Update successful, {} rows affected", rows_affected),
+        Err(e) => println!("📝 DB: Update failed: {}", e),
+    }
+
+    result?;
+    Ok(())
+}
+
+pub fn get_preview_by_folder_path(folder_path: &str) -> SqlResult<Option<Preview>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+         FROM previews
+         WHERE folder_path = ?1
+         LIMIT 1"
+    )?;
+
+    let mut rows = stmt.query([folder_path])?;
+
+    if let Some(row) = rows.next()? {
+        let date_str: String = row.get(11)?;
+        Ok(Some(Preview {
+            id: row.get(0)?,
+            folder_name: row.get(1)?,
+            folder_path: row.get(2)?,
+            frame_count: row.get(3)?,
+            source_file_id: row.get(4)?,
+            project_id: row.get(5)?,
+            settings: PreviewSettings {
+                luminance: row.get(6)?,
+                font_ratio: row.get(7)?,
+                columns: row.get(8)?,
+                fps: row.get(9)?,
+                color: row.get::<_, i32>(10)? != 0,
+            },
+            creation_date: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
+            total_size: row.get(12)?,
+            custom_name: row.get(13)?,
+        }))
+    } else {
+        Ok(None)
+    }
 }

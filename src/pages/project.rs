@@ -124,6 +124,29 @@ pub struct FrameDirectory {
     pub source_file_name: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PreviewSettings {
+    pub luminance: u8,
+    pub font_ratio: f32,
+    pub columns: u32,
+    pub fps: u32,
+    pub color: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Preview {
+    pub id: String,
+    pub folder_name: String,
+    pub folder_path: String,
+    pub frame_count: i32,
+    pub source_file_id: String,
+    pub project_id: String,
+    pub settings: PreviewSettings,
+    pub creation_date: String,
+    pub total_size: i64,
+    pub custom_name: Option<String>,
+}
+
 #[derive(Properties, PartialEq)]
 pub struct ProjectPageProps {
     pub project_id: String,
@@ -211,12 +234,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let selected_cut = use_state(|| None::<VideoCut>);
     let is_cutting = use_state(|| false);
 
+    // Previews state
+    let previews = use_state(|| Vec::<Preview>::new());
+    let selected_preview = use_state(|| None::<Preview>);
+    let previews_collapsed = use_state(|| false);
+
     {
         let project_id = project_id.clone();
         let project = project.clone();
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
         let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
         let error_message = error_message.clone();
 
         use_effect_with((*project_id).clone(), move |id| {
@@ -264,6 +293,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     result => {
                         if let Ok(cuts) = serde_wasm_bindgen::from_value(result) {
                             video_cuts.set(cuts);
+                        }
+                        // Not critical, just log silently
+                    }
+                }
+
+                // Fetch previews
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                match tauri_invoke("get_project_previews", args).await {
+                    result => {
+                        if let Ok(p) = serde_wasm_bindgen::from_value(result) {
+                            previews.set(p);
                         }
                         // Not critical, just log silently
                     }
@@ -818,6 +858,89 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    // Callback to handle preview creation from VideoPlayer
+    let on_preview_created = {
+        let previews = previews.clone();
+        let selected_preview = selected_preview.clone();
+        let selected_frame_dir = selected_frame_dir.clone();
+        let project_id = project_id.clone();
+
+        Callback::from(move |_preview_value: serde_json::Value| {
+            // Refresh previews list and select the new one
+            let previews = previews.clone();
+            let selected_preview = selected_preview.clone();
+            let selected_frame_dir = selected_frame_dir.clone();
+            let project_id = (*project_id).clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                    // Find and select the newly created preview (it should be first since sorted by creation_date DESC)
+                    if let Some(new_preview) = new_previews.first().cloned() {
+                        selected_preview.set(Some(new_preview));
+                        // Clear frame dir selection to show the preview
+                        selected_frame_dir.set(None);
+                    }
+                    previews.set(new_previews);
+                }
+            });
+        })
+    };
+
+    // Callback to delete a preview
+    let on_delete_preview = {
+        let previews = previews.clone();
+        let selected_preview = selected_preview.clone();
+        let project_id = project_id.clone();
+
+        Callback::from(move |preview: Preview| {
+            let previews = previews.clone();
+            let preview_id = preview.id.clone();
+            let folder_path = preview.folder_path.clone();
+            let selected_preview = selected_preview.clone();
+            let project_id = (*project_id).clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "preview_id": preview_id.clone(),
+                        "folder_path": folder_path
+                    }
+                })).unwrap();
+                let _ = tauri_invoke("delete_preview", args).await;
+
+                // Clear selection if deleted preview was selected
+                if selected_preview.as_ref().map(|p| p.id == preview_id).unwrap_or(false) {
+                    selected_preview.set(None);
+                }
+
+                // Refresh previews
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await) {
+                    previews.set(new_previews);
+                }
+            });
+        })
+    };
+
+    // Callback to rename a preview
+    let _on_rename_preview = {
+        let previews = previews.clone();
+        let project_id = project_id.clone();
+
+        Callback::from(move |(_preview_id, _new_name): (String, String)| {
+            let previews = previews.clone();
+            let project_id = (*project_id).clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await) {
+                    previews.set(new_previews);
+                }
+            });
+        })
+    };
+
     // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
     let _trigger = *conversions_update_trigger;
@@ -1023,8 +1146,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                         on_select_frame_dir={{
                             let selected_frame_dir = selected_frame_dir.clone();
+                            let selected_preview = selected_preview.clone();
                             Callback::from(move |frame_dir: FrameDirectory| {
                                 selected_frame_dir.set(Some(frame_dir));
+                                // Clear preview selection when selecting a frame dir
+                                selected_preview.set(None);
                             })
                         }}
                         on_frame_settings_loaded={{
@@ -1156,6 +1282,67 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         on_delete_cut={Some(on_delete_cut.clone())}
                         on_rename_cut={Some(on_rename_cut.clone())}
                     />
+
+                    // Previews section
+                    <div class="source-files-column">
+                        <div class="collapsible-header" onclick={{
+                            let previews_collapsed = previews_collapsed.clone();
+                            Callback::from(move |_| previews_collapsed.set(!*previews_collapsed))
+                        }}>
+                            <yew_icons::Icon icon_id={yew_icons::IconId::LucideCamera} width={"16"} height={"16"} />
+                            <span>{format!("Previews ({})", previews.len())}</span>
+                            <span class="chevron-icon">{if *previews_collapsed { "+" } else { "-" }}</span>
+                        </div>
+                        if !*previews_collapsed {
+                            <div class="source-list">
+                                if previews.is_empty() {
+                                    <div class="empty-message">{"No previews yet"}</div>
+                                } else {
+                                    { for previews.iter().map(|preview| {
+                                        let is_selected = selected_preview.as_ref().map(|p| p.id == preview.id).unwrap_or(false);
+                                        let preview_clone = preview.clone();
+                                        let preview_for_delete = preview.clone();
+                                        let selected_preview = selected_preview.clone();
+                                        let selected_frame_dir = selected_frame_dir.clone();
+                                        let on_delete = on_delete_preview.clone();
+
+                                        let display_name = preview.custom_name.clone()
+                                            .unwrap_or_else(|| preview.folder_name.clone());
+
+                                        html! {
+                                            <div class={classes!("source-item", is_selected.then_some("selected"))}
+                                                onclick={{
+                                                    let preview = preview_clone.clone();
+                                                    let selected_preview = selected_preview.clone();
+                                                    let selected_frame_dir = selected_frame_dir.clone();
+                                                    Callback::from(move |_| {
+                                                        selected_preview.set(Some(preview.clone()));
+                                                        // Clear frame dir selection to show the preview
+                                                        selected_frame_dir.set(None);
+                                                    })
+                                                }}>
+                                                <div class="source-item-name-wrapper">
+                                                    <span class="source-item-name">{display_name}</span>
+                                                </div>
+                                                <div class="source-item-buttons">
+                                                    <button class="source-item-btn delete-btn" type="button" title="Delete preview" onclick={{
+                                                        let preview = preview_for_delete.clone();
+                                                        let on_delete = on_delete.clone();
+                                                        Callback::from(move |e: MouseEvent| {
+                                                            e.stop_propagation();
+                                                            on_delete.emit(preview.clone());
+                                                        })
+                                                    }}>
+                                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideTrash2} width={"14"} height={"14"} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    })}
+                                }
+                            </div>
+                        }
+                    </div>
 
                     <Controls
                         selected_source={(*selected_source).clone()}
@@ -1414,6 +1601,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                                                 color_frames_default={*color_frames_default}
                                                 extract_audio_default={*extract_audio_default}
+
+                                                on_preview_created={Some(on_preview_created.clone())}
                                             />
                                             }
                                         } else {
@@ -1430,7 +1619,39 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             <div class="preview-label">{"Frames"}</div>
                             <div class="square">
                                 {
-                                    if frame_directories.is_empty() {
+                                    // Show selected preview if any
+                                    if let Some(preview) = &*selected_preview {
+                                        html! {
+                                            <AsciiFramesViewer
+                                                directory_path={preview.folder_path.clone()}
+                                                fps={preview.settings.fps}
+                                                settings={None}
+                                                should_play={Some(false)}
+                                                should_reset={false}
+                                                seek_percentage={None}
+                                                on_loading_changed={{
+                                                    let frames_loading = frames_loading.clone();
+                                                    Callback::from(move |is_loading: bool| {
+                                                        frames_loading.set(is_loading);
+                                                    })
+                                                }}
+                                                frame_speed={None}
+                                                on_frame_speed_change={{
+                                                    Callback::from(move |_speed: u32| {})
+                                                }}
+                                                selected_speed={crate::components::ascii_frames_viewer::SpeedSelection::Base}
+                                                on_speed_selection_change={{
+                                                    Callback::from(move |_selection: crate::components::ascii_frames_viewer::SpeedSelection| {})
+                                                }}
+                                                loop_enabled={false}
+                                                on_loop_change={{
+                                                    Callback::from(move |_enabled: bool| {})
+                                                }}
+                                                on_cut_frames={None::<Callback<(usize, usize)>>}
+                                                is_cutting={false}
+                                            />
+                                        }
+                                    } else if frame_directories.is_empty() && previews.is_empty() {
                                         html! { <span>{"No frames generated yet"}</span> }
                                     } else if let Some(frame_dir) = &*selected_frame_dir {
                                         html! {
@@ -1508,7 +1729,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             />
                                         }
                                     } else {
-                                        html! { <span>{"Select a frame directory to preview"}</span> }
+                                        html! { <span>{"Select a frame directory or preview"}</span> }
                                     }
                                 }
                             </div>

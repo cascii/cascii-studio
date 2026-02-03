@@ -238,6 +238,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let previews = use_state(|| Vec::<Preview>::new());
     let selected_preview = use_state(|| None::<Preview>);
     let previews_collapsed = use_state(|| false);
+    let preview_menu_open_id = use_state(|| None::<String>);
 
     {
         let project_id = project_id.clone();
@@ -675,8 +676,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
                     "request": {
-                        "cutId": cut_id,
-                        "filePath": file_path
+                        "cut_id": cut_id,
+                        "file_path": file_path
                     }
                 })).unwrap();
                 let _ = tauri_invoke("delete_cut", args).await;
@@ -1136,6 +1137,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 });
                             }))
                         }}
+                        on_open_file={Some(Callback::from(|source: SourceContent| {
+                            let file_path = source.file_path.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                // Get the parent directory of the source file
+                                if let Some(parent) = std::path::Path::new(&file_path).parent() {
+                                    let folder_path = parent.to_string_lossy().to_string();
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                                    let _ = tauri_invoke("open_directory", args).await;
+                                }
+                            });
+                        }))}
                     />
 
                     <AvailableFrames frame_directories={(*frame_directories).clone()} selected_frame_dir={(*selected_frame_dir).clone()} selected_frame_settings={(*selected_frame_settings).clone()} frames_collapsed={*frames_collapsed} on_toggle_collapsed={{
@@ -1192,6 +1204,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             }))
                         }}
                         on_delete_frame={Some(on_delete_frame.clone())}
+                        on_open_frame={Some(Callback::from(|frame_dir: FrameDirectory| {
+                            let folder_path = frame_dir.directory_path.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                                let _ = tauri_invoke("open_directory", args).await;
+                            });
+                        }))}
                     />
 
                     <AvailableCuts
@@ -1281,6 +1300,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }}
                         on_delete_cut={Some(on_delete_cut.clone())}
                         on_rename_cut={Some(on_rename_cut.clone())}
+                        on_open_cut={Some(Callback::from(|cut: VideoCut| {
+                            let file_path = cut.file_path.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                // Get the parent directory of the cut file
+                                if let Some(parent) = std::path::Path::new(&file_path).parent() {
+                                    let folder_path = parent.to_string_lossy().to_string();
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                                    let _ = tauri_invoke("open_directory", args).await;
+                                }
+                            });
+                        }))}
                     />
 
                     // Previews section
@@ -1300,11 +1330,14 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 } else {
                                     { for previews.iter().map(|preview| {
                                         let is_selected = selected_preview.as_ref().map(|p| p.id == preview.id).unwrap_or(false);
+                                        let is_menu_open = preview_menu_open_id.as_ref().map(|id| id == &preview.id).unwrap_or(false);
                                         let preview_clone = preview.clone();
                                         let preview_for_delete = preview.clone();
+                                        let preview_for_open = preview.clone();
                                         let selected_preview = selected_preview.clone();
                                         let selected_frame_dir = selected_frame_dir.clone();
                                         let on_delete = on_delete_preview.clone();
+                                        let preview_menu_open_id = preview_menu_open_id.clone();
 
                                         let display_name = preview.custom_name.clone()
                                             .unwrap_or_else(|| preview.folder_name.clone());
@@ -1325,16 +1358,59 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     <span class="source-item-name">{display_name}</span>
                                                 </div>
                                                 <div class="source-item-buttons">
-                                                    <button class="source-item-btn delete-btn" type="button" title="Delete preview" onclick={{
-                                                        let preview = preview_for_delete.clone();
-                                                        let on_delete = on_delete.clone();
-                                                        Callback::from(move |e: MouseEvent| {
-                                                            e.stop_propagation();
-                                                            on_delete.emit(preview.clone());
-                                                        })
-                                                    }}>
-                                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideTrash2} width={"14"} height={"14"} />
-                                                    </button>
+                                                    <div class="item-menu-container">
+                                                        <button class="source-item-btn menu-btn" type="button" title="More options" onclick={{
+                                                            let preview_id = preview.id.clone();
+                                                            let preview_menu_open_id = preview_menu_open_id.clone();
+                                                            Callback::from(move |e: MouseEvent| {
+                                                                e.stop_propagation();
+                                                                if preview_menu_open_id.as_ref().map(|id| id == &preview_id).unwrap_or(false) {
+                                                                    preview_menu_open_id.set(None);
+                                                                } else {
+                                                                    preview_menu_open_id.set(Some(preview_id.clone()));
+                                                                }
+                                                            })
+                                                        }}>
+                                                            <yew_icons::Icon icon_id={yew_icons::IconId::LucideMoreHorizontal} width={"14"} height={"14"} />
+                                                        </button>
+                                                        {if is_menu_open {
+                                                            html! {
+                                                                <div class="item-dropdown-menu">
+                                                                    <button type="button" class="dropdown-menu-item" onclick={{
+                                                                        let folder_path = preview_for_open.folder_path.clone();
+                                                                        let preview_menu_open_id = preview_menu_open_id.clone();
+                                                                        Callback::from(move |e: MouseEvent| {
+                                                                            e.stop_propagation();
+                                                                            preview_menu_open_id.set(None);
+                                                                            let folder_path = folder_path.clone();
+                                                                            wasm_bindgen_futures::spawn_local(async move {
+                                                                                let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                                                                                let _ = tauri_invoke("open_directory", args).await;
+                                                                            });
+                                                                        })
+                                                                    }}>
+                                                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideFolderOpen} width={"14"} height={"14"} />
+                                                                        <span>{"Open"}</span>
+                                                                    </button>
+                                                                    <button type="button" class="dropdown-menu-item delete" onclick={{
+                                                                        let preview = preview_for_delete.clone();
+                                                                        let on_delete = on_delete.clone();
+                                                                        let preview_menu_open_id = preview_menu_open_id.clone();
+                                                                        Callback::from(move |e: MouseEvent| {
+                                                                            e.stop_propagation();
+                                                                            preview_menu_open_id.set(None);
+                                                                            on_delete.emit(preview.clone());
+                                                                        })
+                                                                    }}>
+                                                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideTrash2} width={"14"} height={"14"} />
+                                                                        <span>{"Delete"}</span>
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }}
+                                                    </div>
                                                 </div>
                                             </div>
                                         }

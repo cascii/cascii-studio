@@ -28,12 +28,15 @@ pub struct SourceFilesProps {
     pub on_add_files: Option<Callback<()>>,
     pub on_delete_file: Option<Callback<SourceContent>>,
     pub on_rename_file: Option<Callback<SourceContent>>,
+    #[prop_or_default]
+    pub on_open_file: Option<Callback<SourceContent>>,
 }
 
 pub struct SourceFiles {
     renaming_id: Option<String>,
     rename_value: String,
     is_saving: bool,
+    menu_open_id: Option<String>,
 }
 
 pub enum SourceFilesMsg {
@@ -42,6 +45,8 @@ pub enum SourceFilesMsg {
     SaveRename(String, String),
     CancelRename,
     SetSaving(bool),
+    ToggleMenu(String),
+    CloseMenu,
 }
 
 #[derive(Clone, PartialEq)]
@@ -56,6 +61,7 @@ impl Component for SourceFiles {
             renaming_id: None,
             rename_value: String::new(),
             is_saving: false,
+            menu_open_id: None,
         }
     }
 
@@ -64,6 +70,7 @@ impl Component for SourceFiles {
             SourceFilesMsg::StartRename(id, current_name) => {
                 self.renaming_id = Some(id);
                 self.rename_value = current_name;
+                self.menu_open_id = None;
                 true
             }
             SourceFilesMsg::UpdateRenameValue(value) => {
@@ -77,31 +84,31 @@ impl Component for SourceFiles {
                 } else {
                     Some(new_name.trim().to_string())
                 };
-                
+
                 // Find the source file to pass to the callback
                 let source_file = ctx.props().source_files.iter()
                     .find(|f| f.id == source_id_clone)
                     .cloned();
-                
+
                 // Get the callback for refreshing
                 let on_rename_file = ctx.props().on_rename_file.clone();
-                
+
                 self.renaming_id = None;
                 self.rename_value = String::new();
-                
+
                 wasm_bindgen_futures::spawn_local(async move {
                     let args = serde_wasm_bindgen::to_value(&json!({
                         "sourceId": source_id_clone,
                         "customName": new_name_clone
                     })).unwrap();
                     let _ = tauri_invoke("rename_source_file", args).await;
-                    
+
                     // Trigger refresh after successful save
                     if let (Some(on_rename_file), Some(file)) = (on_rename_file, source_file) {
                         on_rename_file.emit(file);
                     }
                 });
-                
+
                 true
             }
             SourceFilesMsg::CancelRename => {
@@ -113,12 +120,24 @@ impl Component for SourceFiles {
                 self.is_saving = value;
                 true
             }
+            SourceFilesMsg::ToggleMenu(id) => {
+                if self.menu_open_id.as_ref() == Some(&id) {
+                    self.menu_open_id = None;
+                } else {
+                    self.menu_open_id = Some(id);
+                }
+                true
+            }
+            SourceFilesMsg::CloseMenu => {
+                self.menu_open_id = None;
+                true
+            }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        
+
         let on_toggle = {
             let on_toggle_collapsed = props.on_toggle_collapsed.clone();
             Callback::from(move |_| {
@@ -182,31 +201,54 @@ impl Component for SourceFiles {
                                     let class_name = if is_selected {"source-item selected"} else {"source-item"};
 
                                     let is_renaming = self.renaming_id.as_ref().map(|id| id == &file.id).unwrap_or(false);
+                                    let is_menu_open = self.menu_open_id.as_ref().map(|id| id == &file.id).unwrap_or(false);
                                     let link = ctx.link().clone();
                                     let file_id = file.id.clone();
                                     let file_display_name = display_name.to_string();
 
-                                    // Delete button handler
-                                    let on_delete = if let Some(on_delete_file) = &props.on_delete_file {
-                                        let on_delete_file = on_delete_file.clone();
-                                        let file_clone = file.clone();
-                                        Some(Callback::from(move |e: web_sys::MouseEvent| {
-                                            e.stop_propagation();
-                                            on_delete_file.emit(file_clone.clone());
-                                        }))
-                                    } else {
-                                        None
-                                    };
-
-                                    // Rename button handler
-                                    let on_rename = {
+                                    // Rename action handler
+                                    let on_rename_click = {
                                         let link = link.clone();
                                         let file_id = file_id.clone();
                                         let file_display_name = file_display_name.clone();
-                                        Some(Callback::from(move |e: web_sys::MouseEvent| {
+                                        Callback::from(move |e: MouseEvent| {
                                             e.stop_propagation();
                                             link.send_message(SourceFilesMsg::StartRename(file_id.clone(), file_display_name.clone()));
-                                        }))
+                                        })
+                                    };
+
+                                    // Open action handler
+                                    let on_open_click = props.on_open_file.as_ref().map(|cb| {
+                                        let cb = cb.clone();
+                                        let file_clone = file.clone();
+                                        let link = link.clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            cb.emit(file_clone.clone());
+                                            link.send_message(SourceFilesMsg::CloseMenu);
+                                        })
+                                    });
+
+                                    // Delete action handler
+                                    let on_delete_click = props.on_delete_file.as_ref().map(|cb| {
+                                        let cb = cb.clone();
+                                        let file_clone = file.clone();
+                                        let link = link.clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            cb.emit(file_clone.clone());
+                                            link.send_message(SourceFilesMsg::CloseMenu);
+                                        })
+                                    });
+
+                                    // Menu toggle handler
+                                    let on_menu_toggle = {
+                                        let link = ctx.link().clone();
+                                        let menu_id = file.id.clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            link.send_message(SourceFilesMsg::ToggleMenu(menu_id.clone()));
+                                        })
                                     };
 
                                     html! {
@@ -267,23 +309,43 @@ impl Component for SourceFiles {
                                                     <>
                                                         <div class="source-item-name-wrapper"><span class="source-item-name">{display_name}</span></div>
                                                         <div class="source-item-buttons">
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn delete-btn"
-                                                                onclick={on_delete}
-                                                                title={if on_delete.is_none() {"Delete functionality not yet implemented"} else {"Delete file"}}
-                                                                disabled={on_delete.is_none()}
-                                                            >
-                                                                <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn rename-btn"
-                                                                onclick={on_rename}
-                                                                title="Rename file"
-                                                            >
-                                                                <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
-                                                            </button>
+                                                            <div class="item-menu-container">
+                                                                <button type="button" class="source-item-btn menu-btn" onclick={on_menu_toggle} title="More options">
+                                                                    <Icon icon_id={IconId::LucideMoreHorizontal} width="14px" height="14px" />
+                                                                </button>
+                                                                {if is_menu_open {
+                                                                    html! {
+                                                                        <div class="item-dropdown-menu">
+                                                                            <button type="button" class="dropdown-menu-item" onclick={on_rename_click}>
+                                                                                <Icon icon_id={IconId::LucidePencil} width="14px" height="14px" />
+                                                                                <span>{"Rename"}</span>
+                                                                            </button>
+                                                                            {if let Some(on_open) = on_open_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item" onclick={on_open}>
+                                                                                        <Icon icon_id={IconId::LucideFolderOpen} width="14px" height="14px" />
+                                                                                        <span>{"Open"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                            {if let Some(on_delete) = on_delete_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item delete" onclick={on_delete}>
+                                                                                        <Icon icon_id={IconId::LucideTrash2} width="14px" height="14px" />
+                                                                                        <span>{"Delete"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                        </div>
+                                                                    }
+                                                                } else {
+                                                                    html! {}
+                                                                }}
+                                                            </div>
                                                         </div>
                                                     </>
                                                 }

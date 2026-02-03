@@ -43,12 +43,15 @@ pub struct AvailableFramesProps {
     pub on_frame_settings_loaded: Callback<Option<(ConversionSettings, Option<String>)>>,
     pub on_rename_frame: Option<Callback<(String, String)>>,
     pub on_delete_frame: Option<Callback<FrameDirectory>>,
+    #[prop_or_default]
+    pub on_open_frame: Option<Callback<FrameDirectory>>,
 }
 
 pub struct AvailableFrames {
     renaming_id: Option<String>,
     rename_value: String,
     is_saving: bool,
+    menu_open_id: Option<String>,
 }
 
 pub enum AvailableFramesMsg {
@@ -57,6 +60,8 @@ pub enum AvailableFramesMsg {
     SaveRename(String, String),
     CancelRename,
     SetSaving(bool),
+    ToggleMenu(String),
+    CloseMenu,
 }
 
 impl Component for AvailableFrames {
@@ -68,6 +73,7 @@ impl Component for AvailableFrames {
             renaming_id: None,
             rename_value: String::new(),
             is_saving: false,
+            menu_open_id: None,
         }
     }
 
@@ -76,6 +82,7 @@ impl Component for AvailableFrames {
             AvailableFramesMsg::StartRename(id, current_name) => {
                 self.renaming_id = Some(id);
                 self.rename_value = current_name;
+                self.menu_open_id = None;
                 true
             }
             AvailableFramesMsg::UpdateRenameValue(value) => {
@@ -124,6 +131,18 @@ impl Component for AvailableFrames {
                 self.is_saving = value;
                 true
             }
+            AvailableFramesMsg::ToggleMenu(id) => {
+                if self.menu_open_id.as_ref() == Some(&id) {
+                    self.menu_open_id = None;
+                } else {
+                    self.menu_open_id = Some(id);
+                }
+                true
+            }
+            AvailableFramesMsg::CloseMenu => {
+                self.menu_open_id = None;
+                true
+            }
         }
     }
 
@@ -163,6 +182,7 @@ impl Component for AvailableFrames {
                                     };
 
                                     let is_renaming = self.renaming_id.as_ref().map(|id| id == &frame_dir.directory_path).unwrap_or(false);
+                                    let is_menu_open = self.menu_open_id.as_ref().map(|id| id == &frame_dir.directory_path).unwrap_or(false);
 
                                     let onclick = {
                                         let on_select = props.on_select_frame_dir.clone();
@@ -195,6 +215,7 @@ impl Component for AvailableFrames {
                                         })
                                     };
 
+                                    // Rename action
                                     let on_rename_click = {
                                         let link = ctx.link().clone();
                                         let frame_id = frame_dir.directory_path.clone();
@@ -202,6 +223,40 @@ impl Component for AvailableFrames {
                                         Callback::from(move |e: MouseEvent| {
                                             e.stop_propagation();
                                             link.send_message(AvailableFramesMsg::StartRename(frame_id.clone(), frame_display_name.clone()));
+                                        })
+                                    };
+
+                                    // Open action
+                                    let on_open_click = props.on_open_frame.as_ref().map(|cb| {
+                                        let cb = cb.clone();
+                                        let frame_clone = frame_dir.clone();
+                                        let link = ctx.link().clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            cb.emit(frame_clone.clone());
+                                            link.send_message(AvailableFramesMsg::CloseMenu);
+                                        })
+                                    });
+
+                                    // Delete action
+                                    let on_delete_click = props.on_delete_frame.as_ref().map(|cb| {
+                                        let cb = cb.clone();
+                                        let frame_clone = frame_dir.clone();
+                                        let link = ctx.link().clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            cb.emit(frame_clone.clone());
+                                            link.send_message(AvailableFramesMsg::CloseMenu);
+                                        })
+                                    });
+
+                                    // Menu toggle handler
+                                    let on_menu_toggle = {
+                                        let link = ctx.link().clone();
+                                        let menu_id = frame_dir.directory_path.clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            link.send_message(AvailableFramesMsg::ToggleMenu(menu_id.clone()));
                                         })
                                     };
 
@@ -251,37 +306,47 @@ impl Component for AvailableFrames {
                                                     />
                                                 }
                                             } else {
-                                                let on_delete_click = props.on_delete_frame.as_ref().map(|cb| {
-                                                    let cb = cb.clone();
-                                                    let frame_clone = frame_dir.clone();
-                                                    Callback::from(move |e: MouseEvent| {
-                                                        e.stop_propagation();
-                                                        cb.emit(frame_clone.clone());
-                                                    })
-                                                });
-
                                                 html! {
                                                     <>
                                                         <div class="source-item-name-wrapper"><span class="source-item-name">{ &frame_dir.name }</span></div>
                                                         <div class="source-item-buttons">
-                                                            if let Some(on_delete) = on_delete_click {
-                                                                <button
-                                                                    type="button"
-                                                                    class="source-item-btn delete-btn"
-                                                                    onclick={on_delete}
-                                                                    title="Delete frame directory"
-                                                                >
-                                                                    <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
+                                                            <div class="item-menu-container">
+                                                                <button type="button" class="source-item-btn menu-btn" onclick={on_menu_toggle} title="More options">
+                                                                    <Icon icon_id={IconId::LucideMoreHorizontal} width="14px" height="14px" />
                                                                 </button>
-                                                            }
-                                                            <button
-                                                                type="button"
-                                                                class="source-item-btn rename-btn"
-                                                                onclick={on_rename_click}
-                                                                title="Rename frame directory"
-                                                            >
-                                                                <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
-                                                            </button>
+                                                                {if is_menu_open {
+                                                                    html! {
+                                                                        <div class="item-dropdown-menu">
+                                                                            <button type="button" class="dropdown-menu-item" onclick={on_rename_click}>
+                                                                                <Icon icon_id={IconId::LucidePencil} width="14px" height="14px" />
+                                                                                <span>{"Rename"}</span>
+                                                                            </button>
+                                                                            {if let Some(on_open) = on_open_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item" onclick={on_open}>
+                                                                                        <Icon icon_id={IconId::LucideFolderOpen} width="14px" height="14px" />
+                                                                                        <span>{"Open"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                            {if let Some(on_delete) = on_delete_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item delete" onclick={on_delete}>
+                                                                                        <Icon icon_id={IconId::LucideTrash2} width="14px" height="14px" />
+                                                                                        <span>{"Delete"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                        </div>
+                                                                    }
+                                                                } else {
+                                                                    html! {}
+                                                                }}
+                                                            </div>
                                                         </div>
                                                     </>
                                                 }

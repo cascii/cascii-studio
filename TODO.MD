@@ -23,7 +23,7 @@ bugs:
 - should not auto switch to other frames that just finished loading
 - displays 0% even after conversions succeeds
 
-Sidecar for cascii?
+- post treatment for frames: select background color and font color as an alternative to black and white
 
 # Maybe run conversion in a completely separate process. 
 

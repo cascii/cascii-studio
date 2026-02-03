@@ -51,11 +51,14 @@ pub struct AvailableCutsProps {
     pub on_select_cut: Callback<VideoCut>,
     pub on_delete_cut: Option<Callback<VideoCut>>,
     pub on_rename_cut: Option<Callback<(String, String)>>,
+    #[prop_or_default]
+    pub on_open_cut: Option<Callback<VideoCut>>,
 }
 
 pub struct AvailableCuts {
     renaming_id: Option<String>,
     rename_value: String,
+    menu_open_id: Option<String>,
 }
 
 pub enum AvailableCutsMsg {
@@ -63,6 +66,8 @@ pub enum AvailableCutsMsg {
     UpdateRenameValue(String),
     SaveRename(String, String),
     CancelRename,
+    ToggleMenu(String),
+    CloseMenu,
 }
 
 impl Component for AvailableCuts {
@@ -73,6 +78,7 @@ impl Component for AvailableCuts {
         Self {
             renaming_id: None,
             rename_value: String::new(),
+            menu_open_id: None,
         }
     }
 
@@ -81,6 +87,7 @@ impl Component for AvailableCuts {
             AvailableCutsMsg::StartRename(id, current_name) => {
                 self.renaming_id = Some(id);
                 self.rename_value = current_name;
+                self.menu_open_id = None;
                 true
             }
             AvailableCutsMsg::UpdateRenameValue(value) => {
@@ -120,6 +127,18 @@ impl Component for AvailableCuts {
             AvailableCutsMsg::CancelRename => {
                 self.renaming_id = None;
                 self.rename_value = String::new();
+                true
+            }
+            AvailableCutsMsg::ToggleMenu(id) => {
+                if self.menu_open_id.as_ref() == Some(&id) {
+                    self.menu_open_id = None;
+                } else {
+                    self.menu_open_id = Some(id);
+                }
+                true
+            }
+            AvailableCutsMsg::CloseMenu => {
+                self.menu_open_id = None;
                 true
             }
         }
@@ -169,6 +188,7 @@ impl Component for AvailableCuts {
                                     };
 
                                     let is_renaming = self.renaming_id.as_ref().map(|id| id == &cut.id).unwrap_or(false);
+                                    let is_menu_open = self.menu_open_id.as_ref().map(|id| id == &cut.id).unwrap_or(false);
 
                                     let display_name = cut.custom_name.clone()
                                         .unwrap_or_else(|| {
@@ -183,6 +203,7 @@ impl Component for AvailableCuts {
                                         Callback::from(move |_| on_select.emit(cut_clone.clone()))
                                     };
 
+                                    // Rename action
                                     let on_rename_click = {
                                         let link = ctx.link().clone();
                                         let cut_id = cut.id.clone();
@@ -193,14 +214,39 @@ impl Component for AvailableCuts {
                                         })
                                     };
 
-                                    let on_delete_click = props.on_delete_cut.as_ref().map(|cb| {
+                                    // Open action
+                                    let on_open_click = props.on_open_cut.as_ref().map(|cb| {
                                         let cb = cb.clone();
                                         let cut_clone = cut.clone();
+                                        let link = ctx.link().clone();
                                         Callback::from(move |e: MouseEvent| {
                                             e.stop_propagation();
                                             cb.emit(cut_clone.clone());
+                                            link.send_message(AvailableCutsMsg::CloseMenu);
                                         })
                                     });
+
+                                    // Delete action
+                                    let on_delete_click = props.on_delete_cut.as_ref().map(|cb| {
+                                        let cb = cb.clone();
+                                        let cut_clone = cut.clone();
+                                        let link = ctx.link().clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            cb.emit(cut_clone.clone());
+                                            link.send_message(AvailableCutsMsg::CloseMenu);
+                                        })
+                                    });
+
+                                    // Menu toggle handler
+                                    let on_menu_toggle = {
+                                        let link = ctx.link().clone();
+                                        let menu_id = cut.id.clone();
+                                        Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            link.send_message(AvailableCutsMsg::ToggleMenu(menu_id.clone()));
+                                        })
+                                    };
 
                                     html! {
                                         <div class={class_name} {onclick}>
@@ -251,14 +297,43 @@ impl Component for AvailableCuts {
                                                     <>
                                                         <div class="source-item-name-wrapper"><span class="source-item-name">{display_name}</span></div>
                                                         <div class="source-item-buttons">
-                                                            if let Some(on_delete) = on_delete_click {
-                                                                <button type="button" class="source-item-btn delete-btn" onclick={on_delete} title="Delete cut">
-                                                                    <Icon icon_id={IconId::LucideXCircle} width="30px" height="30px" />
+                                                            <div class="item-menu-container">
+                                                                <button type="button" class="source-item-btn menu-btn" onclick={on_menu_toggle} title="More options">
+                                                                    <Icon icon_id={IconId::LucideMoreHorizontal} width="14px" height="14px" />
                                                                 </button>
-                                                            }
-                                                            <button type="button" class="source-item-btn rename-btn" onclick={on_rename_click} title="Rename cut">
-                                                                <Icon icon_id={IconId::LucidePencil} width="30px" height="30px" />
-                                                            </button>
+                                                                {if is_menu_open {
+                                                                    html! {
+                                                                        <div class="item-dropdown-menu">
+                                                                            <button type="button" class="dropdown-menu-item" onclick={on_rename_click}>
+                                                                                <Icon icon_id={IconId::LucidePencil} width="14px" height="14px" />
+                                                                                <span>{"Rename"}</span>
+                                                                            </button>
+                                                                            {if let Some(on_open) = on_open_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item" onclick={on_open}>
+                                                                                        <Icon icon_id={IconId::LucideFolderOpen} width="14px" height="14px" />
+                                                                                        <span>{"Open"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                            {if let Some(on_delete) = on_delete_click {
+                                                                                html! {
+                                                                                    <button type="button" class="dropdown-menu-item delete" onclick={on_delete}>
+                                                                                        <Icon icon_id={IconId::LucideTrash2} width="14px" height="14px" />
+                                                                                        <span>{"Delete"}</span>
+                                                                                    </button>
+                                                                                }
+                                                                            } else {
+                                                                                html! {}
+                                                                            }}
+                                                                        </div>
+                                                                    }
+                                                                } else {
+                                                                    html! {}
+                                                                }}
+                                                            </div>
                                                         </div>
                                                     </>
                                                 }

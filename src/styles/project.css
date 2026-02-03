@@ -42,7 +42,7 @@
     padding: 1rem;
     border: 1px solid #444;
     max-height: 30vh;
-    overflow: hidden;
+    overflow: visible;
     gap: 1rem;
     text-align: left;
 }
@@ -111,7 +111,7 @@
     gap: 0.25rem;
     flex-grow: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: visible;
 }
 
 .empty-message {
@@ -145,8 +145,8 @@
 }
 
 .source-item.selected {
-    background-color: #5a7a9f;
-    border-color: #7ba3cc;
+    background-color: #4a4a4a;
+    border-color: #666;
 }
 
 .source-item-name-wrapper {
@@ -154,8 +154,8 @@
     min-width: 0;
     overflow: hidden;
     position: relative;
-    -webkit-mask-image: linear-gradient(to right, black calc(100% - 15px), transparent 100%);
-    mask-image: linear-gradient(to right, black calc(100% - 15px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 15px));
+    mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 15px));
 }
 
 .source-item-name {
@@ -190,6 +190,12 @@
     flex-shrink: 0;
     width: 24px;
     height: 24px;
+}
+
+/* Only change button color on direct hover, not parent hover */
+.source-item:hover .source-item-btn {
+    color: #888;
+    background: transparent;
 }
 
 .source-item-btn:hover {
@@ -282,12 +288,12 @@
     left: 100%;
     margin-left: 4px;
     background: #2a2a2a;
-    border: 1px solid #444;
+    border: 1px solid #555;
     border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    min-width: 120px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    min-width: 110px;
     z-index: 9999;
-    padding: 4px 0;
+    padding: 0;
 }
 
 .dropdown-menu-item {
@@ -298,11 +304,24 @@
     padding: 8px 12px;
     background: transparent;
     border: none;
+    border-radius: 0;
     color: #ccc;
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
     transition: background-color 0.15s;
+}
+
+.dropdown-menu-item:first-child {
+    border-radius: 6px 6px 0 0;
+}
+
+.dropdown-menu-item:last-child {
+    border-radius: 0 0 6px 6px;
+}
+
+.dropdown-menu-item:only-child {
+    border-radius: 6px;
 }
 
 .dropdown-menu-item:hover {

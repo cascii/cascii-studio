@@ -313,7 +313,7 @@ impl Component for SourceFiles {
                                                                 <button type="button" class="source-item-btn menu-btn" onclick={on_menu_toggle} title="More options">
                                                                     <Icon icon_id={IconId::LucideMoreHorizontal} width="14px" height="14px" />
                                                                 </button>
-                                                                {if true { // DEBUG: always show menu - was: is_menu_open
+                                                                {if is_menu_open {
                                                                     html! {
                                                                         <div class="item-dropdown-menu">
                                                                             <button type="button" class="dropdown-menu-item" onclick={on_rename_click}>

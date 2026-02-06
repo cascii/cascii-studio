@@ -19,6 +19,8 @@ features
 Use side webviews to display frames and mp4 in windows
 println should only happen if debug mode on in settings
 
+Focus frame loading on selected frames
+
 bugs:
 - should not auto switch to other frames that just finished loading
 - displays 0% even after conversions succeeds

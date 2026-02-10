@@ -763,18 +763,11 @@ fn read_frame_file(file_path: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to read frame file: {}", e))
 }
 
-/// Color frame data for canvas rendering
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct CFrameData {
-    pub width: u32,
-    pub height: u32,
-    pub chars: Vec<u8>,  // ASCII characters (width*height)
-    pub rgb: Vec<u8>,    // RGB flat array (width*height*3)
-}
-
-/// Read a .cframe file (color frame) that corresponds to a .txt frame file
+/// Read a .cframe file (color frame) that corresponds to a .txt frame file.
+/// Returns the raw file bytes.
+/// Parsing happens on the WASM side via cascii-core-view's parse_cframe().
 #[tauri::command]
-fn read_cframe_file(txt_file_path: String) -> Result<Option<CFrameData>, String> {
+fn read_cframe_file(txt_file_path: String) -> Result<Option<Vec<u8>>, String> {
     let txt_path = PathBuf::from(&txt_file_path);
     let cframe_path = txt_path.with_extension("cframe");
 
@@ -785,35 +778,7 @@ fn read_cframe_file(txt_file_path: String) -> Result<Option<CFrameData>, String>
     let data = fs::read(&cframe_path)
         .map_err(|e| format!("Failed to read cframe file: {}", e))?;
 
-    if data.len() < 8 {
-        return Err("CFrame file too small (missing header)".to_string());
-    }
-
-    let width = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    let height = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-    let pixel_count = width as usize * height as usize;
-    let expected_size = 8 + pixel_count * 4;
-
-    if data.len() < expected_size {
-        return Err(format!(
-            "CFrame file size mismatch: expected {} bytes, got {}",
-            expected_size,
-            data.len()
-        ));
-    }
-
-    let mut chars = Vec::with_capacity(pixel_count);
-    let mut rgb = Vec::with_capacity(pixel_count * 3);
-
-    for i in 0..pixel_count {
-        let offset = 8 + i * 4;
-        chars.push(data[offset]);      // char
-        rgb.push(data[offset + 1]);    // r
-        rgb.push(data[offset + 2]);    // g
-        rgb.push(data[offset + 3]);    // b
-    }
-
-    Ok(Some(CFrameData { width, height, chars, rgb }))
+    Ok(Some(data))
 }
 
 #[tauri::command]

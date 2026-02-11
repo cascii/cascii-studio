@@ -76,4 +76,3 @@ let mut child = Command::new("cascii")
 ```
 
 This completely isolates conversion memory from the Tauri process.
-

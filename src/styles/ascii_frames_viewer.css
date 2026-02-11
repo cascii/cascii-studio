@@ -372,3 +372,20 @@
     background: #3a3a3a;
     border-color: #555;
 }
+
+/* Frame progress label next to color button */
+.ascii-frames-viewer .frame-progress-label {
+    font-size: 0.8rem;
+    color: #aaa;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    white-space: nowrap;
+}
+
+/* Loading percentage text inside color button */
+.ascii-frames-viewer .color-loading-pct {
+    font-size: 0.6rem;
+    color: #f6f6f6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    white-space: nowrap;
+    line-height: 1;
+}

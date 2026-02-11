@@ -256,6 +256,26 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         });
     }
 
+    // Periodic re-render tick during LoadingColors phase so the progress
+    // display (which reads from a RefCell) stays up-to-date even when no
+    // animation is running.
+    let _color_loading_tick = use_state(|| 0u32);
+    {
+        let phase = *loading_phase;
+        let tick = _color_loading_tick.clone();
+        use_effect_with(phase, move |phase| {
+            let handle: Rc<RefCell<Option<Interval>>> = Rc::new(RefCell::new(None));
+            if *phase == LoadingPhase::LoadingColors {
+                let interval = Interval::new(200, move || {
+                    tick.set((*tick).wrapping_add(1));
+                });
+                *handle.borrow_mut() = Some(interval);
+            }
+            let cleanup_handle = handle.clone();
+            move || { cleanup_handle.borrow_mut().take(); }
+        });
+    }
+
     // Two-phase loading: text frames first (fast), then color data in background
     {
         let directory_path = props.directory_path.clone();
@@ -887,8 +907,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         0.0
     }.clamp(0.0, 1.0);
 
-    let display_fps = current_fps;
-
     // Position within the subset (1-based)
     let position_in_subset = if current_frame >= range_start_frame {
         current_frame - range_start_frame + 1
@@ -899,11 +917,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Loading message
     let loading_message = "Loading frames...".to_string();
 
-    // Color loading progress (read from RefCell - piggybacks on animation re-renders)
+    // Color loading progress (read from RefCell - piggybacks on periodic tick re-renders)
     let (color_loaded, color_total) = *color_progress.borrow();
-    let color_loading_message = if *loading_phase == LoadingPhase::LoadingColors && color_total > 0 {
+    let color_loading_pct = if *loading_phase == LoadingPhase::LoadingColors && color_total > 0 {
         let pct = (color_loaded as f32 / color_total as f32 * 100.0) as u8;
-        Some(format!("Loading colors: {}%", pct))
+        Some(format!("{}%", pct))
     } else {
         None
     };
@@ -935,9 +953,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         }
     };
 
-    // Pre-compute range display string for info overlay
-    let range_display = format!("({}-{})", range_start_frame + 1, range_end_frame + 1);
-
     html! {
         <div class="ascii-frames-viewer">
             <div class="frames-display" ref={container_ref}>
@@ -953,19 +968,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     } else {
                         <pre class="ascii-frame-content" style={font_size_style.clone()} ref={content_ref.clone()}></pre>
                     }
-                    <div class="frame-info-overlay">
-                        <span class="info-left">{format!("Speed: {}", display_fps)}</span>
-                        <span class="info-center">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
-                        <span class="info-right">
-                            if let Some(ref msg) = color_loading_message {
-                                {msg.clone()}
-                            } else if has_colors {
-                                {"Color"}
-                            } else {
-                                {range_display.clone()}
-                            }
-                        </span>
-                    </div>
                 }
             </div>
 
@@ -1029,11 +1031,16 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                             })
                         }}>
                         if colors_loading {
-                            <Icon icon_id={IconId::LucideMoreHorizontal} width={"16"} height={"16"} />
+                            if let Some(ref msg) = color_loading_pct {
+                                <span class="color-loading-pct">{msg.clone()}</span>
+                            } else {
+                                <Icon icon_id={IconId::LucideMoreHorizontal} width={"16"} height={"16"} />
+                            }
                         } else {
                             <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
                         }
                     </button>
+                    <span class="frame-progress-label">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
                     <div style="flex: 1;"></div>
                     <button type="button" title="Step backward one frame" id="move-frame-backward" class="ctrl-btn" onclick={{
                             let current_index = current_index.clone();

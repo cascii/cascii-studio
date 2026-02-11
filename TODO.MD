@@ -74,5 +74,3 @@ let mut child = Command::new("cascii")
 
 // Parse stdout for progress (cascii CLI already has throttled progress output)
 ```
-
-This completely isolates conversion memory from the Tauri process.

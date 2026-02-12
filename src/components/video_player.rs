@@ -463,6 +463,10 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     }
 
     // Handle reset (go to trim start)
+    // When the video is actively playing, a bare set_current_time() causes a
+    // seek-while-playing stall (visual freezes while the decoder hunts for the
+    // nearest keyframe).  To avoid this we pause first, seek, wait for the
+    // browser's `seeked` event, and only then resume playback.
     {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
@@ -473,13 +477,35 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             if *should_reset {
                 if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                     let dur = v.duration();
-                    if dur.is_finite() && dur > 0.0 {
-                        let trim_start = (*left_value) * dur;
-                        v.set_current_time(trim_start);
-                        current_time.set(trim_start);
+                    let target = if dur.is_finite() && dur > 0.0 {
+                        (*left_value) * dur
                     } else {
-                        v.set_current_time(0.0);
-                        current_time.set(0.0);
+                        0.0
+                    };
+
+                    let was_playing = !v.paused();
+
+                    if was_playing {
+                        v.pause().ok();
+                        v.set_current_time(target);
+                        current_time.set(target);
+
+                        // Resume after the seek completes
+                        let v_clone = v.clone();
+                        let closure = Closure::once(move || {
+                            let _ = v_clone.play();
+                        });
+                        let opts = web_sys::AddEventListenerOptions::new();
+                        opts.set_once(true);
+                        let _ = v.add_event_listener_with_callback_and_add_event_listener_options(
+                            "seeked",
+                            closure.as_ref().unchecked_ref(),
+                            &opts,
+                        );
+                        closure.forget();
+                    } else {
+                        v.set_current_time(target);
+                        current_time.set(target);
                     }
                 }
             }

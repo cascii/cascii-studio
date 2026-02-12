@@ -76,6 +76,7 @@ async fn sleep_ms(ms: i32) {
 }
 
 const BW_PLAYBACK_BACKGROUND_SLEEP_MS: i32 = 12;
+const COLOR_LOADING_PROGRESS_TICK_MS: u32 = 500;
 
 struct TauriFrameProvider;
 
@@ -257,16 +258,17 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     }
 
     // Periodic re-render tick during LoadingColors phase so the progress
-    // display (which reads from a RefCell) stays up-to-date even when no
-    // animation is running.
+    // display (which reads from a RefCell) stays up-to-date when paused.
+    // Stop this while playing to reduce main-thread contention.
     let _color_loading_tick = use_state(|| 0u32);
     {
         let phase = *loading_phase;
+        let playing = *is_playing;
         let tick = _color_loading_tick.clone();
-        use_effect_with(phase, move |phase| {
+        use_effect_with((phase, playing), move |(phase, playing)| {
             let handle: Rc<RefCell<Option<Interval>>> = Rc::new(RefCell::new(None));
-            if *phase == LoadingPhase::LoadingColors {
-                let interval = Interval::new(200, move || {
+            if *phase == LoadingPhase::LoadingColors && !*playing {
+                let interval = Interval::new(COLOR_LOADING_PROGRESS_TICK_MS, move || {
                     tick.set((*tick).wrapping_add(1));
                 });
                 *handle.borrow_mut() = Some(interval);

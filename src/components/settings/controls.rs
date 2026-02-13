@@ -64,9 +64,9 @@ pub fn controls(props: &ControlsProps) -> Html {
     };
 
     html! {
-        <div class="controls-column">
-            <h2 class="collapsible-header" onclick={on_toggle}>
-                <span class="chevron-icon">
+        <div id="controls-column" class="controls-column">
+            <h2 id="controls-header" class="collapsible-header" onclick={on_toggle}>
+                <span id="controls-chevron" class="chevron-icon">
                     {if props.controls_collapsed {
                         html! {<span>{"▶"}</span>}
                     } else {
@@ -79,17 +79,17 @@ pub fn controls(props: &ControlsProps) -> Html {
                 if !props.controls_collapsed {
                     html! {
                         <>
-                            <div class="controls-buttons">
-                                <button class="ctrl-btn" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
+                            <div id="controls-buttons" class="controls-buttons">
+                                <button id="controls-play-btn" class="ctrl-btn" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
                                     <Icon icon_id={if props.is_playing {IconId::LucidePause} else {IconId::LucidePlay}} width={"20"} height={"20"} />
                                 </button>
-                                <button class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
-                                    <span class="reset-icon">{"↺"}</span>
+                                <button id="controls-reset-btn" class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
+                                    <span id="controls-reset-icon" class="reset-icon">{"↺"}</span>
                                 </button>
                             </div>
 
-                            <div class="control-row">
-                                <input class="progress synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />
+                            <div id="controls-progress-row" class="control-row">
+                                <input id="controls-synced-progress" class="progress synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />
                             </div>
                         </>
                     }

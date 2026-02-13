@@ -229,31 +229,31 @@ pub fn new_page(props: &NewPageProps) -> Html {
     };
 
     html! {
-        <div class="container new-project-page">
+        <div id="new-project-page" class="container new-project-page">
             <h1>{"New Project"}</h1>
             
-            <form onsubmit={on_create_project} class="new-project-form">
+            <form onsubmit={on_create_project} id="new-project-form" class="new-project-form">
                 // Project Name Input
-                <div class="form-group">
-                    <label for="project-name">{"Project Title"}</label>
-                    <input id="project-name" type="text" class="form-input" placeholder="Enter project name" value={(*project_name).clone()} oninput={on_name_input} disabled={*is_creating} />
+                <div id="new-project-name-group" class="form-group">
+                    <label for="new-project-name-input">{"Project Title"}</label>
+                    <input id="new-project-name-input" type="text" class="form-input" placeholder="Enter project name" value={(*project_name).clone()} oninput={on_name_input} disabled={*is_creating} />
                 </div>
 
                 // File Picker
-                <div class="form-group">
+                <div id="new-project-folder-group" class="form-group">
                     <label>{"Source Files"}</label>
-                    <button type="button" class="btn btn-secondary" onclick={on_pick_files} disabled={*is_creating}>
+                    <button type="button" id="new-project-browse-btn" class="btn btn-secondary" onclick={on_pick_files} disabled={*is_creating}>
                         <Icon icon_id={IconId::LucideFolderOpen} width="20" height="20" />
                         <span>{"Select Images/Videos"}</span>
                     </button>
-                    <p class="form-hint">{"Supported formats: JPG, PNG, GIF, WEBP, MP4, MOV, AVI, WEBM, MKV"}</p>
+                    <p id="new-project-folder-hint" class="form-hint">{"Supported formats: JPG, PNG, GIF, WEBP, MP4, MOV, AVI, WEBM, MKV"}</p>
                 </div>
 
                 // Selected Files List
                 if !selected_files.is_empty() {
-                    <div class="form-group">
+                    <div id="new-project-files-group" class="form-group">
                         <label>{format!("Selected Files ({})", selected_files.len())}</label>
-                        <div class="file-list">
+                        <div id="new-project-file-list" class="file-list">
                             {
                                 selected_files.iter().enumerate().map(|(index, file)| {
                                     let file_name = std::path::Path::new(file)
@@ -294,19 +294,19 @@ pub fn new_page(props: &NewPageProps) -> Html {
 
                 // Error Message
                 if let Some(error) = (*error_message).clone() {
-                    <div class="alert alert-error">{error}</div>
+                    <div id="new-project-error-alert" class="alert alert-error">{error}</div>
                 }
 
                 // Success Message
                 if let Some(success) = (*success_message).clone() {
-                    <div class="alert alert-success">{success}</div>
+                    <div id="new-project-success-alert" class="alert alert-success">{success}</div>
                 }
 
                 // Progress Status (inline, above button)
                 if *is_creating && !file_progress_map.is_empty() {
-                    <div class="progress-container">
+                    <div id="new-project-progress-container" class="progress-container">
                         <h3>{"Processing Files"}</h3>
-                        <div class="progress-list">
+                        <div id="new-project-progress-list" class="progress-list">
                             {
                                 file_progress_map.iter().map(|(file_name, progress)| {
                                     let status_class = match progress.status.as_str() {
@@ -340,13 +340,13 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                 }).collect::<Html>()
                             }
                         </div>
-                        <p class="progress-note">{"Please wait while files are being processed..."}</p>
+                        <p id="new-project-progress-note" class="progress-note">{"Please wait while files are being processed..."}</p>
                     </div>
                 }
 
                 // Submit Button
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary" disabled={*is_creating || project_name.trim().is_empty() || selected_files.is_empty()}>
+                <div id="new-project-form-actions" class="form-actions">
+                    <button type="submit" id="new-project-submit-btn" class="btn btn-primary" disabled={*is_creating || project_name.trim().is_empty() || selected_files.is_empty()}>
                         if *is_creating {
                             {"Creating Project..."}
                         } else {

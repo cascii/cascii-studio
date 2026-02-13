@@ -956,19 +956,19 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     };
 
     html! {
-        <div class="ascii-frames-viewer">
-            <div class="frames-display" ref={container_ref}>
+        <div id="ascii-frames-viewer" class="ascii-frames-viewer">
+            <div id="frames-display" class="frames-display" ref={container_ref}>
                 if *loading_phase == LoadingPhase::LoadingText {
-                    <div class="loading-frames">{loading_message.clone()}</div>
+                    <div id="frames-loading-msg" class="loading-frames">{loading_message.clone()}</div>
                 } else if let Some(error) = &*error_message {
-                    <div class="error-frames">{error}</div>
+                    <div id="frames-error-msg" class="error-frames">{error}</div>
                 } else if total_frames == 0 {
-                    <div class="no-frames">{"No frames available"}</div>
+                    <div id="frames-empty-msg" class="no-frames">{"No frames available"}</div>
                 } else {
                     if has_colors {
-                        <canvas ref={canvas_ref.clone()} class="ascii-frame-canvas"></canvas>
+                        <canvas id="frames-canvas" ref={canvas_ref.clone()} class="ascii-frame-canvas"></canvas>
                     } else {
-                        <pre class="ascii-frame-content" style={font_size_style.clone()} ref={content_ref.clone()}></pre>
+                        <pre id="frames-text-content" class="ascii-frame-content" style={font_size_style.clone()} ref={content_ref.clone()}></pre>
                     }
                 }
             </div>
@@ -976,16 +976,16 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             <div class="controls" id="frames-controls">
                 <div class="control-row" id="frames-progress">
                     <input id="frames-progress-bar" class="progress" type="range" min="0" max="1" step="0.001" value={progress_in_range.to_string()} oninput={on_seek} title="Seek frame" disabled={total_frames == 0} />
-                    <button class="ctrl-btn" type="button" onclick={on_toggle_play} title="Play/Pause" disabled={total_frames == 0}>
+                    <button id="frames-play-btn" class="ctrl-btn" type="button" onclick={on_toggle_play} title="Play/Pause" disabled={total_frames == 0}>
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
                 <div class="control-row" id="cut-controls">
-                    <div class="range-selector">
-                        <div class="range-selector-track"></div>
-                        <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" disabled={total_frames == 0} />
-                        <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" disabled={total_frames == 0} />
+                    <div id="frames-range-selector" class="range-selector">
+                        <div id="frames-range-track" class="range-selector-track"></div>
+                        <input id="frames-range-left" class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" disabled={total_frames == 0} />
+                        <input id="frames-range-right" class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" disabled={total_frames == 0} />
                     </div>
                     <button id="cut-frames-button" class="ctrl-btn" type="button" disabled={props.is_cutting || props.on_cut_frames.is_none() || total_frames == 0} title="Cut frame segment" onclick={{
                             let left_value = left_value.clone();
@@ -1007,11 +1007,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     </button>
                 </div>
 
-                <div class="control-row" id="frames-controls">
+                <div class="control-row" id="frames-speed-controls">
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
-                    <input type="number" class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}} style="width: 68px;" value={props.frame_speed.unwrap_or(props.fps).to_string()} min="1" oninput={on_speed_change} onclick={on_select_custom} title="Frame playback speed (FPS)" />
-                    <input type="number" class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}} style="width: 68px;" value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()} readonly=true onclick={on_select_base} title="Default Speed" />
-                    <button type="button" class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
+                    <input id="frames-speed-custom-input" type="number" class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}} style="width: 68px;" value={props.frame_speed.unwrap_or(props.fps).to_string()} min="1" oninput={on_speed_change} onclick={on_select_custom} title="Frame playback speed (FPS)" />
+                    <input id="frames-speed-base-input" type="number" class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}} style="width: 68px;" value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()} readonly=true onclick={on_select_base} title="Default Speed" />
+                    <button id="frames-loop-btn" type="button" class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
                         onclick={{
                             let on_loop_change = props.on_loop_change.clone();
                             let loop_enabled = props.loop_enabled;
@@ -1023,7 +1023,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         }}>
                         <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
                     </button>
-                    <button type="button" class={if *color_enabled && color_available {"ctrl-btn color-btn active"} else if !color_available {"ctrl-btn color-btn disabled"} else {"ctrl-btn color-btn"}}
+                    <button id="frames-color-btn" type="button" class={if *color_enabled && color_available {"ctrl-btn color-btn active"} else if !color_available {"ctrl-btn color-btn disabled"} else {"ctrl-btn color-btn"}}
                         title={if colors_loading {"Loading colors..."} else if !color_available {"No color data available"} else if *color_enabled {"Color enabled"} else {"Color disabled"}}
                         disabled={!color_available}
                         onclick={{
@@ -1034,7 +1034,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         }}>
                         if colors_loading {
                             if let Some(ref msg) = color_loading_pct {
-                                <span class="color-loading-pct">{msg.clone()}</span>
+                                <span id="frames-color-loading-pct" class="color-loading-pct">{msg.clone()}</span>
                             } else {
                                 <Icon icon_id={IconId::LucideMoreHorizontal} width={"16"} height={"16"} />
                             }
@@ -1042,7 +1042,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                             <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
                         }
                     </button>
-                    <span class="frame-progress-label">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
+                    <span id="frames-progress-label" class="frame-progress-label">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
                     <div style="flex: 1;"></div>
                     <button type="button" title="Step backward one frame" id="move-frame-backward" class="ctrl-btn" onclick={{
                             let current_index = current_index.clone();
@@ -1123,22 +1123,22 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 </div>
 
                 if let Some(settings) = &props.settings {
-                    <div class="settings-info">
-                        <div class="settings-row">
-                            <span class="settings-label">{"FPS:"}</span>
-                            <span class="settings-value">{settings.fps}</span>
+                    <div id="frames-settings-info" class="settings-info">
+                        <div id="frames-settings-fps" class="settings-row">
+                            <span id="frames-settings-fps-label" class="settings-label">{"FPS:"}</span>
+                            <span id="frames-settings-fps-value" class="settings-value">{settings.fps}</span>
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"Font Ratio:"}</span>
-                            <span class="settings-value">{format!("{:.2}", settings.font_ratio)}</span>
+                        <div id="frames-settings-font-ratio" class="settings-row">
+                            <span id="frames-settings-font-ratio-label" class="settings-label">{"Font Ratio:"}</span>
+                            <span id="frames-settings-font-ratio-value" class="settings-value">{format!("{:.2}", settings.font_ratio)}</span>
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"Luminance:"}</span>
-                            <span class="settings-value">{settings.luminance}</span>
+                        <div id="frames-settings-luminance" class="settings-row">
+                            <span id="frames-settings-luminance-label" class="settings-label">{"Luminance:"}</span>
+                            <span id="frames-settings-luminance-value" class="settings-value">{settings.luminance}</span>
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"Columns:"}</span>
-                            <span class="settings-value">{settings.columns}</span>
+                        <div id="frames-settings-columns" class="settings-row">
+                            <span id="frames-settings-columns-label" class="settings-label">{"Columns:"}</span>
+                            <span id="frames-settings-columns-value" class="settings-value">{settings.columns}</span>
                         </div>
                     </div>
                 }

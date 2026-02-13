@@ -39,7 +39,7 @@ pub fn app() -> Html {
                 current_page={(*current_page).clone()}
                 has_active_project={active_project_id.is_some()}
             />
-            <main class="container">
+            <main class="container" id="app-container">
                 {
                     match current_page.as_str() {
                         "home"      => html! { <pages::home::HomePage /> },

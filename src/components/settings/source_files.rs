@@ -150,9 +150,9 @@ impl Component for SourceFiles {
         let on_select_source = &props.on_select_source;
 
         html! {
-            <div class="source-files-column">
-                <h2 class="collapsible-header">
-                    <span class="chevron-icon" onclick={&on_toggle}>
+            <div id="source-files-column" class="source-files-column">
+                <h2 id="source-files-header" class="collapsible-header">
+                    <span id="source-files-chevron" class="chevron-icon" onclick={&on_toggle}>
                         {if props.source_files_collapsed {
                             html! {<span>{"▶"}</span>}
                         } else {
@@ -169,7 +169,7 @@ impl Component for SourceFiles {
                             })
                         };
                         html! {
-                            <button type="button" class="add-files-btn" onclick={on_add} title="Add files">
+                            <button type="button" id="source-files-add-btn" class="add-files-btn" onclick={on_add} title="Add files">
                                 {"+"}
                             </button>
                         }
@@ -181,7 +181,7 @@ impl Component for SourceFiles {
                 {
                     if !props.source_files_collapsed {
                         html! {
-                            <div class="source-list">
+                            <div id="source-files-list" class="source-list">
                             {
                                 source_files.iter().map(|file| {
                                     let display_name = file.custom_name.as_ref()

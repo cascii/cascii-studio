@@ -1007,7 +1007,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 <div class="control-row" id="frames-speed-controls">
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
                     <input id="frames-speed-custom-input" type="number" class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}} style="width: 68px;" value={props.frame_speed.unwrap_or(props.fps).to_string()} min="1" oninput={on_speed_change} onclick={on_select_custom} title="Frame playback speed (FPS)" />
-                    <input id="frames-speed-base-input" type="number" class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}} style="width: 68px;" value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()} readonly=true onclick={on_select_base} title="Default Speed" />
+                    <button id="frames-speed-sync-btn" type="button" class={if props.selected_speed == SpeedSelection::Base {"ctrl-btn speed-sync-btn active"} else {"ctrl-btn speed-sync-btn"}} onclick={on_select_base} title="Sync frames to source video progress">
+                        {"SYNC"}
+                    </button>
                     <button id="frames-color-btn" type="button" class={if *color_enabled && color_available {"ctrl-btn color-btn active"} else if !color_available {"ctrl-btn color-btn disabled"} else {"ctrl-btn color-btn"}}
                         title={if colors_loading {"Loading colors..."} else if !color_available {"No color data available"} else if *color_enabled {"Color enabled"} else {"Color disabled"}}
                         disabled={!color_available}

@@ -18,6 +18,8 @@ pub struct ControlsProps {
     pub seek_percentage: Option<f64>,
     pub on_seek_percentage_change: Callback<Option<f64>>,
     pub frames_loading: bool,
+    pub loop_enabled: bool,
+    pub on_loop_change: Callback<bool>,
 }
 
 #[function_component(Controls)]
@@ -63,6 +65,14 @@ pub fn controls(props: &ControlsProps) -> Html {
         })
     };
 
+    let on_toggle_loop = {
+        let on_loop_change = props.on_loop_change.clone();
+        let loop_enabled = props.loop_enabled;
+        Callback::from(move |_| {
+            on_loop_change.emit(!loop_enabled);
+        })
+    };
+
     html! {
         <div id="controls-column" class="controls-column">
             <h2 id="controls-header" class="collapsible-header" onclick={on_toggle}>
@@ -85,6 +95,9 @@ pub fn controls(props: &ControlsProps) -> Html {
                                 </button>
                                 <button id="controls-reset-btn" class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
                                     <span id="controls-reset-icon" class="reset-icon">{"↺"}</span>
+                                </button>
+                                <button id="controls-loop-btn" class={classes!("ctrl-btn", "loop-btn", props.loop_enabled.then_some("active"))} onclick={on_toggle_loop} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}>
+                                    <Icon icon_id={IconId::LucideRepeat} width={"18"} height={"18"} />
                                 </button>
                             </div>
 

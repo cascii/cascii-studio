@@ -1,7 +1,7 @@
 /* Container fills its parent; two rows: video (grow) + controls */
 .video-player {
     display: grid;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: minmax(0, 1fr) var(--viewer-controls-height, 220px);
     gap: 0.5rem;
     width: 100%;
     height: 100%;
@@ -12,7 +12,7 @@
     position: relative;
     width: 100%;
     height: 100%;
-    min-height: 60px;
+    min-height: 0;
     border: 1px solid #444;
     border-radius: 8px;
     background: #000;
@@ -64,6 +64,10 @@
     background: #2a2a2a;
     border: 1px solid #444;
     border-radius: 8px;
+    height: var(--viewer-controls-height, 220px);
+    min-height: var(--viewer-controls-height, 220px);
+    max-height: var(--viewer-controls-height, 220px);
+    overflow-y: auto;
 }
 
 .video-player .control-row {

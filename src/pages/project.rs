@@ -182,6 +182,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let should_reset = use_state(|| false);
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
     let seek_percentage = use_state(|| None::<f64>);
+    let frames_sync_seek_percentage = use_state(|| None::<f64>);
     let frames_loading = use_state(|| false);
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
@@ -203,6 +204,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     loop_enabled.set(enabled);
                 }
             });
+            || ()
+        });
+    }
+
+    // In custom-speed mode, clear transient sync seek so frame playback uses only user speed.
+    {
+        let selected_speed = selected_speed.clone();
+        let frames_sync_seek_percentage = frames_sync_seek_percentage.clone();
+        use_effect_with((*selected_speed).clone(), move |speed| {
+            if *speed == crate::components::ascii_frames_viewer::SpeedSelection::Custom {
+                frames_sync_seek_percentage.set(None);
+            }
             || ()
         });
     }
@@ -1539,8 +1552,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 seek_percentage={*seek_percentage}
                                                 on_progress={{
                                                     let synced_progress = synced_progress.clone();
+                                                    let frames_sync_seek_percentage = frames_sync_seek_percentage.clone();
+                                                    let selected_speed = selected_speed.clone();
+                                                    let selected_frame_dir = selected_frame_dir.clone();
                                                     Callback::from(move |progress: f64| {
                                                         synced_progress.set(progress * 100.0);
+                                                        if *selected_speed == crate::components::ascii_frames_viewer::SpeedSelection::Base
+                                                            && selected_frame_dir.is_some()
+                                                        {
+                                                            frames_sync_seek_percentage.set(Some(progress));
+                                                        }
                                                     })
                                                 }}
                                             
@@ -1704,7 +1725,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 settings={(*selected_frame_settings).clone()}
                                                 should_play={if *is_playing && !*frames_loading {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
-                                                seek_percentage={*seek_percentage}
+                                                seek_percentage={{
+                                                    if *selected_speed == crate::components::ascii_frames_viewer::SpeedSelection::Base {
+                                                        (*frames_sync_seek_percentage).or(*seek_percentage)
+                                                    } else {
+                                                        *seek_percentage
+                                                    }
+                                                }}
                                                 on_loading_changed={{
                                                     let frames_loading = frames_loading.clone();
                                                     Callback::from(move |is_loading: bool| {

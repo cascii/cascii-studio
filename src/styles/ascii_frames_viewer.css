@@ -262,6 +262,25 @@
     box-sizing: border-box;
 }
 
+.ascii-frames-viewer .speed-sync-btn {
+    width: 68px;
+    min-width: 68px;
+    height: 38px;
+    min-height: 38px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.ascii-frames-viewer .speed-sync-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+}
+
+.ascii-frames-viewer .speed-sync-btn.active:hover {
+    background: #5a7aaa;
+}
+
 .ascii-frames-viewer .loop-btn.active {
     background: #4a6a9a;
     border-color: #6a8aba;

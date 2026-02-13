@@ -86,6 +86,12 @@ pub struct VideoPlayerProps {
     /// Whether playback should loop (applies to trim window)
     #[prop_or(true)]
     pub loop_enabled: bool,
+    /// Playback volume (0.0-1.0)
+    #[prop_or(1.0)]
+    pub volume: f64,
+    /// Whether audio is muted
+    #[prop_or(false)]
+    pub is_muted: bool,
     /// External control: seek to percentage (0.0-1.0) — interpreted RELATIVE TO TRIM WINDOW
     #[prop_or_default]
     pub seek_percentage: Option<f64>,
@@ -165,10 +171,8 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let video_ref = use_node_ref();
 
     let is_playing = use_state(|| false);
-    let is_muted = use_state(|| false);
     let duration = use_state(|| 0.0f64);
     let current_time = use_state(|| 0.0f64);
-    let volume = use_state(|| 1.0f64);
     let error_text = use_state(|| None::<String>);
 
     // Dual range selector state (0..1)
@@ -359,54 +363,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Volume slider
-    let on_volume_input = {
-        let video_ref = video_ref.clone();
-        let volume_state = volume.clone();
-        let is_muted = is_muted.clone();
-        Callback::from(move |e: InputEvent| {
-            if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
-                let val = e
-                    .target_unchecked_into::<web_sys::HtmlInputElement>()
-                    .value_as_number();
-                if val.is_finite() {
-                    let clamped = val.clamp(0.0, 1.0);
-                    v.set_volume(clamped);
-                    volume_state.set(clamped);
-                    if clamped > 0.0 && v.muted() {
-                        v.set_muted(false);
-                        is_muted.set(false);
-                    }
-                }
-            }
-        })
-    };
-
-    // Mute toggle
-    let on_toggle_mute = {
-        let video_ref = video_ref.clone();
-        let is_muted = is_muted.clone();
-        Callback::from(move |_| {
-            if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
-                let new_state = !v.muted();
-                v.set_muted(new_state);
-                is_muted.set(new_state);
-            }
-        })
-    };
-
     // Icon choices
     let play_icon = if *is_playing {
         IconId::LucidePause
     } else {
         IconId::LucidePlay
-    };
-    let vol_icon = if *is_muted || *volume == 0.0 {
-        IconId::LucideVolumeX
-    } else if *volume < 0.5 {
-        IconId::LucideVolume1
-    } else {
-        IconId::LucideVolume2
     };
 
     // Format timestamp with milliseconds for accuracy
@@ -550,6 +511,21 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     }
                 }
             }
+        });
+    }
+
+    // Apply external volume/mute controls.
+    {
+        let video_ref = video_ref.clone();
+        let volume = props.volume;
+        let is_muted = props.is_muted;
+
+        use_effect_with((volume, is_muted), move |(volume, is_muted)| {
+            if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                v.set_volume(volume.clamp(0.0, 1.0));
+                v.set_muted(*is_muted);
+            }
+            || ()
         });
     }
 
@@ -855,13 +831,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     <input id="video-progress-bar" class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
                     <button id="video-play-btn" class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
-                    </button>
-                </div>
-
-                <div class="control-row" id="video-volume">
-                    <input id="video-volume-bar" class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input.clone()} title="Volume" />
-                    <button id="video-mute-btn" class="ctrl-btn" type="button" onclick={on_toggle_mute.clone()} title="Mute/Unmute">
-                        <Icon icon_id={vol_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 

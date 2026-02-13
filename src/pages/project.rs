@@ -187,6 +187,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let current_conversion_id = use_state(|| None::<String>);
     let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
     let loop_enabled = use_state(|| true);
+    let video_volume = use_state(|| 1.0f64);
+    let video_is_muted = use_state(|| false);
     let color_frames_default = use_state(|| true);
     let extract_audio_default = use_state(|| false);
 
@@ -1401,6 +1403,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 });
                             })
                         }}
+                        volume={*video_volume}
+                        is_muted={*video_is_muted}
+                        on_volume_change={{
+                            let video_volume = video_volume.clone();
+                            Callback::from(move |value: f64| {
+                                video_volume.set(value.clamp(0.0, 1.0));
+                            })
+                        }}
+                        on_is_muted_change={{
+                            let video_is_muted = video_is_muted.clone();
+                            Callback::from(move |muted: bool| {
+                                video_is_muted.set(muted);
+                            })
+                        }}
                     />
 
                     // Conversion progress indicators (multiple parallel conversions)
@@ -1518,6 +1534,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
                                                 loop_enabled={*loop_enabled}
+                                                volume={*video_volume}
+                                                is_muted={*video_is_muted}
                                                 seek_percentage={*seek_percentage}
                                                 on_progress={{
                                                     let synced_progress = synced_progress.clone();

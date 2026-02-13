@@ -823,7 +823,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 if let Some(msg) = &*error_text {
                     <div id="video-error-overlay" class="error-overlay">{msg}</div>
                 }
-                <div id="video-timestamp-overlay" class="timestamp-overlay">{timestamp}</div>
             </div>
 
             <div class="controls" id="video-controls">
@@ -843,6 +842,10 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     <button id="video-cut-btn" class="ctrl-btn" type="button" onclick={on_cut_click.clone()} disabled={is_cutting || props.on_cut_video.is_none()} title="Cut video segment">
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
+                </div>
+
+                <div class="control-row timestamp-row" id="video-timestamp-row">
+                    <span id="video-timestamp-overlay" class="timestamp-text">{timestamp}</span>
                 </div>
 
                 <div id="video-controls-divider" class="controls-divider"></div>

@@ -20,6 +20,10 @@ pub struct ControlsProps {
     pub frames_loading: bool,
     pub loop_enabled: bool,
     pub on_loop_change: Callback<bool>,
+    pub volume: f64,
+    pub is_muted: bool,
+    pub on_volume_change: Callback<f64>,
+    pub on_is_muted_change: Callback<bool>,
 }
 
 #[function_component(Controls)]
@@ -41,7 +45,10 @@ pub fn controls(props: &ControlsProps) -> Html {
 
     let on_reset = {
         let on_should_reset_change = props.on_should_reset_change.clone();
+        let on_is_playing_change = props.on_is_playing_change.clone();
         Callback::from(move |_| {
+            // Reset should always leave transport paused so next click is a single "Play".
+            on_is_playing_change.emit(false);
             on_should_reset_change.emit(true);
             // Reset immediately, then set back to false
             let on_should_reset_change_clone = on_should_reset_change.clone();
@@ -73,6 +80,41 @@ pub fn controls(props: &ControlsProps) -> Html {
         })
     };
 
+    let on_volume_input = {
+        let on_volume_change = props.on_volume_change.clone();
+        let on_is_muted_change = props.on_is_muted_change.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    let value = input.value_as_number();
+                    if value.is_finite() {
+                        let clamped = value.clamp(0.0, 1.0);
+                        on_volume_change.emit(clamped);
+                        if clamped > 0.0 {
+                            on_is_muted_change.emit(false);
+                        }
+                    }
+                }
+            }
+        })
+    };
+
+    let on_toggle_mute = {
+        let on_is_muted_change = props.on_is_muted_change.clone();
+        let is_muted = props.is_muted;
+        Callback::from(move |_| {
+            on_is_muted_change.emit(!is_muted);
+        })
+    };
+
+    let volume_icon = if props.is_muted || props.volume == 0.0 {
+        IconId::LucideVolumeX
+    } else if props.volume < 0.5 {
+        IconId::LucideVolume1
+    } else {
+        IconId::LucideVolume2
+    };
+
     html! {
         <div id="controls-column" class="controls-column">
             <h2 id="controls-header" class="collapsible-header" onclick={on_toggle}>
@@ -99,6 +141,13 @@ pub fn controls(props: &ControlsProps) -> Html {
                                 <button id="controls-loop-btn" class={classes!("ctrl-btn", "loop-btn", props.loop_enabled.then_some("active"))} onclick={on_toggle_loop} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}>
                                     <Icon icon_id={IconId::LucideRepeat} width={"18"} height={"18"} />
                                 </button>
+                                <button id="video-mute-btn" class="ctrl-btn" type="button" onclick={on_toggle_mute} title={if props.is_muted {"Unmute"} else {"Mute"}}>
+                                    <Icon icon_id={volume_icon} width={"20"} height={"20"} />
+                                </button>
+                            </div>
+
+                            <div id="controls-volume-row" class="control-row">
+                                <input id="video-volume-bar" class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
                             </div>
 
                             <div id="controls-progress-row" class="control-row">

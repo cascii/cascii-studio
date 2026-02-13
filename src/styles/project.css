@@ -603,6 +603,13 @@
     gap: 8px;
 }
 
+.controls-column .control-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+}
+
 .controls-column .loop-btn.active {
     background: #4a6a9a;
     border-color: #6a8aba;
@@ -613,7 +620,8 @@
 }
 
 .synced-progress,
-.progress {
+.progress,
+.controls-column .volume-bar {
     flex: 1;
     width: 100%;
     height: 16px;

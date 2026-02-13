@@ -157,9 +157,9 @@ impl Component for AvailableFrames {
         };
 
         html! {
-            <div class="frames-column">
-                <h2 class="collapsible-header" onclick={on_toggle}>
-                    <span class="chevron-icon">
+            <div id="available-frames-column" class="frames-column">
+                <h2 id="available-frames-header" class="collapsible-header" onclick={on_toggle}>
+                    <span id="available-frames-chevron" class="chevron-icon">
                         {if props.frames_collapsed {
                             html! {<span>{"▶"}</span>}
                         } else {
@@ -171,7 +171,7 @@ impl Component for AvailableFrames {
                 {
                     if !props.frames_collapsed {
                         html! {
-                            <div class="source-list">
+                            <div id="available-frames-list" class="source-list">
                                 {for props.frame_directories.iter().map(|frame_dir| {
                                     let class_name = if props.selected_frame_dir.as_ref()
                                         .map(|s| s.directory_path == frame_dir.directory_path)

@@ -214,9 +214,9 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
     };
 
     html! {
-        <div class="ascii-conversion-column">
-            <h2 class="collapsible-header" onclick={on_toggle}>
-                <span class="chevron-icon">
+        <div id="convert-column" class="ascii-conversion-column">
+            <h2 id="convert-header" class="collapsible-header" onclick={on_toggle}>
+                <span id="convert-chevron" class="chevron-icon">
                     {if props.convert_collapsed {
                         html! {<span>{"▶"}</span>}
                     } else {
@@ -230,28 +230,28 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                 if !props.convert_collapsed {
                     html! {
                         <>
-                            <div class="conversion-settings">
-                                <div class="setting-row">
+                            <div id="convert-settings" class="conversion-settings">
+                                <div id="convert-luminance-row" class="setting-row">
                                     <label>{"Luminance:"}</label>
-                                    <input type="number" class="setting-input" value={props.luminance.to_string()} min="0" max="255" oninput={on_luminance_input} />
+                                    <input type="number" id="convert-luminance-input" class="setting-input" value={props.luminance.to_string()} min="0" max="255" oninput={on_luminance_input} />
                                 </div>
 
-                                <div class="setting-row">
+                                <div id="convert-font-ratio-row" class="setting-row">
                                     <label>{"Font Ratio:"}</label>
-                                    <input type="number" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input} />
+                                    <input type="number" id="convert-font-ratio-input" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input} />
                                 </div>
 
-                                <div class="setting-row">
+                                <div id="convert-columns-row" class="setting-row">
                                     <label>{"Columns:"}</label>
-                                    <input type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input} />
+                                    <input type="number" id="convert-columns-input" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input} />
                                 </div>
 
                                 {
                                     if props.selected_source.as_ref().map(|s| s.content_type == ContentType::Video).unwrap_or(false) {
                                         html! {
-                                            <div class="setting-row">
+                                            <div id="convert-fps-row" class="setting-row">
                                                 <label>{"FPS:"}</label>
-                                                <input type="number" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input} />
+                                                <input type="number" id="convert-fps-input" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input} />
                                             </div>
                                         }
                                     } else {
@@ -260,7 +260,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                 }
                             </div>
 
-                            <div class="convert-actions">
+                            <div id="convert-actions" class="convert-actions">
                                 <button id="color-toggle-btn" class={classes!("color-toggle-btn", (*generate_colors).then_some("active"))} onclick={on_toggle_colors} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
                                     if *generate_colors {
                                         <Icon icon_id={IconId::LucideBrush} width={"18"} height={"18"} />
@@ -271,7 +271,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                 <button id="audio-toggle-btn" class={classes!("audio-toggle-btn", (*extract_audio).then_some("active"))} onclick={on_toggle_audio} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                                     <Icon icon_id={IconId::LucideVolume2} width={"18"} height={"18"} />
                                 </button>
-                                <button class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>
+                                <button id="convert-submit-btn" class="btn-convert" disabled={props.is_converting || props.selected_source.is_none()} onclick={on_convert_click}>
                                     if props.is_converting {
                                         {"Converting..."}
                                     } else {
@@ -282,7 +282,7 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
 
                             {
                                 if let Some(msg) = &props.conversion_message {
-                                    html! { <div class="conversion-success">{msg}</div> }
+                                    html! { <div id="convert-success-msg" class="conversion-success">{msg}</div> }
                                 } else {
                                     html! {<></>}
                                 }

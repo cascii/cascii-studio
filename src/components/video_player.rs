@@ -828,63 +828,63 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     };
 
     html! {
-        <div class={classes!("video-player", props.class.clone())}>
-            <div class="video-wrap">
-                <video ref={video_ref.clone()} class="video" src={props.src.clone()} preload="metadata" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
+        <div id="video-player" class={classes!("video-player", props.class.clone())}>
+            <div id="video-wrap" class="video-wrap">
+                <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="metadata" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
                 if let Some(msg) = &*error_text {
-                    <div class="error-overlay">{msg}</div>
+                    <div id="video-error-overlay" class="error-overlay">{msg}</div>
                 }
-                <div class="timestamp-overlay">{timestamp}</div>
+                <div id="video-timestamp-overlay" class="timestamp-overlay">{timestamp}</div>
             </div>
 
             <div class="controls" id="video-controls">
                 <div class="control-row" id="video-progress">
-                    <input class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
-                    <button class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
+                    <input id="video-progress-bar" class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
+                    <button id="video-play-btn" class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
                         <Icon icon_id={play_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
                 <div class="control-row" id="video-volume">
-                    <input class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input.clone()} title="Volume" />
-                    <button class="ctrl-btn" type="button" onclick={on_toggle_mute.clone()} title="Mute/Unmute">
+                    <input id="video-volume-bar" class="volume-bar" type="range" min="0" max="1" step="0.01" value={volume.to_string()} oninput={on_volume_input.clone()} title="Volume" />
+                    <button id="video-mute-btn" class="ctrl-btn" type="button" onclick={on_toggle_mute.clone()} title="Mute/Unmute">
                         <Icon icon_id={vol_icon} width={"20"} height={"20"} />
                     </button>
                 </div>
 
                 <div class="control-row" id="video-cut-controls">
-                    <div class="range-selector">
-                        <div class="range-selector-track"></div>
-                        <input class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" />
-                        <input class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" />
+                    <div id="video-range-selector" class="range-selector">
+                        <div id="video-range-track" class="range-selector-track"></div>
+                        <input id="video-range-left" class="range-selector-input range-left" type="range" min="0" max="1" step="0.001" value={left_value.to_string()} oninput={on_left_range_input.clone()} title="Range start" />
+                        <input id="video-range-right" class="range-selector-input range-right" type="range" min="0" max="1" step="0.001" value={right_value.to_string()} oninput={on_right_range_input.clone()} title="Range end" />
                     </div>
-                    <button class="ctrl-btn" type="button" onclick={on_cut_click.clone()} disabled={is_cutting || props.on_cut_video.is_none()} title="Cut video segment">
+                    <button id="video-cut-btn" class="ctrl-btn" type="button" onclick={on_cut_click.clone()} disabled={is_cutting || props.on_cut_video.is_none()} title="Cut video segment">
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
                 </div>
 
-                <div class="controls-divider"></div>
+                <div id="video-controls-divider" class="controls-divider"></div>
 
                 <div class="control-row" id="conversion-settings">
-                    <div class="settings-info">
-                        <div class="settings-row">
-                            <span class="settings-label">{"FPS:"}</span>
-                            <input type="number" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input.clone()} />
+                    <div id="video-settings-info" class="settings-info">
+                        <div id="video-settings-fps-row" class="settings-row">
+                            <span id="video-settings-fps-label" class="settings-label">{"FPS:"}</span>
+                            <input id="video-settings-fps-input" type="number" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input.clone()} />
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"FONT RATIO:"}</span>
-                            <input type="number" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input.clone()} />
+                        <div id="video-settings-font-ratio-row" class="settings-row">
+                            <span id="video-settings-font-ratio-label" class="settings-label">{"FONT RATIO:"}</span>
+                            <input id="video-settings-font-ratio-input" type="number" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input.clone()} />
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"LUMINANCE:"}</span>
-                            <input type="number" class="setting-input" value={props.luminance.to_string()} min="0" max="255" oninput={on_luminance_input.clone()} />
+                        <div id="video-settings-luminance-row" class="settings-row">
+                            <span id="video-settings-luminance-label" class="settings-label">{"LUMINANCE:"}</span>
+                            <input id="video-settings-luminance-input" type="number" class="setting-input" value={props.luminance.to_string()} min="0" max="255" oninput={on_luminance_input.clone()} />
                         </div>
-                        <div class="settings-row">
-                            <span class="settings-label">{"COLUMNS:"}</span>
-                            <input type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input.clone()} />
+                        <div id="video-settings-columns-row" class="settings-row">
+                            <span id="video-settings-columns-label" class="settings-label">{"COLUMNS:"}</span>
+                            <input id="video-settings-columns-input" type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input.clone()} />
                         </div>
                     </div>
-                    <button class={classes!("ctrl-btn", "color-toggle-btn", (*generate_colors).then_some("active"))} type="button" onclick={{
+                    <button id="video-color-toggle-btn" class={classes!("ctrl-btn", "color-toggle-btn", (*generate_colors).then_some("active"))} type="button" onclick={{
                         let generate_colors = generate_colors.clone();
                         Callback::from(move |_| generate_colors.set(!*generate_colors))
                     }} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
@@ -894,16 +894,16 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                             <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
                         }
                     </button>
-                    <button class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
+                    <button id="video-audio-toggle-btn" class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
                         let extract_audio = extract_audio.clone();
                         Callback::from(move |_| extract_audio.set(!*extract_audio))
                     }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                         <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
                     </button>
-                    <button class="ctrl-btn" type="button" onclick={on_create_preview.clone()} disabled={*is_creating_preview || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Create preview of current frame">
+                    <button id="video-preview-btn" class="ctrl-btn" type="button" onclick={on_create_preview.clone()} disabled={*is_creating_preview || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Create preview of current frame">
                         <Icon icon_id={IconId::LucideCamera} width={"20"} height={"20"} />
                     </button>
-                    <button class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
+                    <button id="video-convert-btn" class="ctrl-btn" type="button" onclick={on_convert_click.clone()} disabled={is_converting || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Convert to ASCII">
                         <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />
                     </button>
                 </div>

@@ -195,21 +195,21 @@ pub fn settings_page() -> Html {
     };
 
     html! {
-        <main class="container">
+        <main id="settings-container" class="container">
             <h1>{"Settings"}</h1>
-            <div class="settings-form">
-                <div class="form-group">
+            <div id="settings-form" class="settings-form">
+                <div id="settings-folder-group" class="form-group">
                     <label for="out-dir">{"Output directory"}</label>
-                    <div class="input-group">
+                    <div id="settings-folder-input-group" class="input-group">
                         <input id="out-dir" readonly=true value={settings.output_directory.clone()} oninput={on_dir_input} />
                         <button type="button" onclick={on_pick_directory}>{"Browse"}</button>
-                        <button type="button" class="icon-btn" onclick={on_open_directory}>
+                        <button type="button" id="settings-folder-browse-btn" class="icon-btn" onclick={on_open_directory}>
                             <Icon icon_id={IconId::LucideFolder} width={"18"} height={"18"} />
                         </button>
                     </div>
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-default-behavior-group" class="form-group row">
                     <label for="behavior">{"Default behavior"}</label>
                     <select id="behavior" onchange={on_behavior_change}>
                         <option value="Move" selected={settings.default_behavior == DefaultBehavior::Move}>{"Move"}</option>
@@ -217,7 +217,7 @@ pub fn settings_page() -> Html {
                     </select>
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-delete-mode-group" class="form-group row">
                     <label for="del">{"Delete mode"}</label>
                     <select id="del" onchange={on_delete_mode_change}>
                         <option value="Soft" selected={settings.delete_mode == DeleteMode::Soft}>{"Soft"}</option>
@@ -225,22 +225,22 @@ pub fn settings_page() -> Html {
                     </select>
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-debug-logs-group" class="form-group row">
                     <label for="dbg">{"Debug logs"}</label>
                     <input id="dbg" type="checkbox" checked={settings.debug_logs} onchange={on_debug_change} />
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-color-frames-group" class="form-group row">
                     <label for="color-frames">{"Color frames by default"}</label>
                     <input id="color-frames" type="checkbox" checked={settings.color_frames_default} onchange={on_color_frames_change} />
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-extract-audio-group" class="form-group row">
                     <label for="extract-audio">{"Extract audio by default"}</label>
                     <input id="extract-audio" type="checkbox" checked={settings.extract_audio_default} onchange={on_extract_audio_change} />
                 </div>
 
-                <div class="form-group row">
+                <div id="settings-ffmpeg-source-group" class="form-group row">
                     <label for="ffmpeg-source">{"FFmpeg source"}</label>
                     <select id="ffmpeg-source" onchange={on_ffmpeg_source_change}>
                         <option value="System" selected={settings.ffmpeg_source == FfmpegSource::System} disabled={!*system_ffmpeg_available}>
@@ -260,7 +260,7 @@ pub fn settings_page() -> Html {
                     </select>
                 </div>
 
-                <div class="form-group center">
+                <div id="settings-save-group" class="form-group center">
                     <button type="button" onclick={on_save}>{"Save"}</button>
                 </div>
             </div>

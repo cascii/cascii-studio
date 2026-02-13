@@ -787,25 +787,25 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     <h1>{ project.as_ref().map(|p| format!("Montage: {}", p.project_name)).unwrap_or_else(|| "Loading Montage...".into()) }</h1>
 
                     if let Some(error) = &*error_message {
-                        <div class="alert alert-error">{error}</div>
+                        <div id="montage-error-alert" class="alert alert-error">{error}</div>
                     }
 
-                    <div class="montage-workspace">
+                    <div id="montage-workspace" class="montage-workspace">
                         <p>{"Preview area"}</p>
                     </div>
 
                     // Timeline axis - drag events handled by JavaScript
-                    <div class="timeline-container">
-                        <div class="timeline-header">
-                            <span class="timeline-title">{"Timeline"}</span>
+                    <div id="montage-timeline-container" class="timeline-container">
+                        <div id="montage-timeline-header" class="timeline-header">
+                            <span id="montage-timeline-title" class="timeline-title">{"Timeline"}</span>
                         </div>
-                        <div class="timeline-track">
+                        <div id="montage-timeline-track" class="timeline-track">
                             if timeline_items.is_empty() {
-                                <div class="timeline-placeholder">
+                                <div id="montage-timeline-placeholder" class="timeline-placeholder">
                                     {"Click items in the sidebar to add them here"}
                                 </div>
                             } else {
-                                <div class="timeline-items-row">
+                                <div id="montage-timeline-items-row" class="timeline-items-row">
                                     { timeline_items.iter().enumerate().map(|(index, item)| {
                                         let item_class = match item.item_type {
                                             TimelineItemType::Source => "timeline-item source",

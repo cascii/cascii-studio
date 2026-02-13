@@ -163,9 +163,9 @@ impl Component for AvailableCuts {
         };
 
         html! {
-            <div class="cuts-column">
-                <h2 class="collapsible-header" onclick={on_toggle}>
-                    <span class="chevron-icon">
+            <div id="available-cuts-column" class="cuts-column">
+                <h2 id="available-cuts-header" class="collapsible-header" onclick={on_toggle}>
+                    <span id="available-cuts-chevron" class="chevron-icon">
                         {if props.cuts_collapsed {
                             html! {<span>{"▶"}</span>}
                         } else {
@@ -177,7 +177,7 @@ impl Component for AvailableCuts {
                 {
                     if !props.cuts_collapsed {
                         html! {
-                            <div class="source-list">
+                            <div id="available-cuts-list" class="source-list">
                                 {for props.cuts.iter().map(|cut| {
                                     let class_name = if props.selected_cut.as_ref()
                                         .map(|s| s.id == cut.id)
@@ -343,7 +343,7 @@ impl Component for AvailableCuts {
                                 })}
                                 {if props.cuts.is_empty() {
                                     html! {
-                                        <div class="empty-message">{"No cuts yet. Use the scissors button to create one."}</div>
+                                        <div id="available-cuts-empty" class="empty-message">{"No cuts yet. Use the scissors button to create one."}</div>
                                     }
                                 } else {
                                     html! {<></>}

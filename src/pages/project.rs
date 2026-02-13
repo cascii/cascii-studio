@@ -190,38 +190,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let color_frames_default = use_state(|| true);
     let extract_audio_default = use_state(|| false);
 
-    // BUGGY CODE - COMMENTED OUT (causes lag on reset/restart)
-    // TODO: Fix use_effect to use_effect_with((), ...) to run only once on mount
-    // // Load settings from settings.json on mount
-    // {
-    //     let loop_enabled = loop_enabled.clone();
-    //     let color_frames_default = color_frames_default.clone();
-    //     let extract_audio_default = extract_audio_default.clone();
-    //     use_effect(move || {
-    //         let loop_enabled = loop_enabled.clone();
-    //         let color_frames_default = color_frames_default.clone();
-    //         let extract_audio_default = extract_audio_default.clone();
-    //         wasm_bindgen_futures::spawn_local(async move {
-    //             let result = tauri_invoke("load_settings", JsValue::NULL).await;
-    //             if let Ok(loop_val) = js_sys::Reflect::get(&result, &"loop_enabled".into()) {
-    //                 if let Some(enabled) = loop_val.as_bool() {
-    //                     loop_enabled.set(enabled);
-    //                 }
-    //             }
-    //             if let Ok(color_val) = js_sys::Reflect::get(&result, &"color_frames_default".into()) {
-    //                 if let Some(enabled) = color_val.as_bool() {
-    //                     color_frames_default.set(enabled);
-    //                 }
-    //             }
-    //             if let Ok(audio_val) = js_sys::Reflect::get(&result, &"extract_audio_default".into()) {
-    //                 if let Some(enabled) = audio_val.as_bool() {
-    //                     extract_audio_default.set(enabled);
-    //                 }
-    //             }
-    //         });
-    //         || ()
-    //     });
-    // }
+    // Load persisted loop setting once on mount.
+    {
+        let loop_enabled = loop_enabled.clone();
+        use_effect_with((), move |_| {
+            let loop_enabled = loop_enabled.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = tauri_invoke("get_loop_enabled", JsValue::NULL).await;
+                if let Ok(enabled) = serde_wasm_bindgen::from_value::<bool>(result) {
+                    loop_enabled.set(enabled);
+                }
+            });
+            || ()
+        });
+    }
 
     // Collapsible section states
     let source_files_collapsed = use_state(|| false);
@@ -1408,6 +1390,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             })
                         }}
                         frames_loading={*frames_loading}
+                        loop_enabled={*loop_enabled}
+                        on_loop_change={{
+                            let loop_enabled = loop_enabled.clone();
+                            Callback::from(move |enabled: bool| {
+                                loop_enabled.set(enabled);
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "enabled": enabled })).unwrap();
+                                    let _ = tauri_invoke("set_loop_enabled", args).await;
+                                });
+                            })
+                        }}
                     />
 
                     // Conversion progress indicators (multiple parallel conversions)
@@ -1524,6 +1517,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 class={classes!("source-video")}
                                                 should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                 should_reset={*should_reset}
+                                                loop_enabled={*loop_enabled}
                                                 seek_percentage={*seek_percentage}
                                                 on_progress={{
                                                     let synced_progress = synced_progress.clone();
@@ -1669,9 +1663,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     Callback::from(move |_selection: crate::components::ascii_frames_viewer::SpeedSelection| {})
                                                 }}
                                                 loop_enabled={false}
-                                                on_loop_change={{
-                                                    Callback::from(move |_enabled: bool| {})
-                                                }}
                                                 on_cut_frames={None::<Callback<(usize, usize)>>}
                                                 is_cutting={false}
                                             />
@@ -1734,18 +1725,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     })
                                                 }}
                                                 loop_enabled={*loop_enabled}
-                                                on_loop_change={{
-                                                    let loop_enabled = loop_enabled.clone();
-                                                    Callback::from(move |enabled: bool| {
-                                                        loop_enabled.set(enabled);
-                                                        // BUGGY CODE - COMMENTED OUT (part of settings save feature)
-                                                        // // Save to settings
-                                                        // wasm_bindgen_futures::spawn_local(async move {
-                                                        //     let args = serde_wasm_bindgen::to_value(&json!({ "enabled": enabled })).unwrap();
-                                                        //     let _ = tauri_invoke("set_loop_enabled", args).await;
-                                                        // });
-                                                    })
-                                                }}
                                                 on_cut_frames={Some(on_cut_frames.clone())}
                                                 is_cutting={false}
                                             />

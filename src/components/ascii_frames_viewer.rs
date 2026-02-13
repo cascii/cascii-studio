@@ -167,9 +167,6 @@ pub struct AsciiFramesViewerProps {
     /// Whether to loop playback
     #[prop_or(true)]
     pub loop_enabled: bool,
-    /// Callback when loop setting changes
-    #[prop_or_default]
-    pub on_loop_change: Option<Callback<bool>>,
     /// Callback to cut/export frame range: emits (start_frame, end_frame) indices
     #[prop_or_default]
     pub on_cut_frames: Option<Callback<(usize, usize)>>,
@@ -1011,18 +1008,6 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     <label style="font-size: 0.875rem;">{"Speed:"}</label>
                     <input id="frames-speed-custom-input" type="number" class={if props.selected_speed == SpeedSelection::Custom {"setting-input speed-input selected"} else {"setting-input speed-input"}} style="width: 68px;" value={props.frame_speed.unwrap_or(props.fps).to_string()} min="1" oninput={on_speed_change} onclick={on_select_custom} title="Frame playback speed (FPS)" />
                     <input id="frames-speed-base-input" type="number" class={if props.selected_speed == SpeedSelection::Base {"setting-input speed-input selected no-spinner"} else {"setting-input speed-input no-spinner"}} style="width: 68px;" value={props.settings.as_ref().map(|s| s.fps).unwrap_or(props.fps).to_string()} readonly=true onclick={on_select_base} title="Default Speed" />
-                    <button id="frames-loop-btn" type="button" class={if props.loop_enabled {"ctrl-btn loop-btn active"} else {"ctrl-btn loop-btn"}} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}
-                        onclick={{
-                            let on_loop_change = props.on_loop_change.clone();
-                            let loop_enabled = props.loop_enabled;
-                            Callback::from(move |_| {
-                                if let Some(cb) = &on_loop_change {
-                                    cb.emit(!loop_enabled);
-                                }
-                            })
-                        }}>
-                        <Icon icon_id={IconId::LucideRepeat} width={"16"} height={"16"} />
-                    </button>
                     <button id="frames-color-btn" type="button" class={if *color_enabled && color_available {"ctrl-btn color-btn active"} else if !color_available {"ctrl-btn color-btn disabled"} else {"ctrl-btn color-btn"}}
                         title={if colors_loading {"Loading colors..."} else if !color_available {"No color data available"} else if *color_enabled {"Color enabled"} else {"Color disabled"}}
                         disabled={!color_available}

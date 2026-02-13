@@ -603,6 +603,15 @@
     gap: 8px;
 }
 
+.controls-column .loop-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+}
+
+.controls-column .loop-btn.active:hover:not(:disabled) {
+    background: #5a7aaa;
+}
+
 .synced-progress,
 .progress {
     flex: 1;

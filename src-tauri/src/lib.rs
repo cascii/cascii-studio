@@ -119,6 +119,11 @@ fn set_loop_enabled(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_loop_enabled() -> bool {
+    settings::load().loop_enabled
+}
+
+#[tauri::command]
 async fn pick_directory(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::{DialogExt, FilePath};
 
@@ -1839,6 +1844,7 @@ pub fn run() {
             load_settings,
             save_settings,
             set_loop_enabled,
+            get_loop_enabled,
             pick_directory,
             open_directory,
             pick_files,

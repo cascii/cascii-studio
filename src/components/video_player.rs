@@ -83,6 +83,9 @@ pub struct VideoPlayerProps {
     /// External control: when true, reset to beginning
     #[prop_or(false)]
     pub should_reset: bool,
+    /// Whether playback should loop (applies to trim window)
+    #[prop_or(true)]
+    pub loop_enabled: bool,
     /// External control: seek to percentage (0.0-1.0) — interpreted RELATIVE TO TRIM WINDOW
     #[prop_or_default]
     pub seek_percentage: Option<f64>,
@@ -235,6 +238,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let left_value = left_value.clone();
         let right_value = right_value.clone();
         let is_playing = is_playing.clone();
+        let loop_enabled = props.loop_enabled;
         let on_progress = props.on_progress.clone();
 
         Callback::from(move |_| {
@@ -250,12 +254,21 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
                 let mut t = v.current_time();
 
-                // Stop at trim end
+                // Stop or loop at trim end
                 if t >= trim_end {
-                    t = trim_end;
-                    v.set_current_time(t);
-                    v.pause().ok();
-                    is_playing.set(false);
+                    if loop_enabled {
+                        t = trim_start;
+                        v.set_current_time(t);
+                        if v.paused() {
+                            let _ = v.play();
+                        }
+                        is_playing.set(true);
+                    } else {
+                        t = trim_end;
+                        v.set_current_time(t);
+                        v.pause().ok();
+                        is_playing.set(false);
+                    }
                 }
 
                 current_time.set(t);

@@ -2,7 +2,7 @@
 
 .ascii-frames-viewer {
     display: grid;
-    grid-template-rows: minmax(0, 1fr) var(--viewer-controls-height, 220px);
+    grid-template-rows: minmax(0, 1fr) var(--viewer-controls-height, 252px);
     gap: 0.5rem;
     width: 100%;
     height: 100%;
@@ -105,10 +105,12 @@
     background: #2a2a2a;
     border: 1px solid #444;
     border-radius: 8px;
-    height: var(--viewer-controls-height, 220px);
-    min-height: var(--viewer-controls-height, 220px);
-    max-height: var(--viewer-controls-height, 220px);
+    height: var(--viewer-controls-height, 252px);
+    min-height: var(--viewer-controls-height, 252px);
+    max-height: var(--viewer-controls-height, 252px);
     overflow-y: auto;
+    box-sizing: border-box;
+    border-bottom: 1px solid #444;
 }
 
 .ascii-frames-viewer .control-row {
@@ -126,9 +128,33 @@
     -webkit-appearance: none;
     appearance: none;
     background: #3A3A3A;
+    border-radius: 8px;
     cursor: pointer;
     margin: 0;
     padding: 0;
+    border: none;
+    box-shadow: none !important;
+    outline: none;
+    -webkit-box-shadow: none !important;
+}
+
+.ascii-frames-viewer .progress::-webkit-slider-runnable-track,
+.ascii-frames-viewer .volume-bar::-webkit-slider-runnable-track {
+    height: 16px;
+    background: #3A3A3A;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+}
+
+.ascii-frames-viewer .progress::-moz-range-track,
+.ascii-frames-viewer .volume-bar::-moz-range-track {
+    height: 16px;
+    background: #3A3A3A;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none !important;
 }
 
 .ascii-frames-viewer .ctrl-btn {
@@ -234,6 +260,25 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     text-align: center;
     box-sizing: border-box;
+}
+
+.ascii-frames-viewer .speed-sync-btn {
+    width: 68px;
+    min-width: 68px;
+    height: 38px;
+    min-height: 38px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.ascii-frames-viewer .speed-sync-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+}
+
+.ascii-frames-viewer .speed-sync-btn.active:hover {
+    background: #5a7aaa;
 }
 
 .ascii-frames-viewer .loop-btn.active {

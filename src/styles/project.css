@@ -358,7 +358,7 @@
     gap: 1.5rem;
     flex-grow: 1;
     min-height: 0;
-    --viewer-controls-height: clamp(205px, 23vh, 245px);
+    --viewer-controls-height: 252px;
 }
 
 .preview-column {
@@ -620,8 +620,7 @@
     background: #5a7aaa;
 }
 
-.synced-progress,
-.progress,
+.controls-column .synced-progress,
 .controls-column .volume-bar {
     flex: 1;
     width: 100%;
@@ -629,9 +628,33 @@
     -webkit-appearance: none;
     appearance: none;
     background: #3A3A3A;
+    border-radius: 8px;
     cursor: pointer;
     margin: 0;
     padding: 0;
+    border: none;
+    box-shadow: none !important;
+    outline: none;
+    -webkit-box-shadow: none !important;
+}
+
+.controls-column .synced-progress::-webkit-slider-runnable-track,
+.controls-column .volume-bar::-webkit-slider-runnable-track {
+    height: 16px;
+    background: #3A3A3A;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+}
+
+.controls-column .synced-progress::-moz-range-track,
+.controls-column .volume-bar::-moz-range-track {
+    height: 16px;
+    background: #3A3A3A;
+    border-radius: 8px;
+    border: none;
+    box-shadow: none !important;
 }
 
 .ctrl-btn {

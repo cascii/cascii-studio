@@ -263,13 +263,10 @@
 }
 
 .ascii-frames-viewer .speed-sync-btn {
-    width: 68px;
-    min-width: 68px;
+    width: 38px;
+    min-width: 38px;
     height: 38px;
     min-height: 38px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
 }
 
 .ascii-frames-viewer .speed-sync-btn.active {

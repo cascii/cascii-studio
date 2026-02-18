@@ -1555,9 +1555,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let frames_sync_seek_percentage = frames_sync_seek_percentage.clone();
                                                     let selected_speed = selected_speed.clone();
                                                     let selected_frame_dir = selected_frame_dir.clone();
+                                                    let is_playing = is_playing.clone();
                                                     Callback::from(move |progress: f64| {
                                                         synced_progress.set(progress * 100.0);
-                                                        if *selected_speed == crate::components::ascii_frames_viewer::SpeedSelection::Base
+                                                        if *is_playing
+                                                            && *selected_speed == crate::components::ascii_frames_viewer::SpeedSelection::Base
                                                             && selected_frame_dir.is_some()
                                                         {
                                                             frames_sync_seek_percentage.set(Some(progress));

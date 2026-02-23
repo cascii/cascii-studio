@@ -10,9 +10,9 @@ use std::rc::Rc;
 use gloo_timers::callback::Interval;
 
 use cascii_core_view::{
-    draw_frame_from_cache, load_color_frames, load_text_frames, render_to_offscreen_canvas,
-    yield_to_event_loop, FontSizing, Frame, FrameCanvasCache, FrameDataProvider, FrameFile,
-    LoadResult, LoadingPhase, RenderConfig,
+    draw_cached_canvas, draw_frame_from_cache, load_color_frames, load_text_frames,
+    render_to_offscreen_canvas, yield_to_event_loop, FontSizing, Frame, FrameCanvasCache,
+    FrameDataProvider, FrameFile, LoadResult, LoadingPhase, RenderConfig,
 };
 
 #[wasm_bindgen(inline_js = r#"
@@ -747,14 +747,15 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let color_enabled_val = *color_enabled;
         let total_frames = *frame_count;
         let current_frame_idx = (*current_index).min(total_frames.saturating_sub(1));
-        let font_size_key = (*calculated_font_size * 100.0) as i32;
+        let font_size = *calculated_font_size;
+        let font_size_key = (font_size * 100.0) as i32;
         let cache_refresh_tick = *color_cache_refresh;
 
         use_effect_with((current_frame_idx, color_enabled_val, total_frames, font_size_key, cache_refresh_tick), move |_| {
             let frames = frames_ref.borrow();
             if let Some(frame) = frames.get(current_frame_idx) {
                 if color_enabled_val {
-                    if frame.cframe.is_some() {
+                    if let Some(cframe) = frame.cframe.as_ref() {
                         if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
                             {
                                 let mut cache = frame_canvas_cache.borrow_mut();
@@ -769,6 +770,17 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                             };
                             if drawn {
                                 return;
+                            }
+
+                            if let Ok(offscreen) = render_to_offscreen_canvas(cframe, &RenderConfig::new(font_size))
+                            {
+                                let draw_ok = draw_cached_canvas(&canvas, &offscreen).is_ok();
+                                frame_canvas_cache
+                                    .borrow_mut()
+                                    .store(current_frame_idx, offscreen);
+                                if draw_ok {
+                                    return;
+                                }
                             }
                         }
                     }

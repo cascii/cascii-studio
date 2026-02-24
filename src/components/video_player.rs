@@ -16,12 +16,28 @@ struct ConvertToAsciiRequest {
     custom_name: Option<String>,
     color: bool,
     extract_audio: bool,
+    preprocess_enabled: bool,
+    preprocess_preset: Option<String>,
+    preprocess_custom: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct ConvertToAsciiInvokeArgs {
     request: ConvertToAsciiRequest,
 }
+
+const PREPROCESS_PRESET_OPTIONS: &[(&str, &str)] = &[
+    ("contours", "Contours"),
+    ("contours-soft", "Contours (Soft)"),
+    ("contours-strong", "Contours (Strong)"),
+    ("bw-contrast", "B/W Contrast"),
+    ("noir-detail", "Noir Detail"),
+    ("vivid", "Vivid"),
+    ("warm-pop", "Warm Pop"),
+    ("cool-pop", "Cool Pop"),
+    ("soft-glow", "Soft Glow"),
+    ("other", "Other"),
+];
 
 #[derive(Serialize, Deserialize)]
 struct CreatePreviewRequest {
@@ -186,6 +202,14 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     // Audio extraction toggle state (initialized from settings)
     let audio_default = props.extract_audio_default;
     let extract_audio = use_state(move || audio_default);
+
+    // Advanced settings visibility toggle (shows preprocessing controls)
+    let show_advanced_settings = use_state(|| false);
+
+    // Preprocessing UI state (applied during video frame generation)
+    let preprocess_enabled = use_state(|| false);
+    let preprocess_preset = use_state(|| "contours".to_string());
+    let preprocess_custom = use_state(String::new);
 
     // Preview creation state
     let is_creating_preview = use_state(|| false);
@@ -665,6 +689,30 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
+    let on_preprocess_enabled_change = {
+        let preprocess_enabled = preprocess_enabled.clone();
+        Callback::from(move |e: Event| {
+            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+            preprocess_enabled.set(input.checked());
+        })
+    };
+
+    let on_preprocess_preset_change = {
+        let preprocess_preset = preprocess_preset.clone();
+        Callback::from(move |e: Event| {
+            let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+            preprocess_preset.set(select.value());
+        })
+    };
+
+    let on_preprocess_custom_input = {
+        let preprocess_custom = preprocess_custom.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+            preprocess_custom.set(input.value());
+        })
+    };
+
     let on_create_preview = {
         let video_ref = video_ref.clone();
         let project_id = props.project_id.clone();
@@ -751,6 +799,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let fps = props.fps;
         let generate_colors = generate_colors.clone();
         let extract_audio = extract_audio.clone();
+        let preprocess_enabled = preprocess_enabled.clone();
+        let preprocess_preset = preprocess_preset.clone();
+        let preprocess_custom = preprocess_custom.clone();
 
         let on_conversion_start = props.on_conversion_start.clone();
         let on_conversion_complete = props.on_conversion_complete.clone();
@@ -759,6 +810,17 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         Callback::from(move |_| {
             let color = *generate_colors;
             let extract_audio = *extract_audio;
+            let preprocess_enabled_value = *preprocess_enabled;
+            let preprocess_preset_value = if preprocess_enabled_value {
+                Some((*preprocess_preset).clone())
+            } else {
+                None
+            };
+            let preprocess_custom_value = if preprocess_enabled_value && preprocess_preset_value.as_deref() == Some("other") {
+                Some((*preprocess_custom).clone())
+            } else {
+                None
+            };
             let (Some(project_id), Some(source_file_id), Some(file_path)) =
                 (project_id.clone(), source_file_id.clone(), source_file_path.clone())
             else {
@@ -783,6 +845,19 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 cb.emit(None);
             }
 
+            if preprocess_enabled_value
+                && preprocess_preset_value.as_deref() == Some("other")
+                && preprocess_custom_value.as_deref().map(str::trim).unwrap_or("").is_empty()
+            {
+                if let Some(cb) = &on_conversion_complete {
+                    cb.emit(source_file_id.clone());
+                }
+                if let Some(cb) = &on_error_message_change {
+                    cb.emit(Some("Preprocessing is enabled with 'Other', but no ffmpeg filter string was provided.".to_string()));
+                }
+                return;
+            }
+
             let on_conversion_complete = on_conversion_complete.clone();
             let on_error_message_change = on_error_message_change.clone();
             let source_file_id_for_complete = source_file_id.clone();
@@ -790,7 +865,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 // Start conversion (returns immediately, progress/completion handled by global listeners)
                 web_sys::console::log_1(&format!("🚀 Starting tauri_invoke for: {}", source_file_id_for_complete).into());
-                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color, extract_audio}};
+                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color, extract_audio, preprocess_enabled: preprocess_enabled_value, preprocess_preset: preprocess_preset_value, preprocess_custom: preprocess_custom_value}};
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
 
@@ -845,8 +920,59 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 </div>
 
                 <div class="control-row timestamp-row" id="video-timestamp-row">
+                    <div id="video-timestamp-actions" class="timestamp-actions">
+                        <button id="video-color-toggle-btn" class={classes!("ctrl-btn", "color-toggle-btn", (*generate_colors).then_some("active"))} type="button" onclick={{
+                            let generate_colors = generate_colors.clone();
+                            Callback::from(move |_| generate_colors.set(!*generate_colors))
+                        }} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
+                            if *generate_colors {
+                                <Icon icon_id={IconId::LucideBrush} width={"20"} height={"20"} />
+                            } else {
+                                <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
+                            }
+                        </button>
+                        <button id="video-audio-toggle-btn" class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
+                            let extract_audio = extract_audio.clone();
+                            Callback::from(move |_| extract_audio.set(!*extract_audio))
+                        }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
+                            <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
+                        </button>
+                        <button id="video-advanced-settings-btn" class={classes!("ctrl-btn", "advanced-settings-btn", (*show_advanced_settings).then_some("active"))} type="button" onclick={{
+                            let show_advanced_settings = show_advanced_settings.clone();
+                            Callback::from(move |_| show_advanced_settings.set(!*show_advanced_settings))
+                        }} title={if *show_advanced_settings { "Hide advanced settings" } else { "Show advanced settings" }}>
+                            <Icon icon_id={IconId::LucideSettings} width={"20"} height={"20"} />
+                        </button>
+                    </div>
                     <span id="video-timestamp-overlay" class="timestamp-text">{timestamp}</span>
                 </div>
+
+                if *show_advanced_settings {
+                    <div class={classes!("control-row", (*preprocess_enabled).then_some("expanded"))} id="video-preprocess-settings">
+                        <label id="video-settings-preprocess-checkbox-label" class="preprocess-toggle-label" title="Apply an ffmpeg preprocessing filter before generating ASCII frames">
+                            <input id="video-settings-preprocess-checkbox" type="checkbox" checked={*preprocess_enabled} onchange={on_preprocess_enabled_change.clone()} />
+                            <span>{"Preprocessing"}</span>
+                        </label>
+                        if *preprocess_enabled {
+                            <select id="video-settings-preprocess-preset-select" class="setting-input preprocess-preset-select" onchange={on_preprocess_preset_change.clone()} value={(*preprocess_preset).clone()}>
+                                {for PREPROCESS_PRESET_OPTIONS.iter().map(|(value, label)| {
+                                    html! { <option value={(*value).to_string()}>{*label}</option> }
+                                })}
+                            </select>
+                            if (*preprocess_preset).as_str() == "other" {
+                                <input
+                                    id="video-settings-preprocess-custom-input"
+                                    type="text"
+                                    class="setting-input preprocess-custom-input"
+                                    value={(*preprocess_custom).clone()}
+                                    oninput={on_preprocess_custom_input.clone()}
+                                    placeholder={"format=gray,edgedetect=...,eq=..."}
+                                    title="Custom ffmpeg -vf filtergraph (without the ffmpeg command)"
+                                />
+                            }
+                        }
+                    </div>
+                }
 
                 <div id="video-controls-divider" class="controls-divider"></div>
 
@@ -869,22 +995,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                             <input id="video-settings-columns-input" type="number" class="setting-input" value={props.columns.to_string()} min="1" max="2000" oninput={on_columns_input.clone()} />
                         </div>
                     </div>
-                    <button id="video-color-toggle-btn" class={classes!("ctrl-btn", "color-toggle-btn", (*generate_colors).then_some("active"))} type="button" onclick={{
-                        let generate_colors = generate_colors.clone();
-                        Callback::from(move |_| generate_colors.set(!*generate_colors))
-                    }} title={if *generate_colors { "Color generation enabled" } else { "Color generation disabled" }}>
-                        if *generate_colors {
-                            <Icon icon_id={IconId::LucideBrush} width={"20"} height={"20"} />
-                        } else {
-                            <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
-                        }
-                    </button>
-                    <button id="video-audio-toggle-btn" class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
-                        let extract_audio = extract_audio.clone();
-                        Callback::from(move |_| extract_audio.set(!*extract_audio))
-                    }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
-                        <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
-                    </button>
                     <button id="video-preview-btn" class="ctrl-btn" type="button" onclick={on_create_preview.clone()} disabled={*is_creating_preview || props.project_id.is_none() || props.source_file_id.is_none() || props.source_file_path.is_none()} title="Create preview of current frame">
                         <Icon icon_id={IconId::LucideCamera} width={"20"} height={"20"} />
                     </button>

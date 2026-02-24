@@ -27,6 +27,110 @@ extern "C" {
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
 }
 
+#[wasm_bindgen(inline_js = r#"
+const __viewerControlsSyncRaf = new WeakMap();
+
+function readControlsHeight(container, selector) {
+  const el = container.querySelector(selector);
+  if (!el) return 0;
+  const rect = el.getBoundingClientRect();
+  const style = globalThis.getComputedStyle ? getComputedStyle(el) : null;
+  const borderTop = style ? parseFloat(style.borderTopWidth || '0') : 0;
+  const borderBottom = style ? parseFloat(style.borderBottomWidth || '0') : 0;
+  const borderY = (Number.isFinite(borderTop) ? borderTop : 0) + (Number.isFinite(borderBottom) ? borderBottom : 0);
+  const rectHeight = Math.ceil(rect.height || 0);
+  const scrollHeight = Math.ceil((el.scrollHeight || 0) + borderY);
+  const offsetHeight = Math.ceil(el.offsetHeight || 0);
+  return Math.max(rectHeight, scrollHeight, offsetHeight);
+}
+
+export function syncViewerControlsHeight(container) {
+  if (!container) return;
+  const height = Math.max(
+    readControlsHeight(container, '#video-controls'),
+    readControlsHeight(container, '#frames-controls')
+  );
+  if (height > 0) {
+    const next = `${height}px`;
+    if (container.style.getPropertyValue('--viewer-controls-height') !== next) {
+      container.style.setProperty('--viewer-controls-height', next);
+    }
+  } else {
+    container.style.removeProperty('--viewer-controls-height');
+  }
+}
+
+export function scheduleSyncViewerControlsHeight(container) {
+  if (!container) return;
+  if (__viewerControlsSyncRaf.has(container)) return;
+  const rafId = requestAnimationFrame(() => {
+    __viewerControlsSyncRaf.delete(container);
+    syncViewerControlsHeight(container);
+  });
+  __viewerControlsSyncRaf.set(container, rafId);
+}
+
+export function cancelScheduledSyncViewerControlsHeight(container) {
+  if (!container) return;
+  const rafId = __viewerControlsSyncRaf.get(container);
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    __viewerControlsSyncRaf.delete(container);
+  }
+}
+
+export function observeResize(element, callback) {
+  let rafId = 0;
+  let lastWidth = 0;
+  let lastHeight = 0;
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      lastWidth = width;
+      lastHeight = height;
+    }
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        callback(lastWidth, lastHeight);
+      });
+    }
+  });
+  observer.observe(element);
+  return { observer, get rafId() { return rafId; } };
+}
+
+export function disconnectObserver(observer) {
+  if (!observer) return;
+  if (observer.rafId) {
+    cancelAnimationFrame(observer.rafId);
+  }
+  if (observer.observer?.disconnect) {
+    observer.observer.disconnect();
+    return;
+  }
+  if (observer.disconnect) {
+    observer.disconnect();
+  }
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = syncViewerControlsHeight)]
+    fn sync_viewer_controls_height(container: &web_sys::Element);
+
+    #[wasm_bindgen(js_name = scheduleSyncViewerControlsHeight)]
+    fn schedule_sync_viewer_controls_height(container: &web_sys::Element);
+
+    #[wasm_bindgen(js_name = cancelScheduledSyncViewerControlsHeight)]
+    fn cancel_scheduled_sync_viewer_controls_height(container: &web_sys::Element);
+
+    #[wasm_bindgen(js_name = observeResize)]
+    fn observe_resize(element: &web_sys::Element, callback: &Closure<dyn Fn(f64, f64)>) -> JsValue;
+
+    #[wasm_bindgen(js_name = disconnectObserver)]
+    fn disconnect_observer(observer: &JsValue);
+}
+
 // Wasm bindings to Tauri event API (for file conversion progress)
 #[wasm_bindgen(inline_js = r#"
 export async function tauriListen(event, handler) {
@@ -236,6 +340,47 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let selected_preview = use_state(|| None::<Preview>);
     let previews_collapsed = use_state(|| false);
     let preview_menu_open_id = use_state(|| None::<String>);
+    let preview_container_ref = use_node_ref();
+
+    {
+        let preview_container_ref = preview_container_ref.clone();
+        let has_video_preview = matches!(selected_source.as_ref().map(|s| &s.content_type), Some(ContentType::Video));
+        let has_frames_preview = selected_frame_dir.is_some();
+        use_effect_with((has_video_preview, has_frames_preview), move |_| {
+            let mut observers = Vec::<JsValue>::new();
+            let mut on_resize = None::<Closure<dyn Fn(f64, f64)>>;
+
+            if let Some(container) = preview_container_ref.cast::<web_sys::Element>() {
+                schedule_sync_viewer_controls_height(&container);
+
+                let container_for_callback = container.clone();
+                let callback = Closure::wrap(Box::new(move |_: f64, _: f64| {
+                    schedule_sync_viewer_controls_height(&container_for_callback);
+                }) as Box<dyn Fn(f64, f64)>);
+
+                if let Ok(Some(video_controls)) = container.query_selector("#video-controls") {
+                    observers.push(observe_resize(&video_controls, &callback));
+                }
+                if let Ok(Some(frames_controls)) = container.query_selector("#frames-controls") {
+                    observers.push(observe_resize(&frames_controls, &callback));
+                }
+
+                on_resize = Some(callback);
+            }
+
+            move || {
+                for observer in &observers {
+                    disconnect_observer(observer);
+                }
+                if let Some(container) = preview_container_ref.cast::<web_sys::Element>() {
+                    cancel_scheduled_sync_viewer_controls_height(&container);
+                }
+                if let Some(callback) = on_resize {
+                    drop(callback);
+                }
+            }
+        });
+    }
 
     {
         let project_id = project_id.clone();
@@ -1527,7 +1672,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         </div>
                     }
 
-                    <div class="preview-container">
+                    <div class="preview-container" ref={preview_container_ref.clone()}>
                         <div class="preview-column">
                             <div class="preview-label">{"Source Video"}</div>
                             <div class="square">

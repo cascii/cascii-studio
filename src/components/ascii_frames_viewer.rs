@@ -173,6 +173,12 @@ pub struct AsciiFramesViewerProps {
     /// Whether a cut operation is in progress
     #[prop_or(false)]
     pub is_cutting: bool,
+    /// Callback to crop frames: emits (top, bottom, left, right)
+    #[prop_or_default]
+    pub on_crop_frames: Option<Callback<(usize, usize, usize, usize)>>,
+    /// Whether a crop operation is in progress
+    #[prop_or(false)]
+    pub is_cropping: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -210,6 +216,14 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
     // Color display toggle
     let color_enabled = use_state(|| false);
+
+    // Crop state
+    let show_crop_settings = use_state(|| false);
+    let crop_top = use_state(|| 0usize);
+    let crop_bottom = use_state(|| 0usize);
+    let crop_left = use_state(|| 0usize);
+    let crop_right = use_state(|| 0usize);
+    let crop_side = use_state(|| "top".to_string());
 
     // Auto-sizing state
     let container_ref = use_node_ref();
@@ -964,6 +978,14 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         }
     };
 
+    // Frame dimensions for crop halo overlay
+    let (frame_cols, frame_rows) = {
+        let frames = frames_ref.borrow();
+        frames.first().map(|f| f.dimensions()).unwrap_or((0, 0))
+    };
+    let has_crop = *crop_top > 0 || *crop_bottom > 0 || *crop_left > 0 || *crop_right > 0;
+    let show_halo = *show_crop_settings && has_crop && frame_cols > 0 && frame_rows > 0;
+
     html! {
         <div id="ascii-frames-viewer" class="ascii-frames-viewer">
             <div id="frames-display" class="frames-display" ref={container_ref}>
@@ -978,6 +1000,33 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <canvas id="frames-canvas" ref={canvas_ref.clone()} class="ascii-frame-canvas"></canvas>
                     } else {
                         <pre id="frames-text-content" class="ascii-frame-content" style={font_size_style.clone()} ref={content_ref.clone()}></pre>
+                    }
+                    if show_halo {
+                        // Overlay layer: mirrors the <pre>'s centering and line-height.
+                        // Uses ch (= 1 monospace char width) and lh (= 1 line height) units
+                        // for pixel-perfect character-grid alignment.
+                        <div class="crop-halo-layer" style={font_size_style.clone()}>
+                            <div class="crop-halo-inner" style={format!("width: {}ch; height: {}lh;", frame_cols, frame_rows)}>
+                                if *crop_top > 0 {
+                                    <div class="crop-halo crop-halo-top" style={format!("height: {}lh;", *crop_top)}></div>
+                                }
+                                if *crop_bottom > 0 {
+                                    <div class="crop-halo crop-halo-bottom" style={format!("height: {}lh;", *crop_bottom)}></div>
+                                }
+                                if *crop_left > 0 {
+                                    <div class="crop-halo crop-halo-left" style={format!(
+                                        "width: {}ch; top: {}lh; bottom: {}lh;",
+                                        *crop_left, *crop_top, *crop_bottom
+                                    )}></div>
+                                }
+                                if *crop_right > 0 {
+                                    <div class="crop-halo crop-halo-right" style={format!(
+                                        "width: {}ch; top: {}lh; bottom: {}lh;",
+                                        *crop_right, *crop_top, *crop_bottom
+                                    )}></div>
+                                }
+                            </div>
+                        </div>
                     }
                 }
             </div>
@@ -1040,6 +1089,12 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         } else {
                             <Icon icon_id={IconId::LucideBrush} width={"16"} height={"16"} />
                         }
+                    </button>
+                    <button id="frames-crop-settings-btn" class={classes!("ctrl-btn", "advanced-settings-btn", (*show_crop_settings).then_some("active"))} type="button" onclick={{
+                        let show_crop_settings = show_crop_settings.clone();
+                        Callback::from(move |_| show_crop_settings.set(!*show_crop_settings))
+                    }} title={if *show_crop_settings { "Hide crop settings" } else { "Show crop settings" }}>
+                        <Icon icon_id={IconId::LucideCrop} width={"18"} height={"18"} />
                     </button>
                     <span id="frames-progress-label" class="frame-progress-label">{format!("{}/{}", position_in_subset, range_frame_count)}</span>
                     <div style="flex: 1;"></div>
@@ -1120,6 +1175,72 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         <Icon icon_id={IconId::LucideSkipForward} width={"20"} height={"20"} />
                     </button>
                 </div>
+
+                if *show_crop_settings {
+                    <div class="control-row expanded" id="frames-crop-settings">
+                        <select id="frames-crop-side-select" class="setting-input crop-preset-select" onchange={{
+                            let crop_side = crop_side.clone();
+                            Callback::from(move |e: Event| {
+                                let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                crop_side.set(select.value());
+                            })
+                        }} value={(*crop_side).clone()}>
+                            <option value="top" selected={*crop_side == "top"}>{"Top"}</option>
+                            <option value="bottom" selected={*crop_side == "bottom"}>{"Bottom"}</option>
+                            <option value="left" selected={*crop_side == "left"}>{"Left"}</option>
+                            <option value="right" selected={*crop_side == "right"}>{"Right"}</option>
+                        </select>
+                        <input id="frames-crop-value-input" type="number" class="setting-input" style="width: 68px;" min="0"
+                            value={match (*crop_side).as_str() {
+                                "top" => (*crop_top).to_string(),
+                                "bottom" => (*crop_bottom).to_string(),
+                                "left" => (*crop_left).to_string(),
+                                "right" => (*crop_right).to_string(),
+                                _ => "0".to_string(),
+                            }}
+                            oninput={{
+                                let crop_side = crop_side.clone();
+                                let crop_top = crop_top.clone();
+                                let crop_bottom = crop_bottom.clone();
+                                let crop_left = crop_left.clone();
+                                let crop_right = crop_right.clone();
+                                Callback::from(move |e: InputEvent| {
+                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                    let val = input.value().parse::<usize>().unwrap_or(0);
+                                    match (*crop_side).as_str() {
+                                        "top" => crop_top.set(val),
+                                        "bottom" => crop_bottom.set(val),
+                                        "left" => crop_left.set(val),
+                                        "right" => crop_right.set(val),
+                                        _ => {}
+                                    }
+                                })
+                            }}
+                            title="Number of rows/columns to crop" />
+                        <span class="crop-label">{match (*crop_side).as_str() {
+                            "top" | "bottom" => "rows",
+                            _ => "cols",
+                        }}</span>
+                        <div style="flex: 1;"></div>
+                        <button id="crop-frames-button" class="ctrl-btn" type="button"
+                            disabled={props.is_cropping || props.on_crop_frames.is_none() || total_frames == 0 || (*crop_top == 0 && *crop_bottom == 0 && *crop_left == 0 && *crop_right == 0)}
+                            title="Apply crop to all frames"
+                            onclick={{
+                                let on_crop_frames = props.on_crop_frames.clone();
+                                let crop_top = crop_top.clone();
+                                let crop_bottom = crop_bottom.clone();
+                                let crop_left = crop_left.clone();
+                                let crop_right = crop_right.clone();
+                                Callback::from(move |_| {
+                                    if let Some(on_crop) = &on_crop_frames {
+                                        on_crop.emit((*crop_top, *crop_bottom, *crop_left, *crop_right));
+                                    }
+                                })
+                            }}>
+                            <Icon icon_id={IconId::LucideCrop} width={"20"} height={"20"} />
+                        </button>
+                    </div>
+                }
 
                 if let Some(settings) = &props.settings {
                     <div id="frames-settings-info" class="settings-info">

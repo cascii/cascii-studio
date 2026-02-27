@@ -433,3 +433,119 @@
     white-space: nowrap;
     line-height: 1;
 }
+
+/* Crop settings button */
+.ascii-frames-viewer .advanced-settings-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+}
+
+.ascii-frames-viewer .advanced-settings-btn.active:hover {
+    background: #5a7aaa;
+}
+
+/* Crop settings panel — mirrors #video-preprocess-settings */
+#frames-crop-settings {
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    align-self: stretch;
+    padding: 0.5rem;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #2f2f2f;
+    box-sizing: border-box;
+}
+
+#frames-crop-settings .setting-input {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: #3a3a3a;
+    color: #f6f6f6;
+    border: 1px solid #555;
+    font-size: 0.85rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+/* Crop dropdown — mirrors .preprocess-preset-select */
+#frames-crop-settings .crop-preset-select,
+#frames-crop-settings .crop-preset-select option {
+    width: 120px;
+    max-width: 120px;
+    flex: 0 0 120px;
+    height: 38px;
+    padding: 0 2rem 0 0.75rem;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #bcbcbc 50%),
+        linear-gradient(135deg, #bcbcbc 50%, transparent 50%);
+    background-position:
+        calc(100% - 16px) calc(50% - 2px),
+        calc(100% - 10px) calc(50% - 2px);
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    text-align: left;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 0.875rem;
+}
+
+.crop-label {
+    font-size: 0.8rem;
+    color: #888;
+}
+
+/* Overlay layer: positioned absolute over frames-display,
+   mirrors the <pre>'s flex centering and padding so the
+   ch/em-sized inner box aligns pixel-perfectly with the text. */
+.crop-halo-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 10;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    line-height: 1.11;
+    /* font-size set via inline style to match the <pre> */
+}
+
+/* Inner box sized exactly to the character grid using ch/em units */
+.crop-halo-inner {
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* Crop halo overlays — positioned within the character-grid-sized inner box */
+.crop-halo {
+    position: absolute;
+    background: rgba(255, 80, 80, 0.3);
+    pointer-events: none;
+}
+
+.crop-halo-top {
+    top: 0;
+    left: 0;
+    right: 0;
+}
+
+.crop-halo-bottom {
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.crop-halo-left {
+    left: 0;
+}
+
+.crop-halo-right {
+    right: 0;
+}

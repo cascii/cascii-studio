@@ -1688,8 +1688,83 @@ fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Res
     };
     
     database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
-    
+
     Ok(format!("Cut frames saved to: {} ({} frames)", new_folder_path.display(), copied_count))
+}
+
+#[derive(serde::Deserialize)]
+struct CropFramesRequest {
+    #[serde(rename = "folderPath")]
+    folder_path: String,
+    top: usize,
+    bottom: usize,
+    left: usize,
+    right: usize,
+}
+
+#[tauri::command]
+async fn crop_frames(request: CropFramesRequest) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        crop_frames_blocking(request)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
+        .map_err(|e| e.to_string())?
+        .ok_or("Original conversion not found")?;
+
+    let original_dir = PathBuf::from(&conversion.folder_path);
+    if !original_dir.exists() {
+        return Err("Original directory not found".to_string());
+    }
+
+    let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
+    let random_suffix = generate_random_suffix();
+
+    let base_name = if let Some(idx) = conversion.folder_name.find("_ascii") {
+        &conversion.folder_name[..idx]
+    } else if let Some(idx) = conversion.folder_name.find("_cut") {
+        &conversion.folder_name[..idx]
+    } else {
+        &conversion.folder_name
+    };
+
+    let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
+    let new_folder_path = parent_dir.join(&new_folder_name);
+
+    let result = cascii::crop_frames(
+        &original_dir,
+        request.top,
+        request.bottom,
+        request.left,
+        request.right,
+        &new_folder_path,
+    ).map_err(|e| e.to_string())?;
+
+    let custom_name = if let Some(name) = &conversion.custom_name {
+        Some(format!("Cropped {}", name))
+    } else {
+        Some("Cropped frames".to_string())
+    };
+
+    let new_conversion = database::AsciiConversion {
+        id: Uuid::new_v4().to_string(),
+        folder_name: new_folder_name,
+        folder_path: new_folder_path.to_str().unwrap_or("").to_string(),
+        frame_count: result.frame_count as i32,
+        source_file_id: conversion.source_file_id,
+        project_id: conversion.project_id,
+        settings: conversion.settings,
+        creation_date: Utc::now(),
+        total_size: result.total_size as i64,
+        custom_name,
+    };
+
+    database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
+
+    Ok(format!("Cropped frames saved to: {} ({} frames, {}x{})",
+        new_folder_path.display(), result.frame_count, result.new_width, result.new_height))
 }
 
 #[tauri::command]
@@ -1892,6 +1967,7 @@ pub fn run() {
             delete_cut,
             rename_cut,
             cut_frames,
+            crop_frames,
             check_system_ffmpeg,
             check_sidecar_ffmpeg,
             create_preview,

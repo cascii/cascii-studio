@@ -897,6 +897,12 @@ struct ConvertToAsciiRequest {
     color: bool,
     #[serde(default)]
     extract_audio: bool,
+    #[serde(default)]
+    preprocess_enabled: bool,
+    #[serde(default)]
+    preprocess_preset: Option<String>,
+    #[serde(default)]
+    preprocess_custom: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1116,6 +1122,19 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
     let display_name_for_return = display_name.clone();
     let folder_name_clone = folder_name.clone();
 
+    let preprocess_filter = if request.preprocess_enabled {
+        let selected = request.preprocess_preset.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        match selected {
+            Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.preprocess_custom.as_deref(), None)
+                .map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
+            Some(preset_name) => cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
+                .map_err(|e| format!("Invalid preprocessing preset: {}", e))?,
+            None => return Err("Preprocessing is enabled but no preset was selected".to_string()),
+        }
+    } else {
+        None
+    };
+
     // Clone values that need to be used after spawn_blocking moves them
     let app_for_complete = app.clone();
     let project_id_for_db = request.project_id.clone();
@@ -1175,6 +1194,7 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                     end: None,
                     columns: request_clone.columns,
                     extract_audio: false, // Audio extraction handled separately
+                    preprocess_filter: preprocess_filter.clone(),
                 };
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);

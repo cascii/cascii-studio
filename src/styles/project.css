@@ -358,7 +358,6 @@
     gap: 1.5rem;
     flex-grow: 1;
     min-height: 0;
-    --viewer-controls-height: 252px;
 }
 
 .preview-column {

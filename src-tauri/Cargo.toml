@@ -1,6 +1,6 @@
 [package]
 name = "cascii_studio"
-version = "0.114.2"
+version = "0.115.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -25,7 +25,9 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 url = "2.5.0"
 tokio = { version = "1", features = ["full"] }
-cascii = "0.14.0"
+cascii = "0.16.1"
+toml = "0.8"
+cascii-core-view = { version = "0.1.3", features = ["serde", "toml"] }
 rand = "0.8"
 
 [features]

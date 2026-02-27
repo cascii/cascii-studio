@@ -26,3 +26,5 @@ bugs:
 - should not auto switch to other frames that just finished loading
 - post treatment for frames: select background color and font color as an alternative to black and white
 
+Read toml
+crop sides

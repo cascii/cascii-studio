@@ -950,6 +950,67 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    // Callback to crop frames
+    let on_crop_frames = {
+        let selected_frame_dir = selected_frame_dir.clone();
+        let frame_directories = frame_directories.clone();
+        let project_id = project_id.clone();
+        let conversion_message = conversion_message.clone();
+        let conversion_success_folder = conversion_success_folder.clone();
+        let error_message = error_message.clone();
+
+        Callback::from(move |(top, bottom, left, right): (usize, usize, usize, usize)| {
+            if let Some(frame_dir) = &*selected_frame_dir {
+                let folder_path = frame_dir.directory_path.clone();
+                let project_id = (*project_id).clone();
+                let frame_directories = frame_directories.clone();
+                let conversion_message = conversion_message.clone();
+                let conversion_success_folder = conversion_success_folder.clone();
+                let error_message = error_message.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
+                        "request": {
+                            "folderPath": folder_path,
+                            "top": top,
+                            "bottom": bottom,
+                            "left": left,
+                            "right": right
+                        }
+                    })).unwrap();
+
+                    match tauri_invoke("crop_frames", args).await {
+                        result => {
+                            match serde_wasm_bindgen::from_value::<String>(result) {
+                                Ok(msg) => {
+                                    web_sys::console::log_1(&format!("✅ Frames cropped successfully: {}", msg).into());
+
+                                    if let Some(start) = msg.find("saved to: ") {
+                                        let after_prefix = &msg[start + 10..];
+                                        if let Some(end) = after_prefix.find(" (") {
+                                            let folder_path = after_prefix[..end].to_string();
+                                            conversion_success_folder.set(Some(folder_path));
+                                        }
+                                    }
+                                    conversion_message.set(Some(msg));
+
+                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                    if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                        frame_directories.set(frames);
+                                    }
+                                }
+                                Err(e) => {
+                                    web_sys::console::log_1(&format!("❌ Failed to crop frames: {:?}", e).into());
+                                    error_message.set(Some("Failed to crop frames.".to_string()));
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        })
+    };
+
     // Callback to handle preview creation from VideoPlayer
     let on_preview_created = {
         let previews = previews.clone();
@@ -1919,6 +1980,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 loop_enabled={*loop_enabled}
                                                 on_cut_frames={Some(on_cut_frames.clone())}
                                                 is_cutting={false}
+                                                on_crop_frames={Some(on_crop_frames.clone())}
+                                                is_cropping={false}
                                             />
                                         }
                                     } else {

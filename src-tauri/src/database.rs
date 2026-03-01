@@ -395,6 +395,23 @@ pub fn init_database() -> SqlResult<Connection> {
         [],
     )?;
 
+    // Create explorer_layout table (stores user's custom file explorer tree as JSON)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS explorer_layout (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL UNIQUE,
+            layout_json TEXT NOT NULL DEFAULT '{}',
+            last_modified TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_explorer_project_id ON explorer_layout(project_id)",
+        [],
+    )?;
+
     Ok(conn)
 }
 
@@ -817,6 +834,15 @@ pub fn update_conversion_custom_name(conversion_id: &str, custom_name: Option<St
     Ok(())
 }
 
+pub fn update_conversion_dimensions(conversion_id: &str, frame_count: i32, total_size: i64) -> SqlResult<()> {
+    let conn = init_database()?;
+    conn.execute(
+        "UPDATE ascii_conversions SET frame_count = ?1, total_size = ?2 WHERE id = ?3",
+        params![frame_count, total_size, conversion_id],
+    )?;
+    Ok(())
+}
+
 // ============== Video Cuts CRUD ==============
 
 pub fn add_video_cut(cut: &VideoCut) -> SqlResult<()> {
@@ -1150,6 +1176,34 @@ pub fn update_preview_custom_name(preview_id: &str, custom_name: Option<String>)
     }
 
     result?;
+    Ok(())
+}
+
+// ============== Explorer Layout CRUD ==============
+
+pub fn get_explorer_layout(project_id: &str) -> SqlResult<Option<String>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT layout_json FROM explorer_layout WHERE project_id = ?1 LIMIT 1"
+    )?;
+
+    let mut rows = stmt.query([project_id])?;
+    if let Some(row) = rows.next()? {
+        let json: String = row.get(0)?;
+        Ok(Some(json))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn save_explorer_layout(project_id: &str, layout_json: &str) -> SqlResult<()> {
+    let conn = init_database()?;
+    conn.execute(
+        "INSERT INTO explorer_layout (project_id, layout_json, last_modified)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(project_id) DO UPDATE SET layout_json = excluded.layout_json, last_modified = excluded.last_modified",
+        params![project_id, layout_json, Utc::now().to_rfc3339()],
+    )?;
     Ok(())
 }
 

@@ -14,6 +14,12 @@ pub enum DeleteMode { Soft, Hard }
 pub enum FfmpegSource { System, Sidecar }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub enum CropOutput { NewFrames, CurrentFrames }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub enum PreprocessOutput { NewFile, CurrentFile }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct Settings {
     pub id: Option<i64>,
     pub output_directory: String,
@@ -26,11 +32,17 @@ pub struct Settings {
     pub extract_audio_default: bool,
     #[serde(default = "default_ffmpeg_source")]
     pub ffmpeg_source: FfmpegSource,
+    #[serde(default = "default_crop_output")]
+    pub crop_output: CropOutput,
+    #[serde(default = "default_preprocess_output")]
+    pub preprocess_output: PreprocessOutput,
 }
 
 fn default_color_frames() -> bool { true }
 fn default_extract_audio() -> bool { false }
 fn default_ffmpeg_source() -> FfmpegSource { FfmpegSource::System }
+fn default_crop_output() -> CropOutput { CropOutput::NewFrames }
+fn default_preprocess_output() -> PreprocessOutput { PreprocessOutput::NewFile }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -43,6 +55,8 @@ impl Default for Settings {
             color_frames_default: true,
             extract_audio_default: false,
             ffmpeg_source: FfmpegSource::System,
+            crop_output: CropOutput::NewFrames,
+            preprocess_output: PreprocessOutput::NewFile,
         }
     }
 }
@@ -173,6 +187,26 @@ pub fn settings_page() -> Html {
         })
     };
 
+    let on_crop_output_change = {
+        let settings = settings.clone();
+        Callback::from(move |e: Event| {
+            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let mut s = (*settings).clone();
+            s.crop_output = if v == "CurrentFrames" { CropOutput::CurrentFrames } else { CropOutput::NewFrames };
+            settings.set(s);
+        })
+    };
+
+    let on_preprocess_output_change = {
+        let settings = settings.clone();
+        Callback::from(move |e: Event| {
+            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let mut s = (*settings).clone();
+            s.preprocess_output = if v == "CurrentFile" { PreprocessOutput::CurrentFile } else { PreprocessOutput::NewFile };
+            settings.set(s);
+        })
+    };
+
     let on_ffmpeg_source_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
@@ -238,6 +272,22 @@ pub fn settings_page() -> Html {
                 <div id="settings-extract-audio-group" class="form-group row">
                     <label for="extract-audio">{"Extract audio by default"}</label>
                     <input id="extract-audio" type="checkbox" checked={settings.extract_audio_default} onchange={on_extract_audio_change} />
+                </div>
+
+                <div id="settings-crop-output-group" class="form-group row">
+                    <label for="crop-output">{"Crop output"}</label>
+                    <select id="crop-output" onchange={on_crop_output_change}>
+                        <option value="NewFrames" selected={settings.crop_output == CropOutput::NewFrames}>{"New frames"}</option>
+                        <option value="CurrentFrames" selected={settings.crop_output == CropOutput::CurrentFrames}>{"Current frames"}</option>
+                    </select>
+                </div>
+
+                <div id="settings-preprocess-output-group" class="form-group row">
+                    <label for="preprocess-output">{"Preprocess output"}</label>
+                    <select id="preprocess-output" onchange={on_preprocess_output_change}>
+                        <option value="NewFile" selected={settings.preprocess_output == PreprocessOutput::NewFile}>{"New file"}</option>
+                        <option value="CurrentFile" selected={settings.preprocess_output == PreprocessOutput::CurrentFile}>{"Current file"}</option>
+                    </select>
                 </div>
 
                 <div id="settings-ffmpeg-source-group" class="form-group row">

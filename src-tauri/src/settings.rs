@@ -15,6 +15,22 @@ pub enum FfmpegSource {
     Sidecar
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CropOutput {
+    /// Crop into a new frames folder
+    NewFrames,
+    /// Crop the current frames in-place
+    CurrentFrames,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PreprocessOutput {
+    /// Create a new preprocessed video file (as a cut)
+    NewFile,
+    /// Overwrite the current video file
+    CurrentFile,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub id: Option<i64>,
@@ -30,12 +46,18 @@ pub struct Settings {
     pub extract_audio_default: bool,
     #[serde(default = "default_ffmpeg_source")]
     pub ffmpeg_source: FfmpegSource,
+    #[serde(default = "default_crop_output")]
+    pub crop_output: CropOutput,
+    #[serde(default = "default_preprocess_output")]
+    pub preprocess_output: PreprocessOutput,
 }
 
 fn default_loop_enabled() -> bool { true }
 fn default_color_frames() -> bool { true }
 fn default_extract_audio() -> bool { false }
 fn default_ffmpeg_source() -> FfmpegSource { FfmpegSource::System }
+fn default_crop_output() -> CropOutput { CropOutput::NewFrames }
+fn default_preprocess_output() -> PreprocessOutput { PreprocessOutput::NewFile }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -49,6 +71,8 @@ impl Default for Settings {
             color_frames_default: true,
             extract_audio_default: false,
             ffmpeg_source: FfmpegSource::System,
+            crop_output: CropOutput::NewFrames,
+            preprocess_output: PreprocessOutput::NewFile,
         }
     }
 }

@@ -1573,6 +1573,151 @@ fn rename_cut(request: RenameCutRequest) -> Result<(), String> {
 }
 
 #[derive(serde::Deserialize)]
+struct PreprocessVideoRequest {
+    source_file_path: String,
+    project_id: String,
+    source_file_id: String,
+    preset: Option<String>,
+    custom_filter: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PreprocessVideoArgs {
+    request: PreprocessVideoRequest,
+}
+
+#[tauri::command]
+async fn preprocess_video(args: PreprocessVideoArgs, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+    tokio::task::spawn_blocking(move || {
+        preprocess_video_blocking(args.request, app)
+    }).await.map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+    use std::process::{Command, Stdio};
+
+    // Resolve the ffmpeg filter
+    let filter = match request.preset.as_deref() {
+        Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.custom_filter.as_deref(), None)
+            .map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
+        Some(preset_name) => cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
+            .map_err(|e| format!("Invalid preprocessing preset: {}", e))?,
+        None => return Err("No preprocessing preset selected".to_string()),
+    };
+    let filter = filter.ok_or("Empty preprocessing filter")?;
+
+    let current_settings = settings::load();
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+
+    let project_dir = PathBuf::from(&current_settings.output_directory).join(&project.project_path);
+    let cuts_dir = project_dir.join("cuts");
+    fs::create_dir_all(&cuts_dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
+
+    let input_path = PathBuf::from(&request.source_file_path);
+    let file_stem = input_path.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input filename")?;
+
+    let cut_id = Uuid::new_v4().to_string();
+
+    let in_place = current_settings.preprocess_output == settings::PreprocessOutput::CurrentFile;
+
+    let output_path = if in_place {
+        // Write to a temp file next to the original, then replace
+        input_path.with_extension("preprocessed.mp4")
+    } else {
+        let output_filename = format!("{}_preprocessed_{}.mp4", file_stem, &cut_id[..8]);
+        cuts_dir.join(&output_filename)
+    };
+
+    let _ = app.emit("cut-progress", FileProgress {
+        file_name: output_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        status: "processing".to_string(),
+        message: "Preprocessing video...".to_string(),
+        percentage: Some(0.0),
+    });
+
+    println!("🎨 Preprocessing video: {} -> {}", request.source_file_path, output_path.display());
+
+    // Get ffmpeg config
+    let ffmpeg_config = get_ffmpeg_config(&app, &current_settings.ffmpeg_source);
+    let ffmpeg_cmd = ffmpeg_config.ffmpeg_path.as_ref()
+        .and_then(|p| p.to_str())
+        .unwrap_or("ffmpeg");
+
+    let status = Command::new(ffmpeg_cmd)
+        .arg("-i").arg(&request.source_file_path)
+        .arg("-vf").arg(&filter)
+        .arg("-c:v").arg("libx264")
+        .arg("-c:a").arg("aac")
+        .arg("-movflags").arg("+faststart")
+        .arg("-y")
+        .arg(&output_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&output_path);
+        return Err("ffmpeg preprocessing failed".to_string());
+    }
+
+    if in_place {
+        // Replace the original file with the preprocessed one
+        fs::rename(&output_path, &input_path)
+            .map_err(|e| format!("Failed to replace original file: {}", e))?;
+    }
+
+    let final_path = if in_place { &input_path } else { &output_path };
+    let file_size = fs::metadata(final_path)
+        .map_err(|e| format!("Failed to get file size: {}", e))?
+        .len() as i64;
+
+    // Get video duration using ffprobe
+    let ffprobe_cmd = ffmpeg_config.ffprobe_path.as_ref()
+        .and_then(|p| p.to_str())
+        .unwrap_or("ffprobe");
+    let duration_output = Command::new(ffprobe_cmd)
+        .arg("-v").arg("error")
+        .arg("-show_entries").arg("format=duration")
+        .arg("-of").arg("csv=p=0")
+        .arg(final_path)
+        .output();
+    let duration = duration_output.ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    let cut = database::VideoCut {
+        id: cut_id,
+        project_id: request.project_id,
+        source_file_id: request.source_file_id,
+        file_path: final_path.to_str().unwrap_or("").to_string(),
+        date_added: Utc::now(),
+        size: file_size,
+        custom_name: Some(format!("Preprocessed {}", file_stem)),
+        start_time: 0.0,
+        end_time: duration,
+        duration,
+    };
+
+    database::add_video_cut(&cut).map_err(|e| format!("Failed to save to database: {}", e))?;
+
+    let _ = app.emit("cut-progress", FileProgress {
+        file_name: final_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        status: "completed".to_string(),
+        message: "Preprocessing completed".to_string(),
+        percentage: Some(100.0),
+    });
+
+    println!("✅ Preprocessed video saved: {} ({} bytes)", final_path.display(), file_size);
+
+    Ok(cut)
+}
+
+#[derive(serde::Deserialize)]
 struct CutFramesRequest {
     #[serde(rename = "folderPath")]
     folder_path: String,
@@ -1710,6 +1855,7 @@ async fn crop_frames(request: CropFramesRequest) -> Result<String, String> {
 }
 
 fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
+    let current_settings = settings::load();
     let conversion = database::get_conversion_by_folder_path(&request.folder_path)
         .map_err(|e| e.to_string())?
         .ok_or("Original conversion not found")?;
@@ -1719,52 +1865,97 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         return Err("Original directory not found".to_string());
     }
 
-    let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
-    let random_suffix = generate_random_suffix();
+    if current_settings.crop_output == settings::CropOutput::CurrentFrames {
+        // In-place: crop to a temp dir, then replace the original contents
+        let temp_dir = original_dir.parent()
+            .ok_or("Invalid directory structure")?
+            .join(format!(".crop_tmp_{}", Uuid::new_v4()));
 
-    let base_name = if let Some(idx) = conversion.folder_name.find("_ascii") {
-        &conversion.folder_name[..idx]
-    } else if let Some(idx) = conversion.folder_name.find("_cut") {
-        &conversion.folder_name[..idx]
+        let result = cascii::crop_frames(
+            &original_dir,
+            request.top,
+            request.bottom,
+            request.left,
+            request.right,
+            &temp_dir,
+        ).map_err(|e| {
+            let _ = fs::remove_dir_all(&temp_dir);
+            e.to_string()
+        })?;
+
+        // Remove old frames from original dir
+        for entry in fs::read_dir(&original_dir).map_err(|e| e.to_string())?.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("frame_") && (name.ends_with(".txt") || name.ends_with(".cframe")) {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+
+        // Move cropped frames into original dir
+        for entry in fs::read_dir(&temp_dir).map_err(|e| e.to_string())?.flatten() {
+            let dest = original_dir.join(entry.file_name());
+            fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        // Update conversion record
+        database::update_conversion_dimensions(&conversion.id, result.frame_count as i32, result.total_size as i64)
+            .map_err(|e| e.to_string())?;
+
+        Ok(format!("Cropped frames in-place: {} ({} frames, {}x{})",
+            original_dir.display(), result.frame_count, result.new_width, result.new_height))
     } else {
-        &conversion.folder_name
-    };
+        // New frames: create a new folder (existing behavior)
+        let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
+        let random_suffix = generate_random_suffix();
 
-    let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
-    let new_folder_path = parent_dir.join(&new_folder_name);
+        let base_name = if let Some(idx) = conversion.folder_name.find("_ascii") {
+            &conversion.folder_name[..idx]
+        } else if let Some(idx) = conversion.folder_name.find("_cut") {
+            &conversion.folder_name[..idx]
+        } else {
+            &conversion.folder_name
+        };
 
-    let result = cascii::crop_frames(
-        &original_dir,
-        request.top,
-        request.bottom,
-        request.left,
-        request.right,
-        &new_folder_path,
-    ).map_err(|e| e.to_string())?;
+        let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
+        let new_folder_path = parent_dir.join(&new_folder_name);
 
-    let custom_name = if let Some(name) = &conversion.custom_name {
-        Some(format!("Cropped {}", name))
-    } else {
-        Some("Cropped frames".to_string())
-    };
+        let result = cascii::crop_frames(
+            &original_dir,
+            request.top,
+            request.bottom,
+            request.left,
+            request.right,
+            &new_folder_path,
+        ).map_err(|e| e.to_string())?;
 
-    let new_conversion = database::AsciiConversion {
-        id: Uuid::new_v4().to_string(),
-        folder_name: new_folder_name,
-        folder_path: new_folder_path.to_str().unwrap_or("").to_string(),
-        frame_count: result.frame_count as i32,
-        source_file_id: conversion.source_file_id,
-        project_id: conversion.project_id,
-        settings: conversion.settings,
-        creation_date: Utc::now(),
-        total_size: result.total_size as i64,
-        custom_name,
-    };
+        let custom_name = if let Some(name) = &conversion.custom_name {
+            Some(format!("Cropped {}", name))
+        } else {
+            Some("Cropped frames".to_string())
+        };
 
-    database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
+        let new_conversion = database::AsciiConversion {
+            id: Uuid::new_v4().to_string(),
+            folder_name: new_folder_name,
+            folder_path: new_folder_path.to_str().unwrap_or("").to_string(),
+            frame_count: result.frame_count as i32,
+            source_file_id: conversion.source_file_id,
+            project_id: conversion.project_id,
+            settings: conversion.settings,
+            creation_date: Utc::now(),
+            total_size: result.total_size as i64,
+            custom_name,
+        };
 
-    Ok(format!("Cropped frames saved to: {} ({} frames, {}x{})",
-        new_folder_path.display(), result.frame_count, result.new_width, result.new_height))
+        database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
+
+        Ok(format!("Cropped frames saved to: {} ({} frames, {}x{})",
+            new_folder_path.display(), result.frame_count, result.new_width, result.new_height))
+    }
 }
 
 #[tauri::command]
@@ -1929,6 +2120,26 @@ fn rename_preview(request: RenamePreviewRequest) -> Result<(), String> {
         .map_err(|e| format!("Failed to rename preview: {}", e))
 }
 
+// ============== Explorer Layout ==============
+
+#[tauri::command]
+fn get_explorer_layout(project_id: String) -> Result<Option<String>, String> {
+    database::get_explorer_layout(&project_id)
+        .map_err(|e| format!("Failed to get explorer layout: {}", e))
+}
+
+#[derive(serde::Deserialize)]
+struct SaveExplorerLayoutRequest {
+    project_id: String,
+    layout_json: String,
+}
+
+#[tauri::command]
+fn save_explorer_layout(request: SaveExplorerLayoutRequest) -> Result<(), String> {
+    database::save_explorer_layout(&request.project_id, &request.layout_json)
+        .map_err(|e| format!("Failed to save explorer layout: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1968,12 +2179,15 @@ pub fn run() {
             rename_cut,
             cut_frames,
             crop_frames,
+            preprocess_video,
             check_system_ffmpeg,
             check_sidecar_ffmpeg,
             create_preview,
             get_project_previews,
             delete_preview,
-            rename_preview
+            rename_preview,
+            get_explorer_layout,
+            save_explorer_layout
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -170,6 +170,13 @@ pub struct VideoPlayerProps {
     #[prop_or_default]
     pub is_cutting: Option<bool>,
 
+    // ---- Video preprocessing controls ----
+    /// Callback to preprocess video: emits (preset, custom_filter)
+    #[prop_or_default]
+    pub on_preprocess_video: Option<Callback<(String, Option<String>)>>,
+    #[prop_or_default]
+    pub is_preprocessing: Option<bool>,
+
     // ---- Default settings from settings.json ----
     #[prop_or(true)]
     pub color_frames_default: bool,
@@ -713,6 +720,28 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
+    let on_preprocess_apply = {
+        let on_preprocess_video = props.on_preprocess_video.clone();
+        let preprocess_preset = preprocess_preset.clone();
+        let preprocess_custom = preprocess_custom.clone();
+        let preprocess_enabled = preprocess_enabled.clone();
+
+        Callback::from(move |_| {
+            if !*preprocess_enabled {
+                return;
+            }
+            if let Some(cb) = &on_preprocess_video {
+                let preset = (*preprocess_preset).clone();
+                let custom = if preset == "other" {
+                    Some((*preprocess_custom).clone())
+                } else {
+                    None
+                };
+                cb.emit((preset, custom));
+            }
+        })
+    };
+
     let on_create_preview = {
         let video_ref = video_ref.clone();
         let project_id = props.project_id.clone();
@@ -970,6 +999,13 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                                     title="Custom ffmpeg -vf filtergraph (without the ffmpeg command)"
                                 />
                             }
+                            <div style="flex: 1;"></div>
+                            <button id="video-preprocess-apply-btn" class="ctrl-btn" type="button"
+                                disabled={props.is_preprocessing.unwrap_or(false) || props.on_preprocess_video.is_none()}
+                                title="Apply preprocessing filter to video"
+                                onclick={on_preprocess_apply.clone()}>
+                                <Icon icon_id={IconId::LucideWand} width={"20"} height={"20"} />
+                            </button>
                         }
                     </div>
                 }

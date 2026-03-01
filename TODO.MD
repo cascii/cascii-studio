@@ -28,3 +28,7 @@ bugs:
 
 Read toml
 crop sides
+preprocessing --> Create new file instead of frames. Button to add.
+
+UI --> file system like vs code & tabs, also like vs code
+

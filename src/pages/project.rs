@@ -1591,6 +1591,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             </div>
                         }
 
+                    </div>
+                    <div class="explorer-sidebar__bottom">
                         // Controls as a collapsible section (like Outline in VS Code)
                         <Controls
                             selected_source={(*selected_source).clone()}
@@ -1661,8 +1663,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 </div>
 
                 <div class="main-content">
-                    <h1>{ project.as_ref().map(|p| p.project_name.clone()).unwrap_or_else(|| "Loading Project...".into()) }</h1>
-
                     if let Some(error) = &*error_message {
                         <div class="alert alert-error">{error}</div>
                     }

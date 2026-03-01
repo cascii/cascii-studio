@@ -1,6 +1,6 @@
 [package]
 name = "cascii_studio-ui"
-version = "0.117.0"
+version = "0.118.0"
 edition = "2021"
 build = "build.rs"
 
@@ -63,7 +63,12 @@ yew_icons = { version = "0.8.0", features = [
     "LucideMoreHorizontal",
     "LucideCrop",
     "LucideCopy",
-    "LucideCheck"
+    "LucideCheck",
+    "LucideChevronRight",
+    "LucideFile",
+    "LucideImage",
+    "LucideFolderPlus",
+    "LucideFileVideo"
 ] }
 
 [build-dependencies]

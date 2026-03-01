@@ -394,6 +394,7 @@ struct DragData {
 #[derive(Properties, PartialEq)]
 pub struct MontagePageProps {
     pub project_id: String,
+    pub on_project_name_change: Callback<String>,
 }
 
 #[function_component(MontagePage)]
@@ -416,6 +417,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     {
         let project_id = props.project_id.clone();
         let project = project.clone();
+        let on_project_name_change = props.on_project_name_change.clone();
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
         let video_cuts = video_cuts.clone();
@@ -428,7 +430,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
                 match tauri_invoke("get_project", args).await {
                     result => {
-                        if let Ok(p) = serde_wasm_bindgen::from_value(result) {
+                        if let Ok(p) = serde_wasm_bindgen::from_value::<Project>(result) {
+                            on_project_name_change.emit(p.project_name.clone());
                             project.set(Some(p));
                         } else {
                             error_message.set(Some("Failed to fetch project details.".to_string()));

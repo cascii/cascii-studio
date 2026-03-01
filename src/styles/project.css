@@ -1,17 +1,32 @@
 /* Project Page Styles */
 
-.project-page {
+.container.project-page {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 80px); /* Adjust based on header/other elements */
-    margin-left: -80px;
-    padding-left: 72px;
+    height: calc(100vh - var(--topbar-height, 35px));
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    justify-content: stretch;
+    text-align: left;
 }
 
 .project-layout {
     display: flex;
     flex-grow: 1;
     height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+/* Main content first, explorer sidebar on the right */
+.project-layout > .main-content {
+    order: 0;
+}
+
+.project-layout > .explorer-sidebar {
+    order: 1;
 }
 
 .main-content h1 {
@@ -349,7 +364,7 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    padding-left: 12px;
+    padding: 0 12px;
 }
 
 .preview-container {

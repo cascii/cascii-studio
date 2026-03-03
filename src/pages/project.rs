@@ -12,8 +12,9 @@ use crate::components::video_player::VideoPlayer;
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
 use crate::components::settings::{Controls};
 use crate::components::settings::available_cuts::VideoCut;
+use crate::components::tab_bar::{OpenTab, TabBar};
 use crate::components::explorer::{
-    ResourcesTree, ExplorerTree, ExplorerLayout, SidebarState, TreeNodeId,
+    ResourcesTree, ExplorerTree, ExplorerLayout, SidebarState, TreeNodeId, ResourceRef,
 };
 
 // Wasm bindings to Tauri API
@@ -254,6 +255,72 @@ pub struct Preview {
     pub custom_name: Option<String>,
 }
 
+fn file_name_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn without_extension(name: &str) -> String {
+    std::path::Path::new(name)
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or(name)
+        .to_string()
+}
+
+fn source_tab_label(source: &SourceContent) -> String {
+    source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path))
+}
+
+fn cut_tab_label(cut: &VideoCut) -> String {
+    cut.custom_name.clone().unwrap_or_else(|| file_name_from_path(&cut.file_path))
+}
+
+fn frame_dir_tab_label(frame_dir: &FrameDirectory) -> String {
+    frame_dir.name.clone()
+}
+
+fn preview_tab_label(preview: &Preview) -> String {
+    preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone())
+}
+
+fn tab_id_for_resource(resource: &ResourceRef) -> String {
+    match resource {
+        ResourceRef::SourceFile { source_id } => format!("tab:source:{}", source_id),
+        ResourceRef::VideoCut { cut_id } => format!("tab:cut:{}", cut_id),
+        ResourceRef::FrameDirectory { directory_path } => format!("tab:framedir:{}", directory_path),
+        ResourceRef::Preview { preview_id } => format!("tab:preview:{}", preview_id),
+    }
+}
+
+fn open_or_activate_tab(
+    open_tabs: &UseStateHandle<Vec<OpenTab>>,
+    active_tab_id: &UseStateHandle<Option<String>>,
+    tab: OpenTab,
+) {
+    let mut next_tabs = (**open_tabs).clone();
+    let mut changed = false;
+
+    if let Some(existing_tab) = next_tabs.iter_mut().find(|t| t.id == tab.id) {
+        if existing_tab.label != tab.label || existing_tab.resource != tab.resource {
+            *existing_tab = tab.clone();
+            changed = true;
+        }
+    } else {
+        next_tabs.push(tab.clone());
+        changed = true;
+    }
+
+    if changed {
+        open_tabs.set(next_tabs);
+    }
+
+    active_tab_id.set(Some(tab.id));
+}
+
 #[derive(Properties, PartialEq)]
 pub struct ProjectPageProps {
     pub project_id: String,
@@ -334,6 +401,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let sidebar_state = use_state(SidebarState::default);
     let explorer_layout = use_state(ExplorerLayout::default);
     let selected_node_id = use_state(|| None::<TreeNodeId>);
+    let open_tabs = use_state(|| Vec::<OpenTab>::new());
+    let active_tab_id = use_state(|| None::<String>);
 
     // Video cuts state
     let video_cuts = use_state(|| Vec::<VideoCut>::new());
@@ -658,8 +727,23 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let error_message = error_message.clone();
         let is_loading_media = is_loading_media.clone();
         let url_cache = url_cache.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
 
         Callback::from(move |source: SourceContent| {
+            let resource = ResourceRef::SourceFile {
+                source_id: source.id.clone(),
+            };
+            open_or_activate_tab(
+                &open_tabs,
+                &active_tab_id,
+                OpenTab {
+                    id: tab_id_for_resource(&resource),
+                    resource,
+                    label: source_tab_label(&source),
+                },
+            );
+
             let file_path = source.file_path.clone();
             
             // Check cache first
@@ -813,6 +897,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let video_cuts = video_cuts.clone();
         let project_id = project_id.clone();
         let selected_cut = selected_cut.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
 
         Callback::from(move |cut: VideoCut| {
             let video_cuts = video_cuts.clone();
@@ -820,6 +906,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let cut_id = cut.id.clone();
             let file_path = cut.file_path.clone();
             let selected_cut = selected_cut.clone();
+            let open_tabs = open_tabs.clone();
+            let active_tab_id = active_tab_id.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
@@ -833,6 +921,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 // Clear selection if deleted cut was selected
                 if selected_cut.as_ref().map(|s| s.id == cut_id).unwrap_or(false) {
                     selected_cut.set(None);
+                }
+
+                let tab_id = tab_id_for_resource(&ResourceRef::VideoCut { cut_id: cut_id.clone() });
+                let mut tabs = (*open_tabs).clone();
+                let original_len = tabs.len();
+                tabs.retain(|tab| tab.id != tab_id);
+                if tabs.len() != original_len {
+                    open_tabs.set(tabs);
+                    if (*active_tab_id).as_deref() == Some(tab_id.as_str()) {
+                        active_tab_id.set(None);
+                    }
                 }
 
                 // Refresh
@@ -869,6 +968,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let selected_source = selected_source.clone();
         let frame_directories = frame_directories.clone();
         let video_cuts = video_cuts.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
 
         Callback::from(move |source: SourceContent| {
             let source_files = source_files.clone();
@@ -878,6 +979,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let selected_source = selected_source.clone();
             let frame_directories = frame_directories.clone();
             let video_cuts = video_cuts.clone();
+            let open_tabs = open_tabs.clone();
+            let active_tab_id = active_tab_id.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
@@ -891,6 +994,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 // Clear selection if deleted source was selected
                 if selected_source.as_ref().map(|s| s.id == source_id).unwrap_or(false) {
                     selected_source.set(None);
+                }
+
+                let tab_id = tab_id_for_resource(&ResourceRef::SourceFile { source_id: source_id.clone() });
+                let mut tabs = (*open_tabs).clone();
+                let original_len = tabs.len();
+                tabs.retain(|tab| tab.id != tab_id);
+                if tabs.len() != original_len {
+                    open_tabs.set(tabs);
+                    if (*active_tab_id).as_deref() == Some(tab_id.as_str()) {
+                        active_tab_id.set(None);
+                    }
                 }
 
                 // Refresh source files
@@ -919,12 +1033,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let frame_directories = frame_directories.clone();
         let project_id = project_id.clone();
         let selected_frame_dir = selected_frame_dir.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
 
         Callback::from(move |frame_dir: FrameDirectory| {
             let frame_directories = frame_directories.clone();
             let project_id = (*project_id).clone();
             let directory_path = frame_dir.directory_path.clone();
             let selected_frame_dir = selected_frame_dir.clone();
+            let open_tabs = open_tabs.clone();
+            let active_tab_id = active_tab_id.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
@@ -935,6 +1053,19 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 // Clear selection if deleted frame dir was selected
                 if selected_frame_dir.as_ref().map(|s| s.directory_path == directory_path).unwrap_or(false) {
                     selected_frame_dir.set(None);
+                }
+
+                let tab_id = tab_id_for_resource(&ResourceRef::FrameDirectory {
+                    directory_path: directory_path.clone(),
+                });
+                let mut tabs = (*open_tabs).clone();
+                let original_len = tabs.len();
+                tabs.retain(|tab| tab.id != tab_id);
+                if tabs.len() != original_len {
+                    open_tabs.set(tabs);
+                    if (*active_tab_id).as_deref() == Some(tab_id.as_str()) {
+                        active_tab_id.set(None);
+                    }
                 }
 
                 // Refresh frame directories
@@ -1102,6 +1233,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let previews = previews.clone();
         let selected_preview = selected_preview.clone();
         let project_id = project_id.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
 
         Callback::from(move |preview: Preview| {
             let previews = previews.clone();
@@ -1109,6 +1242,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let folder_path = preview.folder_path.clone();
             let selected_preview = selected_preview.clone();
             let project_id = (*project_id).clone();
+            let open_tabs = open_tabs.clone();
+            let active_tab_id = active_tab_id.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
@@ -1122,6 +1257,19 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 // Clear selection if deleted preview was selected
                 if selected_preview.as_ref().map(|p| p.id == preview_id).unwrap_or(false) {
                     selected_preview.set(None);
+                }
+
+                let tab_id = tab_id_for_resource(&ResourceRef::Preview {
+                    preview_id: preview_id.clone(),
+                });
+                let mut tabs = (*open_tabs).clone();
+                let original_len = tabs.len();
+                tabs.retain(|tab| tab.id != tab_id);
+                if tabs.len() != original_len {
+                    open_tabs.set(tabs);
+                    if (*active_tab_id).as_deref() == Some(tab_id.as_str()) {
+                        active_tab_id.set(None);
+                    }
                 }
 
                 // Refresh previews
@@ -1158,7 +1306,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let selected_frame_settings = selected_frame_settings.clone();
         let frame_speed = frame_speed.clone();
         let current_conversion_id = current_conversion_id.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
         Callback::from(move |frame_dir: FrameDirectory| {
+            let resource = ResourceRef::FrameDirectory {
+                directory_path: frame_dir.directory_path.clone(),
+            };
+            open_or_activate_tab(
+                &open_tabs,
+                &active_tab_id,
+                OpenTab {
+                    id: tab_id_for_resource(&resource),
+                    resource,
+                    label: frame_dir_tab_label(&frame_dir),
+                },
+            );
+
             let directory_path = frame_dir.directory_path.clone();
             selected_frame_dir.set(Some(frame_dir));
             selected_preview.set(None);
@@ -1195,7 +1358,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let on_select_preview_explorer = {
         let selected_preview = selected_preview.clone();
         let selected_frame_dir = selected_frame_dir.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
         Callback::from(move |preview: Preview| {
+            let resource = ResourceRef::Preview {
+                preview_id: preview.id.clone(),
+            };
+            open_or_activate_tab(
+                &open_tabs,
+                &active_tab_id,
+                OpenTab {
+                    id: tab_id_for_resource(&resource),
+                    resource,
+                    label: preview_tab_label(&preview),
+                },
+            );
+
             selected_preview.set(Some(preview));
             selected_frame_dir.set(None);
         })
@@ -1209,7 +1387,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let is_loading_media = is_loading_media.clone();
         let url_cache = url_cache.clone();
         let error_message = error_message.clone();
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
         Callback::from(move |cut: VideoCut| {
+            let resource = ResourceRef::VideoCut {
+                cut_id: cut.id.clone(),
+            };
+            open_or_activate_tab(
+                &open_tabs,
+                &active_tab_id,
+                OpenTab {
+                    id: tab_id_for_resource(&resource),
+                    resource,
+                    label: cut_tab_label(&cut),
+                },
+            );
+
             selected_cut.set(Some(cut.clone()));
             let file_path = cut.file_path.clone();
             if let Some(cached_url) = url_cache.get(&file_path) {
@@ -1457,6 +1650,137 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    let on_select_tab = {
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
+        let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
+        let on_select_source = on_select_source.clone();
+        let on_select_frame_dir_explorer = on_select_frame_dir_explorer.clone();
+        let on_select_cut_explorer = on_select_cut_explorer.clone();
+        let on_select_preview_explorer = on_select_preview_explorer.clone();
+
+        Callback::from(move |tab_id: String| {
+            active_tab_id.set(Some(tab_id.clone()));
+
+            if let Some(tab) = open_tabs.iter().find(|t| t.id == tab_id).cloned() {
+                match tab.resource {
+                    ResourceRef::SourceFile { source_id } => {
+                        if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
+                            on_select_source.emit(source);
+                        }
+                    }
+                    ResourceRef::VideoCut { cut_id } => {
+                        if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
+                            on_select_cut_explorer.emit(cut);
+                        }
+                    }
+                    ResourceRef::FrameDirectory { directory_path } => {
+                        if let Some(frame_dir) = frame_directories
+                            .iter()
+                            .find(|f| f.directory_path == directory_path)
+                            .cloned()
+                        {
+                            on_select_frame_dir_explorer.emit(frame_dir);
+                        }
+                    }
+                    ResourceRef::Preview { preview_id } => {
+                        if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
+                            on_select_preview_explorer.emit(preview);
+                        }
+                    }
+                }
+            }
+        })
+    };
+
+    let on_close_tab = {
+        let open_tabs = open_tabs.clone();
+        let active_tab_id = active_tab_id.clone();
+        let selected_source = selected_source.clone();
+        let selected_cut = selected_cut.clone();
+        let selected_frame_dir = selected_frame_dir.clone();
+        let selected_preview = selected_preview.clone();
+        let asset_url = asset_url.clone();
+
+        let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
+        let on_select_source = on_select_source.clone();
+        let on_select_frame_dir_explorer = on_select_frame_dir_explorer.clone();
+        let on_select_cut_explorer = on_select_cut_explorer.clone();
+        let on_select_preview_explorer = on_select_preview_explorer.clone();
+
+        Callback::from(move |tab_id: String| {
+            let current_tabs = (*open_tabs).clone();
+            let Some(closed_index) = current_tabs.iter().position(|t| t.id == tab_id) else {
+                return;
+            };
+
+            let mut updated_tabs = current_tabs.clone();
+            updated_tabs.remove(closed_index);
+            open_tabs.set(updated_tabs.clone());
+
+            let current_active = (*active_tab_id).clone();
+            let next_active = if current_active.as_deref() == Some(tab_id.as_str()) {
+                if updated_tabs.is_empty() {
+                    None
+                } else {
+                    let next_index = if closed_index < updated_tabs.len() {
+                        closed_index
+                    } else {
+                        updated_tabs.len() - 1
+                    };
+                    Some(updated_tabs[next_index].id.clone())
+                }
+            } else {
+                current_active.filter(|id| updated_tabs.iter().any(|t| &t.id == id))
+            };
+
+            active_tab_id.set(next_active.clone());
+
+            if let Some(next_id) = next_active {
+                if let Some(tab) = updated_tabs.iter().find(|t| t.id == next_id).cloned() {
+                    match tab.resource {
+                        ResourceRef::SourceFile { source_id } => {
+                            if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
+                                on_select_source.emit(source);
+                            }
+                        }
+                        ResourceRef::VideoCut { cut_id } => {
+                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
+                                on_select_cut_explorer.emit(cut);
+                            }
+                        }
+                        ResourceRef::FrameDirectory { directory_path } => {
+                            if let Some(frame_dir) = frame_directories
+                                .iter()
+                                .find(|f| f.directory_path == directory_path)
+                                .cloned()
+                            {
+                                on_select_frame_dir_explorer.emit(frame_dir);
+                            }
+                        }
+                        ResourceRef::Preview { preview_id } => {
+                            if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
+                                on_select_preview_explorer.emit(preview);
+                            }
+                        }
+                    }
+                }
+            } else {
+                selected_source.set(None);
+                selected_cut.set(None);
+                selected_frame_dir.set(None);
+                selected_preview.set(None);
+                asset_url.set(None);
+            }
+        })
+    };
+
     // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
     let _trigger = *conversions_update_trigger;
@@ -1495,6 +1819,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         } else {
             html! {}
         }
+    };
+
+    let source_preview_label = selected_source.as_ref().map(|source| {
+        let base_name = source
+            .custom_name
+            .clone()
+            .unwrap_or_else(|| file_name_from_path(&source.file_path));
+        format!("SOURCE VIDEO: {}", without_extension(&base_name))
+    });
+
+    let frames_preview_label = if let Some(frame_dir) = &*selected_frame_dir {
+        Some(format!("FRAMES: {}", without_extension(&frame_dir.name)))
+    } else if let Some(preview) = &*selected_preview {
+        let name = preview
+            .custom_name
+            .clone()
+            .unwrap_or_else(|| preview.folder_name.clone());
+        Some(format!("FRAMES: {}", without_extension(&name)))
+    } else {
+        None
     };
 
     html! {
@@ -1708,9 +2052,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         </div>
                     }
 
+                    if !open_tabs.is_empty() {
+                        <TabBar
+                            tabs={(*open_tabs).clone()}
+                            active_tab_id={(*active_tab_id).clone()}
+                            on_select_tab={on_select_tab.clone()}
+                            on_close_tab={on_close_tab.clone()}
+                        />
+                    }
+
                     <div class="preview-container" ref={preview_container_ref.clone()}>
                         <div class="preview-column">
-                            <div class="preview-label">{"Source Video"}</div>
+                            if let Some(label) = &source_preview_label {
+                                <div class="preview-label">{label.clone()}</div>
+                            }
                             <div class="square">
                                 {
                                     if *is_loading_media {
@@ -1860,7 +2215,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         </div>
                         
                         <div class="preview-column">
-                            <div class="preview-label">{"Frames"}</div>
+                            if let Some(label) = &frames_preview_label {
+                                <div class="preview-label">{label.clone()}</div>
+                            }
                             <div class="square">
                                 {
                                     // Show selected preview if any

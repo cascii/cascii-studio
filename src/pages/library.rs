@@ -4,8 +4,8 @@ use yew::prelude::*;
 pub fn library_page() -> Html {
     html! {
         <div class="container" id="library-container">
-            <h1>{"Library"}</h1>
-            <p>{"This is the Library page."}</p>
+            <h1 id="library-heading">{"Library"}</h1>
+            <p id="library-description">{"This is the Library page."}</p>
         </div>
     }
 }

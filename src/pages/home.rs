@@ -4,7 +4,7 @@ use yew::prelude::*;
 pub fn home_page() -> Html {
     html! {
         <div class="container" id="home-container">
-            <h1>{"Cascii Studio"}</h1>
+            <h1 id="home-heading">{"Cascii Studio"}</h1>
         </div>
     }
 }

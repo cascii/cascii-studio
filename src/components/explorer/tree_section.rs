@@ -24,16 +24,22 @@ pub fn tree_section(props: &TreeSectionProps) -> Html {
         (!props.is_expanded).then_some("tree-section-header__chevron--collapsed"),
     );
 
+    let section_slug = props.title.to_lowercase().replace(' ', "-");
+    let section_id = format!("tree-section-{}", section_slug);
+    let header_id = format!("tree-section-{}-header", section_slug);
+    let content_id = format!("tree-section-{}-content", section_slug);
+    let actions_id = format!("tree-section-{}-actions", section_slug);
+
     html! {
-        <div class="tree-section">
-            <div class="tree-section-header" onclick={on_toggle}>
+        <div id={section_id} class="tree-section">
+            <div id={header_id} class="tree-section-header" onclick={on_toggle}>
                 <span class={chevron_class}>
                     <Icon icon_id={IconId::LucideChevronRight} width={"16"} height={"16"} />
                 </span>
                 <span class="tree-section-header__title">{&props.title}</span>
                 {if let Some(actions) = &props.action_buttons {
                     html! {
-                        <div class="tree-section-header__actions" onclick={Callback::from(|e: MouseEvent| e.stop_propagation())}>
+                        <div id={actions_id} class="tree-section-header__actions" onclick={Callback::from(|e: MouseEvent| e.stop_propagation())}>
                             {actions.clone()}
                         </div>
                     }
@@ -43,7 +49,7 @@ pub fn tree_section(props: &TreeSectionProps) -> Html {
             </div>
             {if props.is_expanded {
                 html! {
-                    <div class="tree-section__content">
+                    <div id={content_id} class="tree-section__content">
                         { for props.children.iter() }
                     </div>
                 }

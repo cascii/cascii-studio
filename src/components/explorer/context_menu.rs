@@ -39,9 +39,9 @@ pub fn context_menu(props: &ContextMenuProps) -> Html {
     );
 
     html! {
-        <div class="explorer-context-menu" {style}
+        <div id="explorer-context-menu" class="explorer-context-menu" {style}
              onmousedown={Callback::from(|e: MouseEvent| e.stop_propagation())}>
-            { for props.items.iter().map(|item| {
+            { for props.items.iter().enumerate().map(|(i, item)| {
                 let on_click = {
                     let item_cb = item.on_click.clone();
                     let on_close = on_close.clone();
@@ -55,8 +55,9 @@ pub fn context_menu(props: &ContextMenuProps) -> Html {
                     "explorer-context-menu__item",
                     item.is_destructive.then_some("explorer-context-menu__item--destructive"),
                 );
+                let item_id = format!("context-menu-item-{}", i);
                 html! {
-                    <button type="button" {class} onclick={on_click}>
+                    <button id={item_id} type="button" {class} onclick={on_click}>
                         <Icon icon_id={item.icon} width={"14"} height={"14"} />
                         <span>{&item.label}</span>
                     </button>

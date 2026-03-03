@@ -116,34 +116,34 @@ pub fn controls(props: &ControlsProps) -> Html {
     };
 
     html! {
-        <div class="controls-section">
-            <div class="tree-section-header" onclick={on_toggle}>
+        <div id="controls-section" class="controls-section">
+            <div id="controls-header" class="tree-section-header" onclick={on_toggle}>
                 <span class={classes!("tree-section-header__chevron", props.controls_collapsed.then_some("tree-section-header__chevron--collapsed"))}>
                     <Icon icon_id={IconId::LucideChevronRight} width={"16"} height={"16"} />
                 </span>
                 <span class="tree-section-header__title">{"CONTROLS"}</span>
             </div>
             if !props.controls_collapsed {
-                <div class="controls-section__content">
-                    <div class="controls-section__buttons">
-                        <button class="ctrl-btn" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
+                <div id="controls-content" class="controls-section__content">
+                    <div id="controls-buttons" class="controls-section__buttons">
+                        <button id="controls-play-btn" class="ctrl-btn" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
                             <Icon icon_id={if props.is_playing {IconId::LucidePause} else {IconId::LucidePlay}} width={"16"} height={"16"} />
                         </button>
-                        <button class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
+                        <button id="controls-reset-btn" class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
                             <span class="reset-icon">{"↺"}</span>
                         </button>
-                        <button class={classes!("ctrl-btn", "loop-btn", props.loop_enabled.then_some("active"))} onclick={on_toggle_loop} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}>
+                        <button id="controls-loop-btn" class={classes!("ctrl-btn", "loop-btn", props.loop_enabled.then_some("active"))} onclick={on_toggle_loop} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}>
                             <Icon icon_id={IconId::LucideRepeat} width={"14"} height={"14"} />
                         </button>
-                        <button class="ctrl-btn" type="button" onclick={on_toggle_mute} title={if props.is_muted {"Unmute"} else {"Mute"}}>
+                        <button id="controls-mute-btn" class="ctrl-btn" type="button" onclick={on_toggle_mute} title={if props.is_muted {"Unmute"} else {"Mute"}}>
                             <Icon icon_id={volume_icon} width={"16"} height={"16"} />
                         </button>
                     </div>
-                    <div class="controls-section__slider">
-                        <input class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
+                    <div id="controls-volume-slider" class="controls-section__slider">
+                        <input id="controls-volume-input" class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
                     </div>
-                    <div class="controls-section__slider">
-                        <input class="synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />
+                    <div id="controls-progress-slider" class="controls-section__slider">
+                        <input id="controls-progress-input" class="synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />
                     </div>
                 </div>
             }

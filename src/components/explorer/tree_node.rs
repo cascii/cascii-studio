@@ -186,9 +186,11 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
         html! {}
     };
 
+    let row_id = format!("tree-node-{}", node.id.0);
+
     html! {
         <>
-            <div class={row_class} onclick={on_row_click} oncontextmenu={on_ctx}
+            <div id={row_id} class={row_class} onclick={on_row_click} oncontextmenu={on_ctx}
                  style={format!("padding-left: {}px;", indent_px)}>
                 {chevron_html}
                 <span class="tree-node__icon">

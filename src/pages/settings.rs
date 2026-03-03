@@ -230,13 +230,13 @@ pub fn settings_page() -> Html {
 
     html! {
         <main id="settings-container" class="container">
-            <h1>{"Settings"}</h1>
+            <h1 id="settings-heading">{"Settings"}</h1>
             <div id="settings-form" class="settings-form">
                 <div id="settings-folder-group" class="form-group">
                     <label for="out-dir">{"Output directory"}</label>
                     <div id="settings-folder-input-group" class="input-group">
                         <input id="out-dir" readonly=true value={settings.output_directory.clone()} oninput={on_dir_input} />
-                        <button type="button" onclick={on_pick_directory}>{"Browse"}</button>
+                        <button id="settings-folder-pick-btn" type="button" onclick={on_pick_directory}>{"Browse"}</button>
                         <button type="button" id="settings-folder-browse-btn" class="icon-btn" onclick={on_open_directory}>
                             <Icon icon_id={IconId::LucideFolder} width={"18"} height={"18"} />
                         </button>
@@ -311,7 +311,7 @@ pub fn settings_page() -> Html {
                 </div>
 
                 <div id="settings-save-group" class="form-group center">
-                    <button type="button" onclick={on_save}>{"Save"}</button>
+                    <button id="settings-save-btn" type="button" onclick={on_save}>{"Save"}</button>
                 </div>
             </div>
         </main>

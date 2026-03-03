@@ -99,14 +99,14 @@ pub fn open_page(props: &OpenPageProps) -> Html {
 
     html! {
         <div id="open-page" class="container open-page">
-            <h1>{"Open Project"}</h1>
+            <h1 id="open-heading">{"Open Project"}</h1>
 
             if let Some(error) = &*error_message {
                 <div id="open-error-alert" class="alert alert-error">{error}</div>
             }
 
             if projects.is_empty() {
-                <p>{"No projects found."}</p>
+                <p id="open-no-projects">{"No projects found."}</p>
             } else {
                 <table id="project-table" class="project-table">
                     <thead>

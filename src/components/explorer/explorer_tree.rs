@@ -319,7 +319,7 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
     };
 
     let add_folder_btn = html! {
-        <button type="button" class="explorer-add-folder-btn" onclick={on_add_folder} title="New Folder">
+        <button id="explorer-add-folder-btn" type="button" class="explorer-add-folder-btn" onclick={on_add_folder} title="New Folder">
             <yew_icons::Icon icon_id={IconId::LucideFolderPlus} width={"14"} height={"14"} />
         </button>
     };
@@ -333,7 +333,7 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
         <>
             <TreeSection title="EXPLORER" is_expanded={props.is_expanded} on_toggle={on_toggle} action_buttons={Some(add_folder_btn)}>
                 {if tree.is_empty() {
-                    html! { <div class="tree-section__empty">{"Drag items here to organize"}</div> }
+                    html! { <div id="explorer-empty-state" class="tree-section__empty">{"Drag items here to organize"}</div> }
                 } else {
                     html! {
                         { for tree.into_iter().map(|node| {

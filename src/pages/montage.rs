@@ -681,12 +681,12 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     };
 
     html! {
-        <div class="container montage-page">
-            <div class="montage-layout">
-                <div class="left-sidebar">
+        <div id="montage-page" class="container montage-page">
+            <div id="montage-layout" class="montage-layout">
+                <div id="montage-left-sidebar" class="left-sidebar">
                     // Source Files Section
-                    <div class="sidebar-section">
-                        <div class="section-header" onclick={{
+                    <div id="montage-sources-section" class="sidebar-section">
+                        <div id="montage-sources-header" class="section-header" onclick={{
                             let sources_collapsed = sources_collapsed.clone();
                             Callback::from(move |_| sources_collapsed.set(!*sources_collapsed))
                         }}>
@@ -696,9 +696,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             <Icon icon_id={if *sources_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
                         </div>
                         if !*sources_collapsed {
-                            <div class="section-content">
+                            <div id="montage-sources-content" class="section-content">
                                 if source_files.is_empty() {
-                                    <div class="empty-message">{"No source files"}</div>
+                                    <div id="montage-sources-empty" class="empty-message">{"No source files"}</div>
                                 } else {
                                     { source_files.iter().map(|source| {
                                         let display_name = source.custom_name.clone()
@@ -720,8 +720,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
 
                     // ASCII Conversions Section
-                    <div class="sidebar-section">
-                        <div class="section-header" onclick={{
+                    <div id="montage-frames-section" class="sidebar-section">
+                        <div id="montage-frames-header" class="section-header" onclick={{
                             let frames_collapsed = frames_collapsed.clone();
                             Callback::from(move |_| frames_collapsed.set(!*frames_collapsed))
                         }}>
@@ -731,9 +731,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             <Icon icon_id={if *frames_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
                         </div>
                         if !*frames_collapsed {
-                            <div class="section-content">
+                            <div id="montage-frames-content" class="section-content">
                                 if frame_directories.is_empty() {
-                                    <div class="empty-message">{"No ASCII conversions"}</div>
+                                    <div id="montage-frames-empty" class="empty-message">{"No ASCII conversions"}</div>
                                 } else {
                                     { frame_directories.iter().map(|frame_dir| {
                                         let id = frame_dir.directory_path.clone();
@@ -752,8 +752,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
 
                     // Video Cuts Section
-                    <div class="sidebar-section">
-                        <div class="section-header" onclick={{
+                    <div id="montage-cuts-section" class="sidebar-section">
+                        <div id="montage-cuts-header" class="section-header" onclick={{
                             let cuts_collapsed = cuts_collapsed.clone();
                             Callback::from(move |_| cuts_collapsed.set(!*cuts_collapsed))
                         }}>
@@ -763,9 +763,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             <Icon icon_id={if *cuts_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
                         </div>
                         if !*cuts_collapsed {
-                            <div class="section-content">
+                            <div id="montage-cuts-content" class="section-content">
                                 if video_cuts.is_empty() {
-                                    <div class="empty-message">{"No video cuts"}</div>
+                                    <div id="montage-cuts-empty" class="empty-message">{"No video cuts"}</div>
                                 } else {
                                     { video_cuts.iter().map(|cut| {
                                         let display_name = cut.custom_name.clone()
@@ -786,8 +786,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
                 </div>
 
-                <div class="main-content">
-                    <h1>{ project.as_ref().map(|p| format!("Montage: {}", p.project_name)).unwrap_or_else(|| "Loading Montage...".into()) }</h1>
+                <div id="montage-main-content" class="main-content">
+                    <h1 id="montage-heading">{ project.as_ref().map(|p| format!("Montage: {}", p.project_name)).unwrap_or_else(|| "Loading Montage...".into()) }</h1>
 
                     if let Some(error) = &*error_message {
                         <div id="montage-error-alert" class="alert alert-error">{error}</div>

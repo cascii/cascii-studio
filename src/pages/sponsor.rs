@@ -31,29 +31,29 @@ pub fn sponsor_page() -> Html {
 
     html! {
         <div class="container" id="sponsor-container">
-            <h1>{"Support cascii Development"}</h1>
-            <p class="sponsor-subtitle">{"If you find cascii useful, please consider supporting its development."}</p>
+            <h1 id="sponsor-heading">{"Support cascii Development"}</h1>
+            <p id="sponsor-subtitle" class="sponsor-subtitle">{"If you find cascii useful, please consider supporting its development."}</p>
 
-            <div class="donation-addresses">
-                <div class="address-card">
+            <div id="sponsor-donation-addresses" class="donation-addresses">
+                <div id="sponsor-btc-card" class="address-card">
                     <span class="address-label">{"BTC"}</span>
                     <span class="address-value">{btc_addr}</span>
                     <button
-                        class="icon-btn copy-btn" onclick={make_copy_callback(btc_addr, "btc", recently_copied.clone())} title="Copy address">
+                        id="sponsor-btc-copy-btn" class="icon-btn copy-btn" onclick={make_copy_callback(btc_addr, "btc", recently_copied.clone())} title="Copy address">
                         <Icon icon_id={if *recently_copied == "btc" { IconId::LucideCheck } else { IconId::LucideCopy }} width={"16"} height={"16"} />
                     </button>
                 </div>
-                <div class="address-card">
+                <div id="sponsor-eth-card" class="address-card">
                     <span class="address-label">{"ETH (ERC20)"}</span>
                     <span class="address-value">{eth_addr}</span>
-                    <button class="icon-btn copy-btn" onclick={make_copy_callback(eth_addr, "eth", recently_copied.clone())} title="Copy address">
+                    <button id="sponsor-eth-copy-btn" class="icon-btn copy-btn" onclick={make_copy_callback(eth_addr, "eth", recently_copied.clone())} title="Copy address">
                         <Icon icon_id={if *recently_copied == "eth" { IconId::LucideCheck } else { IconId::LucideCopy }} width={"16"} height={"16"} />
                     </button>
                 </div>
-                <div class="address-card">
+                <div id="sponsor-usdt-card" class="address-card">
                     <span class="address-label">{"USDT (ERC20)"}</span>
                     <span class="address-value">{eth_addr}</span>
-                    <button class="icon-btn copy-btn" onclick={make_copy_callback(eth_addr, "usdt", recently_copied.clone())} title="Copy address">
+                    <button id="sponsor-usdt-copy-btn" class="icon-btn copy-btn" onclick={make_copy_callback(eth_addr, "usdt", recently_copied.clone())} title="Copy address">
                         <Icon icon_id={if *recently_copied == "usdt" { IconId::LucideCheck } else { IconId::LucideCopy }} width={"16"} height={"16"} />
                     </button>
                 </div>

@@ -1,21 +1,21 @@
-use yew::prelude::*;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::closure::Closure;
-use wasm_bindgen::JsCast;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use yew::prelude::*;
 
 use super::open::Project;
-use crate::components::video_player::VideoPlayer;
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
-use crate::components::settings::{Controls};
-use crate::components::settings::available_cuts::VideoCut;
-use crate::components::tab_bar::{OpenTab, TabBar};
 use crate::components::explorer::{
-    ResourcesTree, ExplorerTree, ExplorerLayout, SidebarState, TreeNodeId, ResourceRef,
+    ExplorerLayout, ExplorerTree, ResourceRef, ResourcesTree, SidebarState, TreeNodeId,
 };
+use crate::components::settings::available_cuts::VideoCut;
+use crate::components::settings::Controls;
+use crate::components::tab_bar::{OpenTab, TabBar};
+use crate::components::video_player::VideoPlayer;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -255,6 +255,19 @@ pub struct Preview {
     pub custom_name: Option<String>,
 }
 
+const UI_PROGRESS_MIN_INTERVAL_MS: f64 = 50.0;
+const UI_PROGRESS_MIN_DELTA_PERCENT: f64 = 0.5;
+const FRAME_SYNC_MIN_INTERVAL_MS: f64 = 33.0;
+const FRAME_SYNC_MIN_DELTA: f64 = 0.01;
+
+#[derive(Default)]
+struct PlaybackSyncLimiter {
+    last_progress_emit_ms: f64,
+    last_progress_percent: Option<f64>,
+    last_frame_sync_emit_ms: f64,
+    last_frame_sync_value: Option<f64>,
+}
+
 fn file_name_from_path(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
@@ -272,11 +285,16 @@ fn without_extension(name: &str) -> String {
 }
 
 fn source_tab_label(source: &SourceContent) -> String {
-    source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path))
+    source
+        .custom_name
+        .clone()
+        .unwrap_or_else(|| file_name_from_path(&source.file_path))
 }
 
 fn cut_tab_label(cut: &VideoCut) -> String {
-    cut.custom_name.clone().unwrap_or_else(|| file_name_from_path(&cut.file_path))
+    cut.custom_name
+        .clone()
+        .unwrap_or_else(|| file_name_from_path(&cut.file_path))
 }
 
 fn frame_dir_tab_label(frame_dir: &FrameDirectory) -> String {
@@ -284,14 +302,19 @@ fn frame_dir_tab_label(frame_dir: &FrameDirectory) -> String {
 }
 
 fn preview_tab_label(preview: &Preview) -> String {
-    preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone())
+    preview
+        .custom_name
+        .clone()
+        .unwrap_or_else(|| preview.folder_name.clone())
 }
 
 fn tab_id_for_resource(resource: &ResourceRef) -> String {
     match resource {
         ResourceRef::SourceFile { source_id } => format!("tab:source:{}", source_id),
         ResourceRef::VideoCut { cut_id } => format!("tab:cut:{}", cut_id),
-        ResourceRef::FrameDirectory { directory_path } => format!("tab:framedir:{}", directory_path),
+        ResourceRef::FrameDirectory { directory_path } => {
+            format!("tab:framedir:{}", directory_path)
+        }
         ResourceRef::Preview { preview_id } => format!("tab:preview:{}", preview_id),
     }
 }
@@ -318,7 +341,9 @@ fn open_or_activate_tab(
         open_tabs.set(next_tabs);
     }
 
-    active_tab_id.set(Some(tab.id));
+    if (*active_tab_id).as_deref() != Some(tab.id.as_str()) {
+        active_tab_id.set(Some(tab.id));
+    }
 }
 
 #[derive(Properties, PartialEq)]
@@ -339,10 +364,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let asset_url = use_state(|| None::<String>);
     let error_message = use_state(|| Option::<String>::None);
     let is_loading_media = use_state(|| false);
-    let url_cache = use_state(|| HashMap::<String, String>::new());    // URL cache to avoid recomputing asset URLs
+    let url_cache = use_state(|| HashMap::<String, String>::new()); // URL cache to avoid recomputing asset URLs
     let is_adding_files = use_state(|| false);
     let file_progress_map = use_state(|| HashMap::<String, FileProgress>::new());
-    
+
     // ASCII conversion settings
     let luminance = use_state(|| 1u8);
     let font_ratio = use_state(|| 0.7f32);
@@ -358,10 +383,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
     let seek_percentage = use_state(|| None::<f64>);
     let frames_sync_seek_percentage = use_state(|| None::<f64>);
+    let playback_sync_limiter = use_mut_ref(PlaybackSyncLimiter::default);
     let frames_loading = use_state(|| false);
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
-    let selected_speed = use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
+    let selected_speed =
+        use_state(|| crate::components::ascii_frames_viewer::SpeedSelection::Custom);
     let loop_enabled = use_state(|| true);
     let video_volume = use_state(|| 1.0f64);
     let video_is_muted = use_state(|| false);
@@ -417,7 +444,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     {
         let preview_container_ref = preview_container_ref.clone();
-        let has_video_preview = matches!(selected_source.as_ref().map(|s| &s.content_type), Some(ContentType::Video));
+        let has_video_preview = matches!(
+            selected_source.as_ref().map(|s| &s.content_type),
+            Some(ContentType::Video)
+        );
         let has_frames_preview = selected_frame_dir.is_some();
         use_effect_with((has_video_preview, has_frames_preview), move |_| {
             let mut observers = Vec::<JsValue>::new();
@@ -564,12 +594,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     if let (Some(source_id), Some(percentage)) = (source_id, percentage) {
                         // Update the ref directly - NO re-render trigger here
                         // UI updates are handled by polling in a separate effect
-                        active_conversions_ref.borrow_mut().insert(source_id, percentage);
+                        active_conversions_ref
+                            .borrow_mut()
+                            .insert(source_id, percentage);
                     }
                 }
             });
 
-            let js_callback = progress_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+            let js_callback = progress_callback
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .clone();
 
             // Store closure to keep it alive (will be dropped on cleanup)
             *progress_listener_closure_storage.borrow_mut() = Some(progress_callback);
@@ -654,7 +689,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         .and_then(|v| v.as_string());
 
                     if let Some(source_id) = source_id {
-                        web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE EVENT: {} (success={})", source_id, success).into());
+                        web_sys::console::log_1(
+                            &format!(
+                                "🔴 CONVERSION COMPLETE EVENT: {} (success={})",
+                                source_id, success
+                            )
+                            .into(),
+                        );
 
                         // Remove from active conversions
                         active_conversions_ref.borrow_mut().remove(&source_id);
@@ -677,8 +718,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             let frame_directories = frame_directories.clone();
                             let project_id = (*project_id).clone();
                             wasm_bindgen_futures::spawn_local(async move {
-                                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                let args = serde_wasm_bindgen::to_value(
+                                    &json!({ "projectId": project_id }),
+                                )
+                                .unwrap();
+                                if let Ok(frames) = serde_wasm_bindgen::from_value(
+                                    tauri_invoke("get_project_frames", args).await,
+                                ) {
                                     frame_directories.set(frames);
                                 }
                             });
@@ -693,7 +739,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
             });
 
-            let js_callback = complete_callback.as_ref().unchecked_ref::<js_sys::Function>().clone();
+            let js_callback = complete_callback
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .clone();
 
             // Store closure to keep it alive (will be dropped on cleanup)
             *complete_listener_closure_storage.borrow_mut() = Some(complete_callback);
@@ -745,14 +794,14 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             );
 
             let file_path = source.file_path.clone();
-            
+
             // Check cache first
             if let Some(cached_url) = url_cache.get(&file_path) {
                 selected_source.set(Some(source));
                 asset_url.set(Some(cached_url.clone()));
                 return;
             }
-            
+
             // Not in cache, prepare media
             let selected_source = selected_source.clone();
             let asset_url = asset_url.clone();
@@ -760,23 +809,25 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let is_loading_media = is_loading_media.clone();
             let url_cache = url_cache.clone();
             let source_clone = source.clone();
-            
+
             is_loading_media.set(true);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 // Call prepare_media to get cached path
                 let args = serde_wasm_bindgen::to_value(&json!({ "path": file_path })).unwrap();
                 match tauri_invoke("prepare_media", args).await {
                     result => {
-                        if let Ok(prepared) = serde_wasm_bindgen::from_value::<PreparedMedia>(result) {
+                        if let Ok(prepared) =
+                            serde_wasm_bindgen::from_value::<PreparedMedia>(result)
+                        {
                             // Convert cached path to asset:// URL
                             let asset_url_str = app_convert_file_src(&prepared.cached_abs_path);
-                            
+
                             // Store in cache
                             let mut cache = (*url_cache).clone();
                             cache.insert(file_path, asset_url_str.clone());
                             url_cache.set(cache);
-                            
+
                             // Update state
                             selected_source.set(Some(source_clone));
                             asset_url.set(Some(asset_url_str));
@@ -820,15 +871,21 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 "end_time": end_time
                             }
                         }
-                    })).unwrap();
+                    }))
+                    .unwrap();
 
                     match tauri_invoke("cut_video", args).await {
                         result => {
                             is_cutting.set(false);
                             if serde_wasm_bindgen::from_value::<VideoCut>(result.clone()).is_ok() {
                                 // Refresh cuts list
-                                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                                let args = serde_wasm_bindgen::to_value(
+                                    &json!({ "projectId": project_id }),
+                                )
+                                .unwrap();
+                                if let Ok(cuts) = serde_wasm_bindgen::from_value(
+                                    tauri_invoke("get_project_cuts", args).await,
+                                ) {
                                     video_cuts.set(cuts);
                                 }
                             } else {
@@ -871,15 +928,21 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 "custom_filter": custom_filter
                             }
                         }
-                    })).unwrap();
+                    }))
+                    .unwrap();
 
                     match tauri_invoke("preprocess_video", args).await {
                         result => {
                             is_preprocessing.set(false);
                             if serde_wasm_bindgen::from_value::<VideoCut>(result.clone()).is_ok() {
                                 // Refresh cuts list
-                                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                                let args = serde_wasm_bindgen::to_value(
+                                    &json!({ "projectId": project_id }),
+                                )
+                                .unwrap();
+                                if let Ok(cuts) = serde_wasm_bindgen::from_value(
+                                    tauri_invoke("get_project_cuts", args).await,
+                                ) {
                                     video_cuts.set(cuts);
                                 }
                             } else {
@@ -915,15 +978,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         "cut_id": cut_id,
                         "file_path": file_path
                     }
-                })).unwrap();
+                }))
+                .unwrap();
                 let _ = tauri_invoke("delete_cut", args).await;
 
                 // Clear selection if deleted cut was selected
-                if selected_cut.as_ref().map(|s| s.id == cut_id).unwrap_or(false) {
+                if selected_cut
+                    .as_ref()
+                    .map(|s| s.id == cut_id)
+                    .unwrap_or(false)
+                {
                     selected_cut.set(None);
                 }
 
-                let tab_id = tab_id_for_resource(&ResourceRef::VideoCut { cut_id: cut_id.clone() });
+                let tab_id = tab_id_for_resource(&ResourceRef::VideoCut {
+                    cut_id: cut_id.clone(),
+                });
                 let mut tabs = (*open_tabs).clone();
                 let original_len = tabs.len();
                 tabs.retain(|tab| tab.id != tab_id);
@@ -935,8 +1005,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
 
                 // Refresh
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
                     video_cuts.set(cuts);
                 }
             });
@@ -953,8 +1026,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let project_id = (*project_id).clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
                     video_cuts.set(cuts);
                 }
             });
@@ -988,15 +1064,22 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         "source_id": source_id.clone(),
                         "file_path": file_path
                     }
-                })).unwrap();
+                }))
+                .unwrap();
                 let _ = tauri_invoke("delete_source_file", args).await;
 
                 // Clear selection if deleted source was selected
-                if selected_source.as_ref().map(|s| s.id == source_id).unwrap_or(false) {
+                if selected_source
+                    .as_ref()
+                    .map(|s| s.id == source_id)
+                    .unwrap_or(false)
+                {
                     selected_source.set(None);
                 }
 
-                let tab_id = tab_id_for_resource(&ResourceRef::SourceFile { source_id: source_id.clone() });
+                let tab_id = tab_id_for_resource(&ResourceRef::SourceFile {
+                    source_id: source_id.clone(),
+                });
                 let mut tabs = (*open_tabs).clone();
                 let original_len = tabs.len();
                 tabs.retain(|tab| tab.id != tab_id);
@@ -1008,20 +1091,29 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
 
                 // Refresh source files
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
+                {
                     source_files.set(sources);
                 }
 
                 // Refresh frame directories (in case associated conversions were deleted)
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
                     frame_directories.set(frames);
                 }
 
                 // Refresh cuts (in case associated cuts were deleted)
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
                     video_cuts.set(cuts);
                 }
             });
@@ -1047,11 +1139,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 let args = serde_wasm_bindgen::to_value(&json!({
                     "directoryPath": directory_path.clone()
-                })).unwrap();
+                }))
+                .unwrap();
                 let _ = tauri_invoke("delete_frame_directory", args).await;
 
                 // Clear selection if deleted frame dir was selected
-                if selected_frame_dir.as_ref().map(|s| s.directory_path == directory_path).unwrap_or(false) {
+                if selected_frame_dir
+                    .as_ref()
+                    .map(|s| s.directory_path == directory_path)
+                    .unwrap_or(false)
+                {
                     selected_frame_dir.set(None);
                 }
 
@@ -1069,8 +1166,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
 
                 // Refresh frame directories
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
                     frame_directories.set(frames);
                 }
             });
@@ -1102,14 +1202,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             "startIndex": start_index,
                             "endIndex": end_index
                         }
-                    })).unwrap();
+                    }))
+                    .unwrap();
 
                     match tauri_invoke("cut_frames", args).await {
                         result => {
                             match serde_wasm_bindgen::from_value::<String>(result) {
                                 Ok(msg) => {
-                                    web_sys::console::log_1(&format!("✅ Frames cut successfully: {}", msg).into());
-                                    
+                                    web_sys::console::log_1(
+                                        &format!("✅ Frames cut successfully: {}", msg).into(),
+                                    );
+
                                     // Parse folder path from message
                                     if let Some(start) = msg.find("saved to: ") {
                                         let after_prefix = &msg[start + 10..];
@@ -1121,13 +1224,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     conversion_message.set(Some(msg));
 
                                     // Refresh frame directories
-                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                    if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                    let args = serde_wasm_bindgen::to_value(
+                                        &json!({ "projectId": project_id }),
+                                    )
+                                    .unwrap();
+                                    if let Ok(frames) = serde_wasm_bindgen::from_value(
+                                        tauri_invoke("get_project_frames", args).await,
+                                    ) {
                                         frame_directories.set(frames);
                                     }
                                 }
                                 Err(e) => {
-                                    web_sys::console::log_1(&format!("❌ Failed to cut frames: {:?}", e).into());
+                                    web_sys::console::log_1(
+                                        &format!("❌ Failed to cut frames: {:?}", e).into(),
+                                    );
                                     error_message.set(Some("Failed to cut frames.".to_string()));
                                 }
                             }
@@ -1147,31 +1257,34 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let conversion_success_folder = conversion_success_folder.clone();
         let error_message = error_message.clone();
 
-        Callback::from(move |(top, bottom, left, right): (usize, usize, usize, usize)| {
-            if let Some(frame_dir) = &*selected_frame_dir {
-                let folder_path = frame_dir.directory_path.clone();
-                let project_id = (*project_id).clone();
-                let frame_directories = frame_directories.clone();
-                let conversion_message = conversion_message.clone();
-                let conversion_success_folder = conversion_success_folder.clone();
-                let error_message = error_message.clone();
+        Callback::from(
+            move |(top, bottom, left, right): (usize, usize, usize, usize)| {
+                if let Some(frame_dir) = &*selected_frame_dir {
+                    let folder_path = frame_dir.directory_path.clone();
+                    let project_id = (*project_id).clone();
+                    let frame_directories = frame_directories.clone();
+                    let conversion_message = conversion_message.clone();
+                    let conversion_success_folder = conversion_success_folder.clone();
+                    let error_message = error_message.clone();
 
-                wasm_bindgen_futures::spawn_local(async move {
-                    let args = serde_wasm_bindgen::to_value(&json!({
-                        "request": {
-                            "folderPath": folder_path,
-                            "top": top,
-                            "bottom": bottom,
-                            "left": left,
-                            "right": right
-                        }
-                    })).unwrap();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let args = serde_wasm_bindgen::to_value(&json!({
+                            "request": {
+                                "folderPath": folder_path,
+                                "top": top,
+                                "bottom": bottom,
+                                "left": left,
+                                "right": right
+                            }
+                        }))
+                        .unwrap();
 
-                    match tauri_invoke("crop_frames", args).await {
-                        result => {
-                            match serde_wasm_bindgen::from_value::<String>(result) {
+                        match tauri_invoke("crop_frames", args).await {
+                            result => match serde_wasm_bindgen::from_value::<String>(result) {
                                 Ok(msg) => {
-                                    web_sys::console::log_1(&format!("✅ Frames cropped successfully: {}", msg).into());
+                                    web_sys::console::log_1(
+                                        &format!("✅ Frames cropped successfully: {}", msg).into(),
+                                    );
 
                                     if let Some(start) = msg.find("saved to: ") {
                                         let after_prefix = &msg[start + 10..];
@@ -1182,21 +1295,28 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     }
                                     conversion_message.set(Some(msg));
 
-                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                                    if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                    let args = serde_wasm_bindgen::to_value(
+                                        &json!({ "projectId": project_id }),
+                                    )
+                                    .unwrap();
+                                    if let Ok(frames) = serde_wasm_bindgen::from_value(
+                                        tauri_invoke("get_project_frames", args).await,
+                                    ) {
                                         frame_directories.set(frames);
                                     }
                                 }
                                 Err(e) => {
-                                    web_sys::console::log_1(&format!("❌ Failed to crop frames: {:?}", e).into());
+                                    web_sys::console::log_1(
+                                        &format!("❌ Failed to crop frames: {:?}", e).into(),
+                                    );
                                     error_message.set(Some("Failed to crop frames.".to_string()));
                                 }
-                            }
+                            },
                         }
-                    }
-                });
-            }
-        })
+                    });
+                }
+            },
+        )
     };
 
     // Callback to handle preview creation from VideoPlayer
@@ -1214,8 +1334,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let project_id = (*project_id).clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(new_previews) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
                     // Find and select the newly created preview (it should be first since sorted by creation_date DESC)
                     if let Some(new_preview) = new_previews.first().cloned() {
                         selected_preview.set(Some(new_preview));
@@ -1251,11 +1374,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         "preview_id": preview_id.clone(),
                         "folder_path": folder_path
                     }
-                })).unwrap();
+                }))
+                .unwrap();
                 let _ = tauri_invoke("delete_preview", args).await;
 
                 // Clear selection if deleted preview was selected
-                if selected_preview.as_ref().map(|p| p.id == preview_id).unwrap_or(false) {
+                if selected_preview
+                    .as_ref()
+                    .map(|p| p.id == preview_id)
+                    .unwrap_or(false)
+                {
                     selected_preview.set(None);
                 }
 
@@ -1273,26 +1401,32 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
 
                 // Refresh previews
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(new_previews) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await)
+                {
                     previews.set(new_previews);
                 }
             });
         })
     };
 
-    // Callback to rename a preview
-    let _on_rename_preview = {
+    // Explorer sidebar: rename preview (refresh list)
+    let on_rename_preview_explorer = {
         let previews = previews.clone();
         let project_id = project_id.clone();
 
-        Callback::from(move |(_preview_id, _new_name): (String, String)| {
+        Callback::from(move |_preview: Preview| {
             let previews = previews.clone();
             let project_id = (*project_id).clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(new_previews) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(new_previews) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await)
+                {
                     previews.set(new_previews);
                 }
             });
@@ -1331,13 +1465,21 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let frame_speed = frame_speed.clone();
             let current_conversion_id = current_conversion_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
                 match tauri_invoke("get_conversion_by_folder_path", args).await {
                     result => {
-                        if let Ok(Some(conversion)) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
-                            let conversion_id = conversion.get("id").and_then(|id| id.as_str()).map(|s| s.to_string());
+                        if let Ok(Some(conversion)) =
+                            serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result)
+                        {
+                            let conversion_id = conversion
+                                .get("id")
+                                .and_then(|id| id.as_str())
+                                .map(|s| s.to_string());
                             if let Some(settings) = conversion.get("settings") {
-                                if let Ok(conv_settings) = serde_json::from_value::<ConversionSettings>(settings.clone()) {
+                                if let Ok(conv_settings) =
+                                    serde_json::from_value::<ConversionSettings>(settings.clone())
+                                {
                                     frame_speed.set(Some(conv_settings.frame_speed));
                                     selected_frame_settings.set(Some(conv_settings));
                                     current_conversion_id.set(conversion_id);
@@ -1429,7 +1571,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let args = serde_wasm_bindgen::to_value(&json!({ "path": file_path })).unwrap();
                 match tauri_invoke("prepare_media", args).await {
                     result => {
-                        if let Ok(prepared) = serde_wasm_bindgen::from_value::<PreparedMedia>(result) {
+                        if let Ok(prepared) =
+                            serde_wasm_bindgen::from_value::<PreparedMedia>(result)
+                        {
                             let asset_url_str = app_convert_file_src(&prepared.cached_abs_path);
                             let mut cache = (*url_cache).clone();
                             cache.insert(cut.file_path.clone(), asset_url_str.clone());
@@ -1463,8 +1607,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let source_files = source_files.clone();
             let project_id = (*project_id).clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(s) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
+                {
                     source_files.set(s);
                 }
             });
@@ -1479,8 +1626,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let frame_directories = frame_directories.clone();
             let project_id = (*project_id).clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
                     frame_directories.set(frames);
                 }
             });
@@ -1550,59 +1700,85 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 error_message.set(None);
                 match tauri_invoke("pick_files", JsValue::NULL).await {
-                    result => {
-                        match serde_wasm_bindgen::from_value::<Vec<String>>(result) {
-                            Ok(file_paths) => {
-                                if !file_paths.is_empty() {
-                                    let mut initial_map = HashMap::new();
-                                    for file_path in file_paths.iter() {
-                                        let file_name = std::path::Path::new(file_path)
-                                            .file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-                                        initial_map.insert(file_name.clone(), FileProgress {
-                                            file_name, status: "pending".to_string(), message: "Waiting...".to_string(), percentage: None,
-                                        });
-                                    }
-                                    file_progress_map.set(initial_map);
-                                    is_adding_files.set(true);
-                                    let file_progress_map_clone = file_progress_map.clone();
-                                    let callback: Closure<dyn Fn(JsValue)> = Closure::new(move |event: JsValue| {
-                                        if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
-                                            if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
+                    result => match serde_wasm_bindgen::from_value::<Vec<String>>(result) {
+                        Ok(file_paths) => {
+                            if !file_paths.is_empty() {
+                                let mut initial_map = HashMap::new();
+                                for file_path in file_paths.iter() {
+                                    let file_name = std::path::Path::new(file_path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("unknown")
+                                        .to_string();
+                                    initial_map.insert(
+                                        file_name.clone(),
+                                        FileProgress {
+                                            file_name,
+                                            status: "pending".to_string(),
+                                            message: "Waiting...".to_string(),
+                                            percentage: None,
+                                        },
+                                    );
+                                }
+                                file_progress_map.set(initial_map);
+                                is_adding_files.set(true);
+                                let file_progress_map_clone = file_progress_map.clone();
+                                let callback: Closure<dyn Fn(JsValue)> =
+                                    Closure::new(move |event: JsValue| {
+                                        if let Ok(payload) =
+                                            js_sys::Reflect::get(&event, &"payload".into())
+                                        {
+                                            if let Ok(progress) =
+                                                serde_wasm_bindgen::from_value::<FileProgress>(
+                                                    payload,
+                                                )
+                                            {
                                                 let mut map = (*file_progress_map_clone).clone();
                                                 map.insert(progress.file_name.clone(), progress);
                                                 file_progress_map_clone.set(map);
                                             }
                                         }
                                     });
-                                    let unlisten_handle = tauri_listen("file-progress", callback.as_ref().unchecked_ref()).await;
-                                    if !project_id.is_empty() {
-                                        let invoke_args = AddSourceFilesArgs {
-                                            request: AddSourceFilesRequest {
-                                                project_id: (*project_id).to_string(),
-                                                file_paths,
-                                            }
-                                        };
-                                        let add_files_args = serde_wasm_bindgen::to_value(&json!({ "args": invoke_args })).unwrap();
-                                        let _ = tauri_invoke("add_source_files", add_files_args).await;
-                                        tauri_unlisten(unlisten_handle).await;
-                                        drop(callback);
-                                        is_adding_files.set(false);
-                                        let args = serde_wasm_bindgen::to_value(&json!({ "projectId": *project_id })).unwrap();
-                                        if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
-                                            source_files.set(s);
-                                        }
-                                    } else {
-                                        tauri_unlisten(unlisten_handle).await;
-                                        drop(callback);
-                                        is_adding_files.set(false);
+                                let unlisten_handle = tauri_listen(
+                                    "file-progress",
+                                    callback.as_ref().unchecked_ref(),
+                                )
+                                .await;
+                                if !project_id.is_empty() {
+                                    let invoke_args = AddSourceFilesArgs {
+                                        request: AddSourceFilesRequest {
+                                            project_id: (*project_id).to_string(),
+                                            file_paths,
+                                        },
+                                    };
+                                    let add_files_args = serde_wasm_bindgen::to_value(
+                                        &json!({ "args": invoke_args }),
+                                    )
+                                    .unwrap();
+                                    let _ = tauri_invoke("add_source_files", add_files_args).await;
+                                    tauri_unlisten(unlisten_handle).await;
+                                    drop(callback);
+                                    is_adding_files.set(false);
+                                    let args = serde_wasm_bindgen::to_value(
+                                        &json!({ "projectId": *project_id }),
+                                    )
+                                    .unwrap();
+                                    if let Ok(s) = serde_wasm_bindgen::from_value(
+                                        tauri_invoke("get_project_sources", args).await,
+                                    ) {
+                                        source_files.set(s);
                                     }
+                                } else {
+                                    tauri_unlisten(unlisten_handle).await;
+                                    drop(callback);
+                                    is_adding_files.set(false);
                                 }
                             }
-                            Err(_) => {
-                                error_message.set(Some("Failed to pick files.".to_string()));
-                            }
                         }
-                    }
+                        Err(_) => {
+                            error_message.set(Some("Failed to pick files.".to_string()));
+                        }
+                    },
                 }
             });
         })
@@ -1618,7 +1794,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 "explorer" => state.explorer_expanded = !state.explorer_expanded,
                 "controls" => state.controls_expanded = !state.controls_expanded,
                 "res:source_files" => state.source_files_expanded = !state.source_files_expanded,
-                "res:original_files" => state.original_files_expanded = !state.original_files_expanded,
+                "res:original_files" => {
+                    state.original_files_expanded = !state.original_files_expanded
+                }
                 "res:cuts" => state.cuts_expanded = !state.cuts_expanded,
                 "res:frames" => state.frames_expanded = !state.frames_expanded,
                 "res:source_frames" => state.source_frames_expanded = !state.source_frames_expanded,
@@ -1644,7 +1822,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         "project_id": project_id,
                         "layout_json": layout_json
                     }
-                })).unwrap();
+                }))
+                .unwrap();
                 let _ = tauri_invoke("save_explorer_layout", args).await;
             });
         })
@@ -1663,12 +1842,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let on_select_preview_explorer = on_select_preview_explorer.clone();
 
         Callback::from(move |tab_id: String| {
-            active_tab_id.set(Some(tab_id.clone()));
+            if (*active_tab_id).as_deref() != Some(tab_id.as_str()) {
+                active_tab_id.set(Some(tab_id.clone()));
+            }
 
             if let Some(tab) = open_tabs.iter().find(|t| t.id == tab_id).cloned() {
                 match tab.resource {
                     ResourceRef::SourceFile { source_id } => {
-                        if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
+                        if let Some(source) =
+                            source_files.iter().find(|s| s.id == source_id).cloned()
+                        {
                             on_select_source.emit(source);
                         }
                     }
@@ -1687,7 +1870,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }
                     }
                     ResourceRef::Preview { preview_id } => {
-                        if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
+                        if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned()
+                        {
                             on_select_preview_explorer.emit(preview);
                         }
                     }
@@ -1746,7 +1930,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 if let Some(tab) = updated_tabs.iter().find(|t| t.id == next_id).cloned() {
                     match tab.resource {
                         ResourceRef::SourceFile { source_id } => {
-                            if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
+                            if let Some(source) =
+                                source_files.iter().find(|s| s.id == source_id).cloned()
+                            {
                                 on_select_source.emit(source);
                             }
                         }
@@ -1765,7 +1951,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             }
                         }
                         ResourceRef::Preview { preview_id } => {
-                            if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
+                            if let Some(preview) =
+                                previews.iter().find(|p| p.id == preview_id).cloned()
+                            {
                                 on_select_preview_explorer.emit(preview);
                             }
                         }
@@ -1781,6 +1969,31 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    let on_reorder_tabs = {
+        let open_tabs = open_tabs.clone();
+        Callback::from(move |ordered_ids: Vec<String>| {
+            let current_tabs = (*open_tabs).clone();
+            if ordered_ids.len() != current_tabs.len() {
+                return;
+            }
+
+            let mut reordered_tabs = Vec::with_capacity(current_tabs.len());
+            for id in &ordered_ids {
+                if let Some(tab) = current_tabs.iter().find(|tab| &tab.id == id) {
+                    reordered_tabs.push(tab.clone());
+                }
+            }
+
+            if reordered_tabs.len() != current_tabs.len() {
+                return;
+            }
+
+            if reordered_tabs != current_tabs {
+                open_tabs.set(reordered_tabs);
+            }
+        })
+    };
+
     // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
     let _trigger = *conversions_update_trigger;
@@ -1789,7 +2002,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         if !conversions.is_empty() {
             // Helper to look up source name by ID
             let get_source_name = |source_id: &str| -> String {
-                source_files.iter()
+                source_files
+                    .iter()
                     .find(|s| s.id == source_id)
                     .map(|s| {
                         s.custom_name.clone().unwrap_or_else(|| {
@@ -1822,30 +2036,30 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     };
 
     let source_preview_label = selected_source.as_ref().map(|source| {
-        let base_name = source
+        let source_name = source
             .custom_name
             .clone()
             .unwrap_or_else(|| file_name_from_path(&source.file_path));
-        format!("SOURCE VIDEO: {}", without_extension(&base_name))
+        format!("SOURCE VIDEO: {}", without_extension(&source_name))
     });
 
-    let frames_preview_label = if let Some(frame_dir) = &*selected_frame_dir {
-        Some(format!("FRAMES: {}", without_extension(&frame_dir.name)))
-    } else if let Some(preview) = &*selected_preview {
+    let frames_preview_label = if let Some(preview) = &*selected_preview {
         let name = preview
             .custom_name
             .clone()
             .unwrap_or_else(|| preview.folder_name.clone());
-        Some(format!("FRAMES: {}", without_extension(&name)))
+        Some(format!("FRAMES: {}", name))
+    } else if let Some(frame_dir) = &*selected_frame_dir {
+        Some(format!("FRAMES: {}", frame_dir.name))
     } else {
         None
     };
 
     html! {
-        <div class="container project-page">
-            <div class="project-layout">
-                <div class="explorer-sidebar">
-                    <div class="explorer-sidebar__scroll-area">
+        <div id="project-page" class="container project-page">
+            <div id="project-layout" class="project-layout">
+                <div id="project-explorer-sidebar" class="explorer-sidebar">
+                    <div id="project-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree
                             source_files={(*source_files).clone()}
                             video_cuts={(*video_cuts).clone()}
@@ -1865,6 +2079,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_rename_source={on_rename_source_explorer.clone()}
                             on_rename_frame={on_rename_frame_explorer.clone()}
                             on_rename_cut={on_rename_cut_explorer.clone()}
+                            on_rename_preview={on_rename_preview_explorer.clone()}
                             on_open_source={on_open_source_explorer.clone()}
                             on_open_frame={on_open_frame_explorer.clone()}
                             on_open_cut={on_open_cut_explorer.clone()}
@@ -1894,10 +2109,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                         // Conversion success notification
                         if let Some(folder_path) = &*conversion_success_folder {
-                            <div class="conversion-notification" style="z-index: 1000;">
+                            <div id="project-conversion-notification" class="conversion-notification" style="z-index: 1000;">
                                 <span class="conversion-notification-text">{"ASCII frames generated"}</span>
                                 <div class="conversion-notification-actions">
                                     <button
+                                        id="project-conversion-open-btn"
                                         class="nav-btn"
                                         type="button"
                                         title="Open folder"
@@ -1916,6 +2132,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         <yew_icons::Icon icon_id={yew_icons::IconId::LucideFolderOpen} width={"16"} height={"16"} />
                                     </button>
                                     <button
+                                        id="project-conversion-dismiss-btn"
                                         class="nav-btn"
                                         type="button"
                                         title="Dismiss"
@@ -1936,7 +2153,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         }
 
                     </div>
-                    <div class="explorer-sidebar__bottom">
+                    <div id="project-sidebar-bottom" class="explorer-sidebar__bottom">
                         // Controls as a collapsible section (like Outline in VS Code)
                         <Controls
                             selected_source={(*selected_source).clone()}
@@ -2006,15 +2223,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     </div>
                 </div>
 
-                <div class="main-content">
+                <div id="project-main-content" class="main-content">
                     if let Some(error) = &*error_message {
-                        <div class="alert alert-error">{error}</div>
+                        <div id="project-error-alert" class="alert alert-error">{error}</div>
                     }
 
                     if *is_adding_files && !file_progress_map.is_empty() {
-                        <div class="progress-container">
+                        <div id="project-add-files-progress" class="progress-container">
                             <h3>{"Adding Files"}</h3>
-                            <div class="progress-list">
+                            <div id="project-add-files-list" class="progress-list">
                                 {
                                     file_progress_map.iter().map(|(file_name, progress)| {
                                         let status_class = match progress.status.as_str() {
@@ -2058,25 +2275,26 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             active_tab_id={(*active_tab_id).clone()}
                             on_select_tab={on_select_tab.clone()}
                             on_close_tab={on_close_tab.clone()}
+                            on_reorder_tabs={on_reorder_tabs.clone()}
                         />
                     }
 
-                    <div class="preview-container" ref={preview_container_ref.clone()}>
-                        <div class="preview-column">
+                    <div id="project-preview-container" class="preview-container" ref={preview_container_ref.clone()}>
+                        <div id="project-source-column" class="preview-column">
                             if let Some(label) = &source_preview_label {
-                                <div class="preview-label">{label.clone()}</div>
+                                <div id="project-source-label" class="preview-label">{label.clone()}</div>
                             }
-                            <div class="square">
+                            <div id="project-source-square" class="square">
                                 {
                                     if *is_loading_media {
-                                        html! { <div class="loading">{"Loading media..."}</div> }
+                                        html! { <div id="project-source-loading" class="loading">{"Loading media..."}</div> }
                                     } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
                                         if source.content_type == ContentType::Image {
                                             html! {
                                                 <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
                                             }
                                         } else if source.content_type == ContentType::Video {
-                                            html! { 
+                                            html! {
                                                 <VideoPlayer
                                                 src={url.clone()}
                                                 class={classes!("source-video")}
@@ -2092,26 +2310,92 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let selected_speed = selected_speed.clone();
                                                     let selected_frame_dir = selected_frame_dir.clone();
                                                     let is_playing = is_playing.clone();
+                                                    let playback_sync_limiter = playback_sync_limiter.clone();
                                                     Callback::from(move |progress: f64| {
-                                                        synced_progress.set(progress * 100.0);
-                                                        if *is_playing
-                                                            && *selected_speed == crate::components::ascii_frames_viewer::SpeedSelection::Base
-                                                            && selected_frame_dir.is_some()
+                                                        let clamped_progress = progress.clamp(0.0, 1.0);
+                                                        let progress_percent = clamped_progress * 100.0;
+                                                        let now = js_sys::Date::now();
+
+                                                        let mut next_progress = None::<f64>;
+                                                        let mut next_frame_sync = None::<f64>;
+
                                                         {
-                                                            frames_sync_seek_percentage.set(Some(progress));
+                                                            let mut limiter = playback_sync_limiter.borrow_mut();
+
+                                                            let should_emit_progress = limiter
+                                                                .last_progress_percent
+                                                                .map(|last| {
+                                                                    (progress_percent - last).abs()
+                                                                        >= UI_PROGRESS_MIN_DELTA_PERCENT
+                                                                        || now - limiter.last_progress_emit_ms
+                                                                            >= UI_PROGRESS_MIN_INTERVAL_MS
+                                                                        || clamped_progress <= 0.0
+                                                                        || clamped_progress >= 1.0
+                                                                })
+                                                                .unwrap_or(true);
+
+                                                            if should_emit_progress {
+                                                                limiter.last_progress_emit_ms = now;
+                                                                limiter.last_progress_percent = Some(progress_percent);
+                                                                next_progress = Some(progress_percent);
+                                                            }
+
+                                                            let should_sync_frames = *is_playing
+                                                                && *selected_speed
+                                                                    == crate::components::ascii_frames_viewer::SpeedSelection::Base
+                                                                && selected_frame_dir.is_some();
+
+                                                            if should_sync_frames {
+                                                                let should_emit_frame_sync = limiter
+                                                                    .last_frame_sync_value
+                                                                    .map(|last| {
+                                                                        (clamped_progress - last).abs()
+                                                                            >= FRAME_SYNC_MIN_DELTA
+                                                                            || now - limiter.last_frame_sync_emit_ms
+                                                                                >= FRAME_SYNC_MIN_INTERVAL_MS
+                                                                            || clamped_progress <= 0.0
+                                                                            || clamped_progress >= 1.0
+                                                                    })
+                                                                    .unwrap_or(true);
+
+                                                                if should_emit_frame_sync {
+                                                                    limiter.last_frame_sync_emit_ms = now;
+                                                                    limiter.last_frame_sync_value = Some(clamped_progress);
+                                                                    next_frame_sync = Some(clamped_progress);
+                                                                }
+                                                            }
+                                                        }
+
+                                                        if let Some(next) = next_progress {
+                                                            if (*synced_progress - next).abs() > f64::EPSILON {
+                                                                synced_progress.set(next);
+                                                            }
+                                                        }
+
+                                                        if let Some(next) = next_frame_sync {
+                                                            let should_set = frames_sync_seek_percentage
+                                                                .as_ref()
+                                                                .map(|current| {
+                                                                    (*current - next).abs()
+                                                                        >= FRAME_SYNC_MIN_DELTA
+                                                                })
+                                                                .unwrap_or(true);
+                                                            if should_set {
+                                                                frames_sync_seek_percentage.set(Some(next));
+                                                            }
                                                         }
                                                     })
                                                 }}
-                                            
+
                                                 project_id={Some((*project_id).clone())}
                                                 source_file_id={Some(source.id.clone())}
                                                 source_file_path={Some(source.file_path.clone())}
-                                            
+
                                                 luminance={*luminance}
                                                 font_ratio={*font_ratio}
                                                 columns={*columns}
                                                 fps={*fps}
-                                            
+
                                                 on_luminance_change={Some({
                                                     let luminance = luminance.clone();
                                                     Callback::from(move |v: u8| luminance.set(v))
@@ -2128,7 +2412,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                     let fps = fps.clone();
                                                     Callback::from(move |v: u32| fps.set(v))
                                                 })}
-                                            
+
                                                 is_converting={Some(active_conversions_ref.borrow().contains_key(&source.id))}
                                                 on_conversion_start={Some({
                                                     let active_conversions_ref = active_conversions_ref.clone();
@@ -2208,17 +2492,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             html! { <span>{"Unsupported file type"}</span> }
                                         }
                                     } else {
-                                        html! { <span>{"Select a source file to preview"}</span> }
+                                        html! { <span id="project-source-empty">{"Select a source file to preview"}</span> }
                                     }
                                 }
                             </div>
                         </div>
-                        
-                        <div class="preview-column">
+
+                        <div id="project-frames-column" class="preview-column">
                             if let Some(label) = &frames_preview_label {
-                                <div class="preview-label">{label.clone()}</div>
+                                <div id="project-frames-label" class="preview-label">{label.clone()}</div>
                             }
-                            <div class="square">
+                            <div id="project-frames-square" class="square">
                                 {
                                     // Show selected preview if any
                                     if let Some(preview) = &*selected_preview {
@@ -2250,7 +2534,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             />
                                         }
                                     } else if frame_directories.is_empty() && previews.is_empty() {
-                                        html! { <span>{"No frames generated yet"}</span> }
+                                        html! { <span id="project-frames-none">{"No frames generated yet"}</span> }
                                     } else if let Some(frame_dir) = &*selected_frame_dir {
                                         html! {
                                             <AsciiFramesViewer
@@ -2320,7 +2604,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                             />
                                         }
                                     } else {
-                                        html! { <span>{"Select a frame directory or preview"}</span> }
+                                        html! { <span id="project-frames-empty">{"Select a frame directory or preview"}</span> }
                                     }
                                 }
                             </div>

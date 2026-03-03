@@ -21,6 +21,7 @@
 }
 
 .tab {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -36,6 +37,35 @@
     background: #1f1f1f;
     user-select: none;
     box-sizing: border-box;
+    cursor: grab;
+}
+
+.tab:active {
+    cursor: grabbing;
+}
+
+.tab--dragging {
+    opacity: 0.55;
+}
+
+.tab--drop-before::before,
+.tab--drop-after::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: #007acc;
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.tab--drop-before::before {
+    left: 0;
+}
+
+.tab--drop-after::after {
+    right: 0;
 }
 
 .tab:hover:not(.tab--active) {

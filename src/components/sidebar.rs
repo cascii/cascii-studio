@@ -27,11 +27,11 @@ pub fn sidebar(props: &SidebarProps) -> Html {
 
     html! {
         <aside id="sidebar" class="sidebar">
-            <div class="sidebar__drag-region" data-tauri-drag-region="" aria-hidden="true"></div>
-            <div class="sidebar__center-title" data-tauri-drag-region="" title={props.context_label.clone()}>
-                <span class="sidebar__center-title-text">{props.context_label.clone()}</span>
+            <div id="sidebar-drag-region" class="sidebar__drag-region" data-tauri-drag-region="" aria-hidden="true"></div>
+            <div id="sidebar-center-title" class="sidebar__center-title" data-tauri-drag-region="" title={props.context_label.clone()}>
+                <span id="sidebar-center-title-text" class="sidebar__center-title-text">{props.context_label.clone()}</span>
             </div>
-            <nav class="sidebar__actions" aria-label="Primary Navigation">
+            <nav id="sidebar-actions" class="sidebar__actions" aria-label="Primary Navigation">
                 if props.has_active_project {
                     if props.current_page == "montage" {
                         <button id="sidebar-montage-btn" class={get_btn_class("montage", &props.current_page)} title="Montage" type="button" onclick={nav("montage")}>

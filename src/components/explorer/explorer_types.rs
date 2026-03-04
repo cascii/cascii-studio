@@ -40,7 +40,12 @@ impl TreeNode {
     }
 
     pub fn is_user_folder(&self) -> bool {
-        matches!(self.node_kind, NodeKind::Folder { is_user_created: true })
+        matches!(
+            self.node_kind,
+            NodeKind::Folder {
+                is_user_created: true
+            }
+        )
     }
 }
 

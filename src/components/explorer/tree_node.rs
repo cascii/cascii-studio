@@ -1,7 +1,8 @@
+use web_sys::DragEvent;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
 
-use super::explorer_types::{TreeNode, TreeNodeId, NodeKind, ResourceRef};
+use super::explorer_types::{NodeKind, ResourceRef, TreeNode, TreeNodeId};
 
 #[derive(Properties, PartialEq)]
 pub struct TreeNodeProps {
@@ -17,6 +18,24 @@ pub struct TreeNodeProps {
     pub on_rename_input: Option<Callback<(TreeNodeId, String)>>,
     #[prop_or_default]
     pub rename_value: Option<String>,
+    #[prop_or_default]
+    pub current_folder_id: Option<TreeNodeId>,
+    #[prop_or_default]
+    pub on_mouse_down: Option<Callback<TreeNodeId>>,
+    #[prop_or_default]
+    pub on_drag_start: Option<Callback<(TreeNodeId, DragEvent)>>,
+    #[prop_or_default]
+    pub on_drag_end: Option<Callback<()>>,
+    #[prop_or_default]
+    pub on_drag: Option<Callback<(TreeNodeId, DragEvent)>>,
+    #[prop_or_default]
+    pub on_drag_over: Option<Callback<(TreeNodeId, DragEvent)>>,
+    #[prop_or_default]
+    pub on_drag_leave: Option<Callback<TreeNodeId>>,
+    #[prop_or_default]
+    pub on_drop: Option<Callback<(TreeNodeId, DragEvent)>>,
+    #[prop_or_default]
+    pub drop_target_id: Option<TreeNodeId>,
 }
 
 /// Choose an icon based on the node kind.
@@ -82,6 +101,12 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
     let row_class = classes!(
         "tree-node",
         node.is_selected.then_some("tree-node--selected"),
+        props
+            .drop_target_id
+            .as_ref()
+            .map(|id| id.0 == node.id.0)
+            .unwrap_or(false)
+            .then_some("tree-node--drop-target"),
     );
 
     let icon_id = node_icon(node);
@@ -103,7 +128,10 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
 
     // Label or rename input
     let label_html = if node.is_rename_active {
-        let rename_val = props.rename_value.clone().unwrap_or_else(|| node.label.clone());
+        let rename_val = props
+            .rename_value
+            .clone()
+            .unwrap_or_else(|| node.label.clone());
         let node_id = node.id.clone();
         let node_id2 = node.id.clone();
         let on_rename_submit = props.on_rename_submit.clone();
@@ -166,6 +194,7 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
 
     // Render children recursively if expanded
     let children_html = if node.is_folder() && node.is_expanded {
+        let next_folder_id = Some(node.id.clone());
         html! {
             { for node.children.iter().map(|child| {
                 html! {
@@ -178,6 +207,15 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
                         on_rename_cancel={props.on_rename_cancel.clone()}
                         on_rename_input={props.on_rename_input.clone()}
                         rename_value={props.rename_value.clone()}
+                        current_folder_id={next_folder_id.clone()}
+                        on_mouse_down={props.on_mouse_down.clone()}
+                        on_drag_start={props.on_drag_start.clone()}
+                        on_drag_end={props.on_drag_end.clone()}
+                        on_drag={props.on_drag.clone()}
+                        on_drag_over={props.on_drag_over.clone()}
+                        on_drag_leave={props.on_drag_leave.clone()}
+                        on_drop={props.on_drop.clone()}
+                        drop_target_id={props.drop_target_id.clone()}
                     />
                 }
             })}
@@ -187,10 +225,100 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
     };
 
     let row_id = format!("tree-node-{}", node.id.0);
+    let is_draggable = props.on_drag_start.is_some() && matches!(node.node_kind, NodeKind::Leaf(_));
+
+    let on_drag_start = {
+        let id = node.id.clone();
+        let on_drag_start = props.on_drag_start.clone();
+        Callback::from(move |e: DragEvent| {
+            if let Some(ref cb) = on_drag_start {
+                cb.emit((id.clone(), e));
+            }
+        })
+    };
+
+    let on_drag_end = {
+        let on_drag_end = props.on_drag_end.clone();
+        Callback::from(move |_| {
+            if let Some(ref cb) = on_drag_end {
+                cb.emit(());
+            }
+        })
+    };
+
+    let on_drag = {
+        let id = node.id.clone();
+        let on_drag = props.on_drag.clone();
+        Callback::from(move |e: DragEvent| {
+            if let Some(ref cb) = on_drag {
+                cb.emit((id.clone(), e));
+            }
+        })
+    };
+
+    let on_drag_over = {
+        let id = node.id.clone();
+        let on_drag_over = props.on_drag_over.clone();
+        Callback::from(move |e: DragEvent| {
+            if let Some(ref cb) = on_drag_over {
+                cb.emit((id.clone(), e));
+            }
+        })
+    };
+
+    let on_drag_leave = {
+        let id = node.id.clone();
+        let on_drag_leave = props.on_drag_leave.clone();
+        Callback::from(move |_| {
+            if let Some(ref cb) = on_drag_leave {
+                cb.emit(id.clone());
+            }
+        })
+    };
+
+    let on_drop = {
+        let id = node.id.clone();
+        let on_drop = props.on_drop.clone();
+        Callback::from(move |e: DragEvent| {
+            if let Some(ref cb) = on_drop {
+                cb.emit((id.clone(), e));
+            }
+        })
+    };
+
+    let on_mouse_down = {
+        let id = node.id.clone();
+        let on_mouse_down = props.on_mouse_down.clone();
+        Callback::from(move |_| {
+            if let Some(ref cb) = on_mouse_down {
+                cb.emit(id.clone());
+            }
+        })
+    };
+
+    let drop_folder_id = if node.is_folder() {
+        node.id.0.clone()
+    } else {
+        props
+            .current_folder_id
+            .as_ref()
+            .map(|id| id.0.clone())
+            .unwrap_or_default()
+    };
 
     html! {
         <>
             <div id={row_id} class={row_class} onclick={on_row_click} oncontextmenu={on_ctx}
+                 data-node-id={node.id.0.clone()}
+                 data-drop-folder-id={drop_folder_id}
+                 draggable={if is_draggable { "true" } else { "false" }}
+                 onmousedown={on_mouse_down}
+                 ondragstart={on_drag_start}
+                 ondragend={on_drag_end}
+                 ondrag={on_drag}
+                 ondragover={on_drag_over}
+                 ondragleave={on_drag_leave}
+                 ondrop={on_drop}
                  style={format!("padding-left: {}px;", indent_px)}>
                 {chevron_html}
                 <span class="tree-node__icon">

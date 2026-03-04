@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use wasm_bindgen::prelude::*;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use yew_icons::{Icon, IconId};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 #[wasm_bindgen]
 extern "C" {
@@ -81,7 +81,8 @@ pub fn open_page(props: &OpenPageProps) -> Html {
             deleting_project_id.set(Some(project_id.clone()));
 
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id_clone })).unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id_clone }))
+                    .unwrap();
                 match invoke("delete_project", args).await {
                     result => {
                         if serde_wasm_bindgen::from_value::<()>(result).is_ok() {

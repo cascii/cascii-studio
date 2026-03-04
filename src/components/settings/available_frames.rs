@@ -1,9 +1,9 @@
+use crate::components::ascii_frames_viewer::ConversionSettings;
+use crate::pages::project::FrameDirectory;
+use serde_json::json;
+use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use crate::pages::project::FrameDirectory;
-use crate::components::ascii_frames_viewer::ConversionSettings;
-use wasm_bindgen::prelude::*;
-use serde_json::json;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -116,7 +116,8 @@ impl Component for AvailableFrames {
 
                     // Trigger refresh after successful save
                     if let Some(on_rename_frame) = on_rename_frame {
-                        on_rename_frame.emit((frame_path_clone, new_name_clone.unwrap_or_default()));
+                        on_rename_frame
+                            .emit((frame_path_clone, new_name_clone.unwrap_or_default()));
                     }
                 });
 

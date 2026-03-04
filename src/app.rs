@@ -1,12 +1,13 @@
-use yew::prelude::*;
 use crate::components::sidebar::Sidebar;
 use crate::pages;
+use yew::prelude::*;
 
 #[function_component(App)]
 pub fn app() -> Html {
     let current_page = use_state(|| "home".to_string());
     let active_project_id = use_state(|| Option::<String>::None);
     let active_project_name = use_state(|| Option::<String>::None);
+    let explorer_on_left = use_state(|| false);
 
     let on_nav = {
         let current_page = current_page.clone();
@@ -44,6 +45,13 @@ pub fn app() -> Html {
         })
     };
 
+    let on_toggle_explorer_side = {
+        let explorer_on_left = explorer_on_left.clone();
+        Callback::from(move |_| {
+            explorer_on_left.set(!*explorer_on_left);
+        })
+    };
+
     let context_label = match current_page.as_str() {
         "home" => "cascii studio".to_string(),
         "project" | "montage" => {
@@ -63,6 +71,8 @@ pub fn app() -> Html {
                 current_page={(*current_page).clone()}
                 context_label={context_label}
                 has_active_project={active_project_id.is_some()}
+                explorer_on_left={*explorer_on_left}
+                on_toggle_explorer_side={on_toggle_explorer_side}
             />
             <main class="container" id="app-container">
                 {
@@ -75,7 +85,7 @@ pub fn app() -> Html {
                         "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
                         "project" => {
                             if let Some(id) = &*active_project_id {
-                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} /> }
+                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} /> }
                             } else {
                                 html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> }
                             }

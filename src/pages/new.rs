@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
-use yew_icons::{Icon, IconId};
 use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 #[wasm_bindgen(inline_js = r#"
 export async function invoke(cmd, args) {
@@ -89,14 +89,16 @@ pub fn new_page(props: &NewPageProps) -> Html {
         Callback::from(move |_| {
             let selected_files = selected_files.clone();
             let error_message = error_message.clone();
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 error_message.set(None);
-                
+
                 match invoke("pick_files", JsValue::NULL).await {
                     result => {
                         if let Ok(files) = serde_wasm_bindgen::from_value::<Vec<String>>(result) {
-                            web_sys::console::log_1(&format!("Selected {} files", files.len()).into());
+                            web_sys::console::log_1(
+                                &format!("Selected {} files", files.len()).into(),
+                            );
                             selected_files.set(files);
                         } else {
                             error_message.set(Some("Failed to parse selected files".to_string()));
@@ -115,24 +117,24 @@ pub fn new_page(props: &NewPageProps) -> Html {
         let success_message = success_message.clone();
         let on_open_project = props.on_open_project.clone();
         let file_progress_map = file_progress_map.clone();
-        
+
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
-            
+
             let name = (*project_name).clone();
             let files = (*selected_files).clone();
-            
+
             // Validation
             if name.trim().is_empty() {
                 error_message.set(Some("Project name is required".to_string()));
                 return;
             }
-            
+
             if files.is_empty() {
                 error_message.set(Some("Please select at least one file".to_string()));
                 return;
             }
-            
+
             let is_creating = is_creating.clone();
             let error_message = error_message.clone();
             let success_message = success_message.clone();
@@ -140,12 +142,12 @@ pub fn new_page(props: &NewPageProps) -> Html {
             let selected_files = selected_files.clone();
             let on_open_project = on_open_project.clone();
             let file_progress_map = file_progress_map.clone();
-            
+
             is_creating.set(true);
             error_message.set(None);
             success_message.set(None);
             file_progress_map.set(HashMap::new());
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 // Initialize progress for all files as pending
                 let mut initial_map = HashMap::new();
@@ -155,50 +157,59 @@ pub fn new_page(props: &NewPageProps) -> Html {
                         .and_then(|n| n.to_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    initial_map.insert(file_name.clone(), FileProgress {
-                        file_name: file_name.clone(),
-                        status: "pending".to_string(),
-                        message: "Waiting...".to_string(),
-                        percentage: None,
-                    });
+                    initial_map.insert(
+                        file_name.clone(),
+                        FileProgress {
+                            file_name: file_name.clone(),
+                            status: "pending".to_string(),
+                            message: "Waiting...".to_string(),
+                            percentage: None,
+                        },
+                    );
                 }
                 file_progress_map.set(initial_map);
-                
+
                 // Set up event listener using simpler approach
                 let file_progress_map_clone = file_progress_map.clone();
                 let callback: Closure<dyn Fn(JsValue)> = Closure::new(move |event: JsValue| {
                     if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
-                        if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
+                        if let Ok(progress) =
+                            serde_wasm_bindgen::from_value::<FileProgress>(payload)
+                        {
                             let mut map = (*file_progress_map_clone).clone();
                             map.insert(progress.file_name.clone(), progress);
                             file_progress_map_clone.set(map);
                         }
                     }
                 });
-                
-                let unlisten_handle = listen("file-progress", callback.as_ref().unchecked_ref()).await;
-                
+
+                let unlisten_handle =
+                    listen("file-progress", callback.as_ref().unchecked_ref()).await;
+
                 let invoke_args = CreateProjectInvokeArgs {
                     request: CreateProjectRequest {
                         project_name: name.clone(),
                         file_paths: files,
-                    }
+                    },
                 };
-                
+
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
-                
+
                 let result = invoke("create_project", args).await;
-                
+
                 // Clean up listener
                 unlisten(unlisten_handle).await;
                 drop(callback);
-                
+
                 is_creating.set(false);
-                
+
                 // Try to parse as successful project response first
                 if let Ok(project) = serde_wasm_bindgen::from_value::<Project>(result.clone()) {
                     // optional toast
-                    success_message.set(Some(format!("Project '{}' created successfully!", project.project_name)));
+                    success_message.set(Some(format!(
+                        "Project '{}' created successfully!",
+                        project.project_name
+                    )));
                     // navigate to the new project page
                     on_open_project.emit(project.id.clone());
                     // clear local state
@@ -231,7 +242,7 @@ pub fn new_page(props: &NewPageProps) -> Html {
     html! {
         <div id="new-project-page" class="container new-project-page">
             <h1>{"New Project"}</h1>
-            
+
             <form onsubmit={on_create_project} id="new-project-form" class="new-project-form">
                 // Project Name Input
                 <div id="new-project-name-group" class="form-group">
@@ -260,7 +271,7 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                         .file_name()
                                         .and_then(|n| n.to_str())
                                         .unwrap_or(file);
-                                    
+
                                     let lower = file.to_lowercase();
                                     let is_video = lower.ends_with(".mp4")
                                         || lower.ends_with(".mov")
@@ -269,10 +280,10 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                         || lower.ends_with(".mkv")
                                         || lower.ends_with(".flv");
                                     let needs_conversion = is_video && !lower.ends_with(".mp4");
-                                    
+
                                     let remove_file = remove_file.clone();
                                     let on_remove = Callback::from(move |_| remove_file.emit(index));
-                                    
+
                                     html! {
                                         <div class="file-item" key={index}>
                                             <span class="file-name">
@@ -315,14 +326,14 @@ pub fn new_page(props: &NewPageProps) -> Html {
                                         "processing"    => "status-processing",
                                         _               => "status-pending"
                                     };
-                                    
+
                                     let icon = match progress.status.as_str() {
                                         "completed"     => "✓",
                                         "error"         => "✗",
                                         "processing"    => "⟳",
                                         _               => "○"
                                     };
-                                    
+
                                     html! {
                                         <div class={classes!("progress-item", status_class)} key={file_name.clone()}>
                                             <div class="progress-icon">{icon}</div>

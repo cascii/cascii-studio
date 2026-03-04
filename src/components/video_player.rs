@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use web_sys::HtmlVideoElement;
-use yew_icons::{Icon, IconId};
-use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
+use web_sys::HtmlVideoElement;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 #[derive(Serialize, Deserialize)]
 struct ConvertToAsciiRequest {
@@ -372,21 +372,24 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let duration = duration.clone();
         let left_value = left_value.clone();
         let right_value = right_value.clone();
-    
+
         Callback::from(move |e: InputEvent| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                 let dur = *duration;
-                if dur <= 0.0 { return; }
-    
+                if dur <= 0.0 {
+                    return;
+                }
+
                 let trim_start = (*left_value) * dur;
                 let trim_end = (*right_value) * dur;
                 let trim_len = (trim_end - trim_start).max(0.000_1);
-    
+
                 // slider gives 0..1 within trim
-                let p = e.target_unchecked_into::<web_sys::HtmlInputElement>()
+                let p = e
+                    .target_unchecked_into::<web_sys::HtmlInputElement>()
                     .value_as_number()
                     .clamp(0.0, 1.0);
-    
+
                 let t = trim_start + p * trim_len;
                 v.set_current_time(t);
                 current_time.set(t);
@@ -534,8 +537,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         let trim_end = (*right_value) * dur;
                         let trim_len = (trim_end - trim_start).max(0.000_1);
 
-                        let seek_time =
-                            trim_start + (percentage.clamp(0.0, 1.0) * trim_len);
+                        let seek_time = trim_start + (percentage.clamp(0.0, 1.0) * trim_len);
 
                         v.set_current_time(seek_time);
                         current_time.set(seek_time);
@@ -758,9 +760,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
         Callback::from(move |_| {
             let color = *generate_colors;
-            let (Some(project_id), Some(source_file_id), Some(file_path)) =
-                (project_id.clone(), source_file_id.clone(), source_file_path.clone())
-            else {
+            let (Some(project_id), Some(source_file_id), Some(file_path)) = (
+                project_id.clone(),
+                source_file_id.clone(),
+                source_file_path.clone(),
+            ) else {
                 return;
             };
 
@@ -806,9 +810,13 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         }
                     }
                     Err(e) => {
-                        web_sys::console::log_1(&format!("❌ Failed to create preview: {:?}", e).into());
+                        web_sys::console::log_1(
+                            &format!("❌ Failed to create preview: {:?}", e).into(),
+                        );
                         if let Some(cb) = &on_error_message_change {
-                            cb.emit(Some("Failed to create preview. Please try again.".to_string()));
+                            cb.emit(Some(
+                                "Failed to create preview. Please try again.".to_string(),
+                            ));
                         }
                     }
                 }
@@ -845,14 +853,18 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             } else {
                 None
             };
-            let preprocess_custom_value = if preprocess_enabled_value && preprocess_preset_value.as_deref() == Some("other") {
+            let preprocess_custom_value = if preprocess_enabled_value
+                && preprocess_preset_value.as_deref() == Some("other")
+            {
                 Some((*preprocess_custom).clone())
             } else {
                 None
             };
-            let (Some(project_id), Some(source_file_id), Some(file_path)) =
-                (project_id.clone(), source_file_id.clone(), source_file_path.clone())
-            else {
+            let (Some(project_id), Some(source_file_id), Some(file_path)) = (
+                project_id.clone(),
+                source_file_id.clone(),
+                source_file_path.clone(),
+            ) else {
                 return;
             };
             let custom_name = custom_name.clone();
@@ -876,7 +888,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
             if preprocess_enabled_value
                 && preprocess_preset_value.as_deref() == Some("other")
-                && preprocess_custom_value.as_deref().map(str::trim).unwrap_or("").is_empty()
+                && preprocess_custom_value
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .is_empty()
             {
                 if let Some(cb) = &on_conversion_complete {
                     cb.emit(source_file_id.clone());
@@ -893,8 +909,30 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 // Start conversion (returns immediately, progress/completion handled by global listeners)
-                web_sys::console::log_1(&format!("🚀 Starting tauri_invoke for: {}", source_file_id_for_complete).into());
-                let invoke_args = ConvertToAsciiInvokeArgs {request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id, source_file_id, custom_name, color, extract_audio, preprocess_enabled: preprocess_enabled_value, preprocess_preset: preprocess_preset_value, preprocess_custom: preprocess_custom_value}};
+                web_sys::console::log_1(
+                    &format!(
+                        "🚀 Starting tauri_invoke for: {}",
+                        source_file_id_for_complete
+                    )
+                    .into(),
+                );
+                let invoke_args = ConvertToAsciiInvokeArgs {
+                    request: ConvertToAsciiRequest {
+                        file_path,
+                        luminance,
+                        font_ratio,
+                        columns,
+                        fps: Some(fps),
+                        project_id,
+                        source_file_id,
+                        custom_name,
+                        color,
+                        extract_audio,
+                        preprocess_enabled: preprocess_enabled_value,
+                        preprocess_preset: preprocess_preset_value,
+                        preprocess_custom: preprocess_custom_value,
+                    },
+                };
                 let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
                 let result = tauri_invoke("convert_to_ascii", args).await;
 
@@ -902,17 +940,27 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 // Actual completion is handled via conversion-complete event in project.rs
                 match serde_wasm_bindgen::from_value::<String>(result.clone()) {
                     Ok(msg) => {
-                        web_sys::console::log_1(&format!("✅ Conversion initiated: {}", msg).into());
+                        web_sys::console::log_1(
+                            &format!("✅ Conversion initiated: {}", msg).into(),
+                        );
                     }
                     Err(e) => {
                         // Error starting conversion
-                        web_sys::console::log_1(&format!("❌ Failed to start conversion: {:?}, raw result: {:?}", e, result).into());
+                        web_sys::console::log_1(
+                            &format!(
+                                "❌ Failed to start conversion: {:?}, raw result: {:?}",
+                                e, result
+                            )
+                            .into(),
+                        );
                         // Remove from active conversions since it failed to start
                         if let Some(cb) = &on_conversion_complete {
                             cb.emit(source_file_id_for_complete.clone());
                         }
                         if let Some(cb) = &on_error_message_change {
-                            cb.emit(Some("Failed to start conversion. Please try again.".to_string()));
+                            cb.emit(Some(
+                                "Failed to start conversion. Please try again.".to_string(),
+                            ));
                         }
                     }
                 }

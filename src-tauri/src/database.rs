@@ -1,6 +1,6 @@
-use rusqlite::{Connection, Result as SqlResult, params};
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use rusqlite::{params, Connection, Result as SqlResult};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,14 +85,14 @@ pub struct ConversionSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsciiConversion {
     pub id: String,
-    pub folder_name: String,       // Name of the frames folder
-    pub folder_path: String,       // Full path to the frames folder
-    pub frame_count: i32,          // Number of frames
-    pub source_file_id: String,    // Foreign key to source_content
-    pub project_id: String,        // Foreign key to projects
+    pub folder_name: String,          // Name of the frames folder
+    pub folder_path: String,          // Full path to the frames folder
+    pub frame_count: i32,             // Number of frames
+    pub source_file_id: String,       // Foreign key to source_content
+    pub project_id: String,           // Foreign key to projects
     pub settings: ConversionSettings, // Conversion settings (luminance, font_ratio, columns, fps)
     pub creation_date: DateTime<Utc>,
-    pub total_size: i64,           // Total size of all frame files in bytes
+    pub total_size: i64,             // Total size of all frame files in bytes
     pub custom_name: Option<String>, // Custom display name for the frame directory
 }
 
@@ -100,23 +100,23 @@ pub struct AsciiConversion {
 pub struct VideoCut {
     pub id: String,
     pub project_id: String,
-    pub source_file_id: String,      // Foreign key to source_content (which video it was cut from)
-    pub file_path: String,           // Full path to the cut video file
+    pub source_file_id: String, // Foreign key to source_content (which video it was cut from)
+    pub file_path: String,      // Full path to the cut video file
     pub date_added: DateTime<Utc>,
-    pub size: i64,                   // File size in bytes
+    pub size: i64, // File size in bytes
     pub custom_name: Option<String>,
-    pub start_time: f64,             // Cut start time in seconds
-    pub end_time: f64,               // Cut end time in seconds
-    pub duration: f64,               // Duration of the cut in seconds
+    pub start_time: f64, // Cut start time in seconds
+    pub end_time: f64,   // Cut end time in seconds
+    pub duration: f64,   // Duration of the cut in seconds
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioExtraction {
     pub id: String,
-    pub folder_name: String,         // Name of the audio folder
-    pub folder_path: String,         // Full path to the audio folder
-    pub source_file_id: String,      // Foreign key to source_content
-    pub project_id: String,          // Foreign key to projects
+    pub folder_name: String,    // Name of the audio folder
+    pub folder_path: String,    // Full path to the audio folder
+    pub source_file_id: String, // Foreign key to source_content
+    pub project_id: String,     // Foreign key to projects
     pub creation_date: DateTime<Utc>,
     pub total_size: i64,             // Total size of all audio files in bytes
     pub audio_track_beginning: f64,  // Start time in seconds
@@ -136,12 +136,12 @@ pub struct PreviewSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preview {
     pub id: String,
-    pub folder_name: String,         // Name of the preview folder
-    pub folder_path: String,         // Full path to the preview folder
-    pub frame_count: i32,            // Always 1 for previews
-    pub source_file_id: String,      // Foreign key to source_content
-    pub project_id: String,          // Foreign key to projects
-    pub settings: PreviewSettings,   // Conversion settings
+    pub folder_name: String,       // Name of the preview folder
+    pub folder_path: String,       // Full path to the preview folder
+    pub frame_count: i32,          // Always 1 for previews
+    pub source_file_id: String,    // Foreign key to source_content
+    pub project_id: String,        // Foreign key to projects
+    pub settings: PreviewSettings, // Conversion settings
     pub creation_date: DateTime<Utc>,
     pub total_size: i64,             // Total size of all files in bytes
     pub custom_name: Option<String>, // Custom display name
@@ -196,18 +196,18 @@ pub fn init_database() -> SqlResult<Connection> {
     )?;
 
     // Check if custom_name column exists, if not add it
-    let column_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('source_content') WHERE name='custom_name'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('source_content') WHERE name='custom_name'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
 
     if !column_exists {
         // Add custom_name column for existing databases
-        conn.execute(
-            "ALTER TABLE source_content ADD COLUMN custom_name TEXT",
-            [],
-        )?;
+        conn.execute("ALTER TABLE source_content ADD COLUMN custom_name TEXT", [])?;
     }
 
     // Create index on project_id for faster queries
@@ -240,11 +240,14 @@ pub fn init_database() -> SqlResult<Connection> {
     )?;
 
     // Check if frame_speed column exists, if not add it
-    let column_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='frame_speed'",
-        [],
-        |row| row.get(0),
-    ).unwrap_or(0) > 0;
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='frame_speed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
 
     if !column_exists {
         // Add frame_speed column for existing databases
@@ -254,10 +257,7 @@ pub fn init_database() -> SqlResult<Connection> {
         )?;
 
         // Update existing records to set frame_speed = fps
-        conn.execute(
-            "UPDATE ascii_conversions SET frame_speed = fps",
-            [],
-        )?;
+        conn.execute("UPDATE ascii_conversions SET frame_speed = fps", [])?;
     }
 
     // Check if custom_name column exists, if not add it
@@ -267,7 +267,8 @@ pub fn init_database() -> SqlResult<Connection> {
             [],
             |row| row.get(0),
         )
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if !column_exists {
         // Add custom_name column for existing databases
@@ -284,7 +285,8 @@ pub fn init_database() -> SqlResult<Connection> {
             [],
             |row| row.get(0),
         )
-        .unwrap_or(0) > 0;
+        .unwrap_or(0)
+        > 0;
 
     if !column_exists {
         // Add color column for existing databases (default 0 = false)
@@ -417,7 +419,7 @@ pub fn init_database() -> SqlResult<Connection> {
 
 pub fn create_project(project: &Project) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
     conn.execute(
         "INSERT INTO projects (id, project_name, project_type, project_path, size, frames, creation_date, last_modified)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -438,7 +440,7 @@ pub fn create_project(project: &Project) -> SqlResult<()> {
 
 pub fn add_source_content(source: &SourceContent) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
     conn.execute(
         "INSERT INTO source_content (id, content_type, project_id, date_added, size, file_path, custom_name)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -464,25 +466,27 @@ pub fn get_all_projects() -> SqlResult<Vec<Project>> {
          ORDER BY last_modified DESC"
     )?;
 
-    let projects = stmt.query_map([], |row| {
-        let creation_str: String = row.get(6)?;
-        let modified_str: String = row.get(7)?;
-        
-        Ok(Project {
-            id: row.get(0)?,
-            project_name: row.get(1)?,
-            project_type: ProjectType::from_string(&row.get::<_, String>(2)?),
-            project_path: row.get(3)?,
-            size: row.get(4)?,
-            frames: row.get(5)?,
-            creation_date: DateTime::parse_from_rfc3339(&creation_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            last_modified: DateTime::parse_from_rfc3339(&modified_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let projects = stmt
+        .query_map([], |row| {
+            let creation_str: String = row.get(6)?;
+            let modified_str: String = row.get(7)?;
+
+            Ok(Project {
+                id: row.get(0)?,
+                project_name: row.get(1)?,
+                project_type: ProjectType::from_string(&row.get::<_, String>(2)?),
+                project_path: row.get(3)?,
+                size: row.get(4)?,
+                frames: row.get(5)?,
+                creation_date: DateTime::parse_from_rfc3339(&creation_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                last_modified: DateTime::parse_from_rfc3339(&modified_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
 
     Ok(projects)
 }
@@ -522,24 +526,26 @@ pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
         "SELECT id, content_type, project_id, date_added, size, file_path, custom_name 
          FROM source_content 
          WHERE project_id = ?1 
-         ORDER BY date_added ASC"
+         ORDER BY date_added ASC",
     )?;
 
-    let sources = stmt.query_map([project_id], |row| {
-        let date_str: String = row.get(3)?;
-        
-        Ok(SourceContent {
-            id: row.get(0)?,
-            content_type: SourceType::from_string(&row.get::<_, String>(1)?),
-            project_id: row.get(2)?,
-            date_added: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            size: row.get(4)?,
-            file_path: row.get(5)?,
-            custom_name: row.get(6)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let sources = stmt
+        .query_map([project_id], |row| {
+            let date_str: String = row.get(3)?;
+
+            Ok(SourceContent {
+                id: row.get(0)?,
+                content_type: SourceType::from_string(&row.get::<_, String>(1)?),
+                project_id: row.get(2)?,
+                date_added: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                size: row.get(4)?,
+                file_path: row.get(5)?,
+                custom_name: row.get(6)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
 
     Ok(sources)
 }
@@ -571,10 +577,7 @@ pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
     result?;
 
     // Delete associated cuts (foreign key constraint)
-    let result = conn.execute(
-        "DELETE FROM cuts WHERE source_file_id = ?1",
-        [source_id],
-    );
+    let result = conn.execute("DELETE FROM cuts WHERE source_file_id = ?1", [source_id]);
     match &result {
         Ok(rows) => println!("🗑️ DB: Deleted {} associated cuts", rows),
         Err(e) => println!("🗑️ DB: Error deleting cuts: {}", e),
@@ -582,10 +585,7 @@ pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
     result?;
 
     // Delete associated audio extractions (foreign key constraint)
-    let result = conn.execute(
-        "DELETE FROM audio WHERE source_file_id = ?1",
-        [source_id],
-    );
+    let result = conn.execute("DELETE FROM audio WHERE source_file_id = ?1", [source_id]);
     match &result {
         Ok(rows) => println!("🗑️ DB: Deleted {} associated audio extractions", rows),
         Err(e) => println!("🗑️ DB: Error deleting audio: {}", e),
@@ -604,10 +604,7 @@ pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
     result?;
 
     // Delete the source content
-    let result = conn.execute(
-        "DELETE FROM source_content WHERE id = ?1",
-        [source_id],
-    );
+    let result = conn.execute("DELETE FROM source_content WHERE id = ?1", [source_id]);
     match &result {
         Ok(rows) => println!("🗑️ DB: Deleted {} source content rows", rows),
         Err(e) => println!("🗑️ DB: Error deleting source content: {}", e),
@@ -619,7 +616,7 @@ pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
 
 pub fn update_project_size_and_frames(project_id: &str, size: i64, frames: i32) -> SqlResult<()> {
     let conn = init_database()?;
-    
+
     conn.execute(
         "UPDATE projects 
          SET size = ?1, frames = ?2, last_modified = ?3 
@@ -640,22 +637,13 @@ pub fn delete_project(project_id: &str) -> SqlResult<()> {
     )?;
 
     // Delete all audio extractions
-    conn.execute(
-        "DELETE FROM audio WHERE project_id = ?1",
-        [project_id],
-    )?;
+    conn.execute("DELETE FROM audio WHERE project_id = ?1", [project_id])?;
 
     // Delete all cuts
-    conn.execute(
-        "DELETE FROM cuts WHERE project_id = ?1",
-        [project_id],
-    )?;
+    conn.execute("DELETE FROM cuts WHERE project_id = ?1", [project_id])?;
 
     // Delete all previews
-    conn.execute(
-        "DELETE FROM previews WHERE project_id = ?1",
-        [project_id],
-    )?;
+    conn.execute("DELETE FROM previews WHERE project_id = ?1", [project_id])?;
 
     // Delete all source content (should be handled by CASCADE, but being explicit)
     conn.execute(
@@ -664,10 +652,7 @@ pub fn delete_project(project_id: &str) -> SqlResult<()> {
     )?;
 
     // Delete the project
-    conn.execute(
-        "DELETE FROM projects WHERE id = ?1",
-        [project_id],
-    )?;
+    conn.execute("DELETE FROM projects WHERE id = ?1", [project_id])?;
 
     Ok(())
 }
@@ -713,37 +698,42 @@ pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversio
          ORDER BY creation_date DESC"
     )?;
 
-    let conversions = stmt.query_map([project_id], |row| {
-        let date_str: String = row.get(11)?;
-        
-        Ok(AsciiConversion {
-            id: row.get(0)?,
-            folder_name: row.get(1)?,
-            folder_path: row.get(2)?,
-            frame_count: row.get(3)?,
-            source_file_id: row.get(4)?,
-            project_id: row.get(5)?,
-            settings: ConversionSettings {
-                luminance: row.get(6)?,
-                font_ratio: row.get(7)?,
-                columns: row.get(8)?,
-                fps: row.get(9)?,
-                frame_speed: row.get(10)?,
-                color: row.get::<_, i32>(14).unwrap_or(0) != 0,
-            },
-            creation_date: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            total_size: row.get(12)?,
-            custom_name: row.get(13)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let conversions = stmt
+        .query_map([project_id], |row| {
+            let date_str: String = row.get(11)?;
+
+            Ok(AsciiConversion {
+                id: row.get(0)?,
+                folder_name: row.get(1)?,
+                folder_path: row.get(2)?,
+                frame_count: row.get(3)?,
+                source_file_id: row.get(4)?,
+                project_id: row.get(5)?,
+                settings: ConversionSettings {
+                    luminance: row.get(6)?,
+                    font_ratio: row.get(7)?,
+                    columns: row.get(8)?,
+                    fps: row.get(9)?,
+                    frame_speed: row.get(10)?,
+                    color: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                },
+                creation_date: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                total_size: row.get(12)?,
+                custom_name: row.get(13)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
 
     Ok(conversions)
 }
 
 pub fn update_conversion_frame_speed(conversion_id: &str, frame_speed: u32) -> SqlResult<()> {
-    println!("📝 DB: Updating frame_speed for conversion {} to {}", conversion_id, frame_speed);
+    println!(
+        "📝 DB: Updating frame_speed for conversion {} to {}",
+        conversion_id, frame_speed
+    );
     let conn = init_database()?;
 
     let result = conn.execute(
@@ -770,7 +760,7 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
     )?;
 
     let mut rows = stmt.query([folder_path])?;
-    
+
     if let Some(row) = rows.next()? {
         let date_str: String = row.get(11)?;
 
@@ -817,8 +807,14 @@ pub fn delete_conversion_by_folder_path(folder_path: &str) -> SqlResult<()> {
     Ok(())
 }
 
-pub fn update_conversion_custom_name(conversion_id: &str, custom_name: Option<String>) -> SqlResult<()> {
-    println!("📝 DB: Updating conversion custom_name for {} to {:?}", conversion_id, custom_name);
+pub fn update_conversion_custom_name(
+    conversion_id: &str,
+    custom_name: Option<String>,
+) -> SqlResult<()> {
+    println!(
+        "📝 DB: Updating conversion custom_name for {} to {:?}",
+        conversion_id, custom_name
+    );
     let conn = init_database()?;
     let result = conn.execute(
         "UPDATE ascii_conversions SET custom_name = ?1 WHERE id = ?2",
@@ -834,7 +830,11 @@ pub fn update_conversion_custom_name(conversion_id: &str, custom_name: Option<St
     Ok(())
 }
 
-pub fn update_conversion_dimensions(conversion_id: &str, frame_count: i32, total_size: i64) -> SqlResult<()> {
+pub fn update_conversion_dimensions(
+    conversion_id: &str,
+    frame_count: i32,
+    total_size: i64,
+) -> SqlResult<()> {
     let conn = init_database()?;
     conn.execute(
         "UPDATE ascii_conversions SET frame_count = ?1, total_size = ?2 WHERE id = ?3",
@@ -875,23 +875,25 @@ pub fn get_project_cuts(project_id: &str) -> SqlResult<Vec<VideoCut>> {
          ORDER BY date_added DESC"
     )?;
 
-    let cuts = stmt.query_map([project_id], |row| {
-        let date_str: String = row.get(4)?;
-        Ok(VideoCut {
-            id: row.get(0)?,
-            project_id: row.get(1)?,
-            source_file_id: row.get(2)?,
-            file_path: row.get(3)?,
-            date_added: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            size: row.get(5)?,
-            custom_name: row.get(6)?,
-            start_time: row.get(7)?,
-            end_time: row.get(8)?,
-            duration: row.get(9)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let cuts = stmt
+        .query_map([project_id], |row| {
+            let date_str: String = row.get(4)?;
+            Ok(VideoCut {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                source_file_id: row.get(2)?,
+                file_path: row.get(3)?,
+                date_added: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                size: row.get(5)?,
+                custom_name: row.get(6)?,
+                start_time: row.get(7)?,
+                end_time: row.get(8)?,
+                duration: row.get(9)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
     Ok(cuts)
 }
 
@@ -910,7 +912,10 @@ pub fn delete_cut(cut_id: &str) -> SqlResult<()> {
 }
 
 pub fn update_cut_custom_name(cut_id: &str, custom_name: Option<String>) -> SqlResult<()> {
-    println!("📝 DB: Updating cut custom_name for {} to {:?}", cut_id, custom_name);
+    println!(
+        "📝 DB: Updating cut custom_name for {} to {:?}",
+        cut_id, custom_name
+    );
     let conn = init_database()?;
     let result = conn.execute(
         "UPDATE cuts SET custom_name = ?1 WHERE id = ?2",
@@ -958,23 +963,25 @@ pub fn get_project_audio(project_id: &str) -> SqlResult<Vec<AudioExtraction>> {
          ORDER BY creation_date DESC"
     )?;
 
-    let audio_list = stmt.query_map([project_id], |row| {
-        let date_str: String = row.get(5)?;
-        Ok(AudioExtraction {
-            id: row.get(0)?,
-            folder_name: row.get(1)?,
-            folder_path: row.get(2)?,
-            source_file_id: row.get(3)?,
-            project_id: row.get(4)?,
-            creation_date: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            total_size: row.get(6)?,
-            audio_track_beginning: row.get(7)?,
-            audio_track_end: row.get(8)?,
-            custom_name: row.get(9)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let audio_list = stmt
+        .query_map([project_id], |row| {
+            let date_str: String = row.get(5)?;
+            Ok(AudioExtraction {
+                id: row.get(0)?,
+                folder_name: row.get(1)?,
+                folder_path: row.get(2)?,
+                source_file_id: row.get(3)?,
+                project_id: row.get(4)?,
+                creation_date: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                total_size: row.get(6)?,
+                audio_track_beginning: row.get(7)?,
+                audio_track_end: row.get(8)?,
+                custom_name: row.get(9)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
     Ok(audio_list)
 }
 
@@ -995,10 +1002,7 @@ pub fn delete_audio(audio_id: &str) -> SqlResult<()> {
 pub fn delete_audio_by_folder_path(folder_path: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting audio by folder path: {}", folder_path);
     let conn = init_database()?;
-    let result = conn.execute(
-        "DELETE FROM audio WHERE folder_path = ?1",
-        [folder_path],
-    );
+    let result = conn.execute("DELETE FROM audio WHERE folder_path = ?1", [folder_path]);
 
     match &result {
         Ok(rows_affected) => println!("🗑️ DB: Delete successful, {} rows affected", rows_affected),
@@ -1010,7 +1014,10 @@ pub fn delete_audio_by_folder_path(folder_path: &str) -> SqlResult<()> {
 }
 
 pub fn update_audio_custom_name(audio_id: &str, custom_name: Option<String>) -> SqlResult<()> {
-    println!("📝 DB: Updating audio custom_name for {} to {:?}", audio_id, custom_name);
+    println!(
+        "📝 DB: Updating audio custom_name for {} to {:?}",
+        audio_id, custom_name
+    );
     let conn = init_database()?;
     let result = conn.execute(
         "UPDATE audio SET custom_name = ?1 WHERE id = ?2",
@@ -1067,29 +1074,31 @@ pub fn get_project_previews(project_id: &str) -> SqlResult<Vec<Preview>> {
          ORDER BY creation_date DESC"
     )?;
 
-    let previews = stmt.query_map([project_id], |row| {
-        let date_str: String = row.get(11)?;
-        Ok(Preview {
-            id: row.get(0)?,
-            folder_name: row.get(1)?,
-            folder_path: row.get(2)?,
-            frame_count: row.get(3)?,
-            source_file_id: row.get(4)?,
-            project_id: row.get(5)?,
-            settings: PreviewSettings {
-                luminance: row.get(6)?,
-                font_ratio: row.get(7)?,
-                columns: row.get(8)?,
-                fps: row.get(9)?,
-                color: row.get::<_, i32>(10)? != 0,
-            },
-            creation_date: DateTime::parse_from_rfc3339(&date_str)
-                .unwrap_or_else(|_| Utc::now().into())
-                .with_timezone(&Utc),
-            total_size: row.get(12)?,
-            custom_name: row.get(13)?,
-        })
-    })?.collect::<SqlResult<Vec<_>>>()?;
+    let previews = stmt
+        .query_map([project_id], |row| {
+            let date_str: String = row.get(11)?;
+            Ok(Preview {
+                id: row.get(0)?,
+                folder_name: row.get(1)?,
+                folder_path: row.get(2)?,
+                frame_count: row.get(3)?,
+                source_file_id: row.get(4)?,
+                project_id: row.get(5)?,
+                settings: PreviewSettings {
+                    luminance: row.get(6)?,
+                    font_ratio: row.get(7)?,
+                    columns: row.get(8)?,
+                    fps: row.get(9)?,
+                    color: row.get::<_, i32>(10)? != 0,
+                },
+                creation_date: DateTime::parse_from_rfc3339(&date_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                total_size: row.get(12)?,
+                custom_name: row.get(13)?,
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
     Ok(previews)
 }
 
@@ -1148,10 +1157,7 @@ pub fn delete_preview(preview_id: &str) -> SqlResult<()> {
 pub fn delete_preview_by_folder_path(folder_path: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting preview by folder path: {}", folder_path);
     let conn = init_database()?;
-    let result = conn.execute(
-        "DELETE FROM previews WHERE folder_path = ?1",
-        [folder_path],
-    );
+    let result = conn.execute("DELETE FROM previews WHERE folder_path = ?1", [folder_path]);
 
     match &result {
         Ok(rows_affected) => println!("🗑️ DB: Delete successful, {} rows affected", rows_affected),
@@ -1163,7 +1169,10 @@ pub fn delete_preview_by_folder_path(folder_path: &str) -> SqlResult<()> {
 }
 
 pub fn update_preview_custom_name(preview_id: &str, custom_name: Option<String>) -> SqlResult<()> {
-    println!("📝 DB: Updating preview custom_name for {} to {:?}", preview_id, custom_name);
+    println!(
+        "📝 DB: Updating preview custom_name for {} to {:?}",
+        preview_id, custom_name
+    );
     let conn = init_database()?;
     let result = conn.execute(
         "UPDATE previews SET custom_name = ?1 WHERE id = ?2",
@@ -1183,9 +1192,8 @@ pub fn update_preview_custom_name(preview_id: &str, custom_name: Option<String>)
 
 pub fn get_explorer_layout(project_id: &str) -> SqlResult<Option<String>> {
     let conn = init_database()?;
-    let mut stmt = conn.prepare(
-        "SELECT layout_json FROM explorer_layout WHERE project_id = ?1 LIMIT 1"
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT layout_json FROM explorer_layout WHERE project_id = ?1 LIMIT 1")?;
 
     let mut rows = stmt.query([project_id])?;
     if let Some(row) = rows.next()? {

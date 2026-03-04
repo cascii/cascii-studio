@@ -102,6 +102,14 @@
     /* No padding — nodes handle their own indentation */
 }
 
+.project-drop-zone {
+    min-height: 22px;
+}
+
+.project-drop-zone--active {
+    background: rgba(9, 71, 113, 0.2);
+}
+
 /* Tree nodes */
 
 .tree-node {
@@ -114,6 +122,7 @@
     white-space: nowrap;
     position: relative;
     padding-right: 8px;
+    user-select: none;
 }
 
 .tree-node:hover {
@@ -188,8 +197,7 @@
 
 /* Drop target highlighting (Explorer section) */
 .tree-node--drop-target {
-    background-color: #383b3d;
-    outline: 1px solid #007fd4;
+    background-color: #2a2d2e;
 }
 
 /* Context menu */

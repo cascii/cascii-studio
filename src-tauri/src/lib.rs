@@ -34,23 +34,24 @@ fn get_media_cache_dir() -> Result<PathBuf, String> {
         .join("cascii_studio")
         .join("media");
 
-    fs::create_dir_all(&cache_dir).map_err(|e| format!("Failed to create media cache dir: {}", e))?;
+    fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create media cache dir: {}", e))?;
     Ok(cache_dir)
 }
 
 fn guess_mime_type(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_lowercase();
     match ext.as_str() {
-        "jpg" | "jpeg"  => Some("image/jpeg".to_string()),
-        "png"           => Some("image/png".to_string()),
-        "gif"           => Some("image/gif".to_string()),
-        "webp"          => Some("image/webp".to_string()),
-        "mp4"           => Some("video/mp4".to_string()),
-        "webm"          => Some("video/webm".to_string()),
-        "mov"           => Some("video/quicktime".to_string()),
-        "avi"           => Some("video/x-msvideo".to_string()),
-        "mkv"           => Some("video/x-matroska".to_string()),
-        _               => None,
+        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+        "png" => Some("image/png".to_string()),
+        "gif" => Some("image/gif".to_string()),
+        "webp" => Some("image/webp".to_string()),
+        "mp4" => Some("video/mp4".to_string()),
+        "webm" => Some("video/webm".to_string()),
+        "mov" => Some("video/quicktime".to_string()),
+        "avi" => Some("video/x-msvideo".to_string()),
+        "mkv" => Some("video/x-matroska".to_string()),
+        _ => None,
     }
 }
 
@@ -64,27 +65,41 @@ fn determine_media_kind(path: &Path) -> MediaKind {
 
 #[tauri::command]
 fn prepare_media(path: String) -> Result<PreparedMedia, String> {
-    let source_path = PathBuf::from(&path).canonicalize().map_err(|e| format!("Invalid source path: {}", e))?;   // 1. Canonicalize the input path
-    let cache_dir = get_media_cache_dir()?;                                                                             // 2. Get media cache directory
-    let file_name = source_path.file_name().ok_or_else(|| "Invalid file name".to_string())?;                             // 3. Create a unique filename based on source path hash or use original name
+    let source_path = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("Invalid source path: {}", e))?; // 1. Canonicalize the input path
+    let cache_dir = get_media_cache_dir()?; // 2. Get media cache directory
+    let file_name = source_path
+        .file_name()
+        .ok_or_else(|| "Invalid file name".to_string())?; // 3. Create a unique filename based on source path hash or use original name
     let cached_path = cache_dir.join(file_name);
-    if !cached_path.exists() {                                                                                                   // 4. Try hard link first, fall back to copy
+    if !cached_path.exists() {
+        // 4. Try hard link first, fall back to copy
 
         // Try hard link
         match fs::hard_link(&source_path, &cached_path) {
-            Ok(_)   => {}
-            Err(_)  => {
+            Ok(_) => {}
+            Err(_) => {
                 // Fall back to copy
-                fs::copy(&source_path, &cached_path).map_err(|e| format!("Failed to copy file to cache: {}", e))?;
+                fs::copy(&source_path, &cached_path)
+                    .map_err(|e| format!("Failed to copy file to cache: {}", e))?;
             }
         }
     }
 
-    let media_kind = determine_media_kind(&source_path);                                                              // 5. Build PreparedMedia response
+    let media_kind = determine_media_kind(&source_path); // 5. Build PreparedMedia response
     let mime_type = guess_mime_type(&source_path);
-    let cached_abs_path = cached_path.to_str().ok_or_else(|| "Invalid cached path".to_string())?.to_string();
-    Ok(PreparedMedia {cached_abs_path, media_kind, mime_type, width: None, height: None})                                        // For images, we could extract dimensions using an image library, but keeping it simple for now
-
+    let cached_abs_path = cached_path
+        .to_str()
+        .ok_or_else(|| "Invalid cached path".to_string())?
+        .to_string();
+    Ok(PreparedMedia {
+        cached_abs_path,
+        media_kind,
+        mime_type,
+        width: None,
+        height: None,
+    }) // For images, we could extract dimensions using an image library, but keeping it simple for now
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -133,15 +148,24 @@ fn open_directory(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer").arg(path).spawn().map_err(|e| e.to_string())?;
+        Command::new("explorer")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(path).spawn().map_err(|e| e.to_string())?;
+        Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open").arg(path).spawn().map_err(|e| e.to_string())?;
+        Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -153,14 +177,19 @@ async fn add_source_files(args: AddSourceFilesArgs, app: tauri::AppHandle) -> Re
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHandle) -> Result<(), String> {
-    let settings = settings::load();    // Load settings
-    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;     // Get the project to determine the project directory
+fn add_source_files_blocking(
+    request: AddSourceFilesRequest,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let settings = settings::load(); // Load settings
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?; // Get the project to determine the project directory
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
     let source_dir = project_dir.join("source");
 
     if !source_dir.exists() {
-        fs::create_dir_all(&source_dir).map_err(|e| format!("Failed to create source directory: {}", e))?;                  // Ensure source directory exists
+        fs::create_dir_all(&source_dir)
+            .map_err(|e| format!("Failed to create source directory: {}", e))?; // Ensure source directory exists
     }
 
     let use_move = matches!(settings.default_behavior, settings::DefaultBehavior::Move);
@@ -227,13 +256,29 @@ fn add_source_files_blocking(request: AddSourceFilesRequest, app: tauri::AppHand
 
             database::add_source_content(&source).map_err(|e| e.to_string())?;
             // Emit completion event
-            let _ = app.emit("file-progress", FileProgress {file_name: file_name.clone(), status: "completed".to_string(), message: "Completed".to_string(), percentage: Some(100.0)});
+            let _ = app.emit(
+                "file-progress",
+                FileProgress {
+                    file_name: file_name.clone(),
+                    status: "completed".to_string(),
+                    message: "Completed".to_string(),
+                    percentage: Some(100.0),
+                },
+            );
             Ok(())
         })();
 
         if let Err(e) = result {
             eprintln!("Failed to process file {}: {}", file_path, e);
-            let _ = app.emit("file-progress", FileProgress {file_name: file_name.clone(), status: "error".to_string(), message: format!("Error: {}", e), percentage: None});
+            let _ = app.emit(
+                "file-progress",
+                FileProgress {
+                    file_name: file_name.clone(),
+                    status: "error".to_string(),
+                    message: format!("Error: {}", e),
+                    percentage: None,
+                },
+            );
             // Continue with other files
         }
     }
@@ -248,7 +293,12 @@ async fn pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let picked = app
         .dialog()
         .file()
-        .add_filter("Images and Videos", &["jpg", "jpeg", "webp", "png", "gif", "mp4", "mkv", "mov", "avi", "webm"])
+        .add_filter(
+            "Images and Videos",
+            &[
+                "jpg", "jpeg", "webp", "png", "gif", "mp4", "mkv", "mov", "avi", "webm",
+            ],
+        )
         .blocking_pick_files();
 
     match picked {
@@ -275,7 +325,10 @@ fn calculate_file_size(path: &str) -> Result<i64, String> {
 fn is_video_file(path: &str) -> bool {
     if let Some(ext) = PathBuf::from(path).extension() {
         let ext_lower = ext.to_string_lossy().to_lowercase();
-        matches!(ext_lower.as_str(), "mp4" | "mov" | "avi" | "webm" | "mkv" | "flv")
+        matches!(
+            ext_lower.as_str(),
+            "mp4" | "mov" | "avi" | "webm" | "mkv" | "flv"
+        )
     } else {
         false
     }
@@ -317,7 +370,12 @@ fn get_video_duration(input_path: &str) -> Result<f32, String> {
         .map_err(|e| format!("Failed to parse duration: {}", e))
 }
 
-fn ffmpeg_convert_to_mp4(input_path: &str, output_dir: &str, app: &tauri::AppHandle, file_name: &str) -> Result<String, String> {
+fn ffmpeg_convert_to_mp4(
+    input_path: &str,
+    output_dir: &str,
+    app: &tauri::AppHandle,
+    file_name: &str,
+) -> Result<String, String> {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
     let input = PathBuf::from(input_path);
@@ -347,7 +405,12 @@ fn ffmpeg_convert_to_mp4(input_path: &str, output_dir: &str, app: &tauri::AppHan
         .arg(&output_path)
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| {format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e)})?;
+        .map_err(|e| {
+            format!(
+                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
+                e
+            )
+        })?;
 
     // Parse progress from stderr
     if let Some(stderr) = child.stderr.take() {
@@ -367,7 +430,7 @@ fn ffmpeg_convert_to_mp4(input_path: &str, output_dir: &str, app: &tauri::AppHan
                                         file_name: file_name.to_string(),
                                         status: "processing".to_string(),
                                         message: format!("Converting to MP4... {:.0}%", percentage),
-                                        percentage: Some(percentage)
+                                        percentage: Some(percentage),
                                     },
                                 );
                             }
@@ -454,7 +517,11 @@ fn create_project_blocking(
 
     // Generate project ID and create project directory
     let project_id = Uuid::new_v4().to_string();
-    let project_folder_name = format!("{}_{}", request.project_name.replace(" ", "_").to_lowercase(), &project_id[..8]);
+    let project_folder_name = format!(
+        "{}_{}",
+        request.project_name.replace(" ", "_").to_lowercase(),
+        &project_id[..8]
+    );
 
     let project_dir = PathBuf::from(&settings.output_directory).join(&project_folder_name);
     let source_dir = project_dir.join("source");
@@ -562,10 +629,26 @@ fn create_project_blocking(
         // Emit completion or error
         match result {
             Ok(_) => {
-                let _ = app.emit("file-progress", FileProgress {file_name: file_name.clone(), status: "completed".to_string(), message: "Completed".to_string(), percentage: Some(100.0)});
+                let _ = app.emit(
+                    "file-progress",
+                    FileProgress {
+                        file_name: file_name.clone(),
+                        status: "completed".to_string(),
+                        message: "Completed".to_string(),
+                        percentage: Some(100.0),
+                    },
+                );
             }
             Err(e) => {
-                let _ = app.emit("file-progress", FileProgress {file_name: file_name.clone(), status: "error".to_string(), message: format!("Error: {}", e), percentage: None});
+                let _ = app.emit(
+                    "file-progress",
+                    FileProgress {
+                        file_name: file_name.clone(),
+                        status: "error".to_string(),
+                        message: format!("Error: {}", e),
+                        percentage: None,
+                    },
+                );
                 return Err(e);
             }
         }
@@ -576,7 +659,8 @@ fn create_project_blocking(
 
     // Update the project with the final size and frame count
     if frame_count > 0 {
-        database::update_project_size_and_frames(&project_id, total_size, frame_count).map_err(|e| e.to_string())?;
+        database::update_project_size_and_frames(&project_id, total_size, frame_count)
+            .map_err(|e| e.to_string())?;
         project.size = total_size;
         project.frames = frame_count;
         project.last_modified = Utc::now();
@@ -606,13 +690,18 @@ fn get_project_conversions(project_id: String) -> Result<Vec<database::AsciiConv
 }
 
 #[tauri::command]
-fn get_conversion_by_folder_path(folder_path: String) -> Result<Option<database::AsciiConversion>, String> {
+fn get_conversion_by_folder_path(
+    folder_path: String,
+) -> Result<Option<database::AsciiConversion>, String> {
     database::get_conversion_by_folder_path(&folder_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn update_conversion_frame_speed(conversion_id: String, frame_speed: u32) -> Result<(), String> {
-    println!("🔄 Tauri: Updating frame_speed for conversion {} to {}", conversion_id, frame_speed);
+    println!(
+        "🔄 Tauri: Updating frame_speed for conversion {} to {}",
+        conversion_id, frame_speed
+    );
     let result = database::update_conversion_frame_speed(&conversion_id, frame_speed);
     match &result {
         Ok(_) => println!("✅ Tauri: Database update successful"),
@@ -656,7 +745,8 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                         if dir_name.ends_with("_ascii") || dir_name.contains("_ascii[") {
                             // Extract source file name (remove "_ascii[...]" suffix)
-                            let source_name = if let Some(bracket_start) = dir_name.find("_ascii[") {
+                            let source_name = if let Some(bracket_start) = dir_name.find("_ascii[")
+                            {
                                 // Has random suffix: extract part before "_ascii["
                                 &dir_name[..bracket_start]
                             } else {
@@ -672,8 +762,15 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                                 .and_then(|conversion| conversion.custom_name);
 
                             // Create display name: use custom_name if available, otherwise "{Source Name} - Frames"
-                            let display_name = custom_name.clone().unwrap_or_else(|| format!("{} - Frames", source_name));
-                            frames.push(FrameDirectory {name: display_name, directory_path: folder_path.to_string(), source_file_name: source_name.to_string(), custom_name});
+                            let display_name = custom_name
+                                .clone()
+                                .unwrap_or_else(|| format!("{} - Frames", source_name));
+                            frames.push(FrameDirectory {
+                                name: display_name,
+                                directory_path: folder_path.to_string(),
+                                source_file_name: source_name.to_string(),
+                                custom_name,
+                            });
                         }
                     }
                 }
@@ -742,7 +839,11 @@ fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
                                         .unwrap_or(0)
                                 };
 
-                                frames.push(FrameFile {path: path.to_str().unwrap_or("").to_string(), name: file_name.to_string(), index});
+                                frames.push(FrameFile {
+                                    path: path.to_str().unwrap_or("").to_string(),
+                                    name: file_name.to_string(),
+                                    index,
+                                });
                             }
                         }
                     }
@@ -804,7 +905,8 @@ fn delete_project(project_id: String) -> Result<(), String> {
 
     // Then delete the physical directory if it exists
     if project_dir.exists() {
-        fs::remove_dir_all(&project_dir).map_err(|e| format!("Failed to delete project directory: {}", e))?;
+        fs::remove_dir_all(&project_dir)
+            .map_err(|e| format!("Failed to delete project directory: {}", e))?;
     }
 
     Ok(())
@@ -824,18 +926,25 @@ struct DeleteSourceFileRequest {
 
 #[tauri::command]
 fn delete_source_file(request: DeleteSourceFileRequest) -> Result<(), String> {
-    println!("🗑️ Deleting source file: {} ({})", request.source_id, request.file_path);
+    println!(
+        "🗑️ Deleting source file: {} ({})",
+        request.source_id, request.file_path
+    );
     // Delete the physical file
     let file_path = PathBuf::from(&request.file_path);
     if file_path.exists() {
         fs::remove_file(&file_path).map_err(|e| format!("Failed to delete file: {}", e))?;
         println!("✅ Deleted physical file: {}", request.file_path);
     } else {
-        println!("⚠️ File not found, skipping physical delete: {}", request.file_path);
+        println!(
+            "⚠️ File not found, skipping physical delete: {}",
+            request.file_path
+        );
     }
 
     // Delete from database (this also deletes associated conversions and cuts)
-    database::delete_source_content(&request.source_id).map_err(|e| format!("Failed to delete from database: {}", e))?;
+    database::delete_source_content(&request.source_id)
+        .map_err(|e| format!("Failed to delete from database: {}", e))?;
     println!("✅ Source file deleted successfully");
     Ok(())
 }
@@ -856,7 +965,8 @@ fn update_frame_custom_name(request: UpdateFrameCustomNameRequest) -> Result<(),
         .ok_or("Conversion not found")?;
 
     // Update the custom name
-    database::update_conversion_custom_name(&conversion.id, request.custom_name).map_err(|e| format!("Failed to update custom name: {}", e))
+    database::update_conversion_custom_name(&conversion.id, request.custom_name)
+        .map_err(|e| format!("Failed to update custom name: {}", e))
 }
 
 #[tauri::command]
@@ -869,11 +979,13 @@ fn delete_frame_directory(directory_path: String) -> Result<(), String> {
     }
 
     // Delete the directory and all its contents
-    fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete frame directory: {}", e))?;
+    fs::remove_dir_all(&dir_path)
+        .map_err(|e| format!("Failed to delete frame directory: {}", e))?;
 
     // Find and delete the corresponding conversion from database
     // The conversion folder_path should match the directory_path
-    database::delete_conversion_by_folder_path(&directory_path).map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
+    database::delete_conversion_by_folder_path(&directory_path)
+        .map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
 
     Ok(())
 }
@@ -1023,12 +1135,18 @@ fn get_sidecar_paths(app: &tauri::AppHandle) -> Option<(PathBuf, PathBuf)> {
 #[tauri::command]
 fn check_sidecar_ffmpeg(app: tauri::AppHandle) -> bool {
     let available = get_sidecar_paths(&app).is_some();
-    println!("🔍 Sidecar ffmpeg check: {}", if available { "available" } else { "not found" });
+    println!(
+        "🔍 Sidecar ffmpeg check: {}",
+        if available { "available" } else { "not found" }
+    );
     available
 }
 
 /// Get FfmpegConfig based on user settings
-fn get_ffmpeg_config(app: &tauri::AppHandle, ffmpeg_source: &settings::FfmpegSource) -> cascii::FfmpegConfig {
+fn get_ffmpeg_config(
+    app: &tauri::AppHandle,
+    ffmpeg_source: &settings::FfmpegSource,
+) -> cascii::FfmpegConfig {
     match ffmpeg_source {
         settings::FfmpegSource::System => {
             if command_exists("ffmpeg") && command_exists("ffprobe") {
@@ -1064,7 +1182,10 @@ fn get_sidecar_config(app: &tauri::AppHandle) -> cascii::FfmpegConfig {
 }
 
 #[tauri::command]
-async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
+async fn convert_to_ascii(
+    app: tauri::AppHandle,
+    request: ConvertToAsciiRequest,
+) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
     let input_path = PathBuf::from(&request.file_path);
     if !input_path.exists() {
@@ -1076,24 +1197,37 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| {
-            matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")
+            matches!(
+                ext.to_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp"
+            )
         })
         .unwrap_or(false);
 
     // Get project directory to save frames in /frames subdirectory
     let settings = settings::load();
-    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
     let frames_dir = project_dir.join("frames");
 
     // Ensure frames directory exists
-    fs::create_dir_all(&frames_dir).map_err(|e| format!("Failed to create frames directory: {}", e))?;
+    fs::create_dir_all(&frames_dir)
+        .map_err(|e| format!("Failed to create frames directory: {}", e))?;
 
     // Create output directory in /frames
     let random_suffix = generate_random_suffix();
-    let folder_name = format!("{}_ascii{}", input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output"), random_suffix);
+    let folder_name = format!(
+        "{}_ascii{}",
+        input_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output"),
+        random_suffix
+    );
     let output_dir = frames_dir.join(&folder_name);
-    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create output directory: {}", e))?;
+    fs::create_dir_all(&output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
     // Prepare variables for the background task
     let input_path_clone = input_path.clone();
@@ -1119,9 +1253,14 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
             .map(str::trim)
             .filter(|s| !s.is_empty());
         match selected {
-            Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.preprocess_custom.as_deref(), None).map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
+            Some("other") => cascii::preprocessing::resolve_preprocess_filter(
+                request.preprocess_custom.as_deref(),
+                None,
+            )
+            .map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
             Some(preset_name) => {
-                cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name)).map_err(|e| format!("Invalid preprocessing preset: {}", e))?
+                cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
+                    .map_err(|e| format!("Invalid preprocessing preset: {}", e))?
             }
             None => return Err("Preprocessing is enabled but no preset was selected".to_string()),
         }
@@ -1170,8 +1309,16 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
 
             if is_image {
                 // Convert single image
-                let output_file = output_dir_clone.join(format!("{}.txt", input_path_clone.file_stem().and_then(|s| s.to_str()).unwrap_or("output")));
-                converter.convert_image(&input_path_clone, &output_file, &conv_opts).map_err(|e| format!("Failed to convert image: {}", e))?;
+                let output_file = output_dir_clone.join(format!(
+                    "{}.txt",
+                    input_path_clone
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("output")
+                ));
+                converter
+                    .convert_image(&input_path_clone, &output_file, &conv_opts)
+                    .map_err(|e| format!("Failed to convert image: {}", e))?;
                 Ok(output_dir_clone)
             } else {
                 // Convert video with progress callback
@@ -1214,7 +1361,13 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                             // Only emit when percentage actually changes OR on completion
                             if percentage > last || completed == total {
                                 last_percent_clone.store(percentage, Ordering::Relaxed);
-                                let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(), percentage});
+                                let _ = app_clone.emit(
+                                    "conversion-progress",
+                                    ConversionProgress {
+                                        source_id: source_id_owned.clone(),
+                                        percentage,
+                                    },
+                                );
                             }
                         }),
                     )
@@ -1265,7 +1418,11 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                 if extract_audio_flag && !is_image_for_audio {
                                     println!("🎵 Starting audio extraction...");
                                     let audio_dir = project_dir_for_audio.join("audio");
-                                    match extract_audio_from_video(&input_path_for_audio, &audio_dir, &random_suffix_for_audio) {
+                                    match extract_audio_from_video(
+                                        &input_path_for_audio,
+                                        &audio_dir,
+                                        &random_suffix_for_audio,
+                                    ) {
                                         Ok((audio_folder_path, audio_size, duration)) => {
                                             // Save audio extraction to database
                                             let audio_folder_name = audio_folder_path
@@ -1277,7 +1434,10 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                             let audio_extraction = database::AudioExtraction {
                                                 id: Uuid::new_v4().to_string(),
                                                 folder_name: audio_folder_name,
-                                                folder_path: audio_folder_path.to_str().unwrap_or("").to_string(),
+                                                folder_path: audio_folder_path
+                                                    .to_str()
+                                                    .unwrap_or("")
+                                                    .to_string(),
                                                 source_file_id: source_id_for_audio.clone(),
                                                 project_id: project_id_for_audio.clone(),
                                                 creation_date: Utc::now(),
@@ -1290,11 +1450,19 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                             match database::add_audio_extraction(&audio_extraction)
                                             {
                                                 Ok(_) => {
-                                                    audio_message = format!(" + Audio extracted ({} bytes)", audio_size);
-                                                    println!("✅ Audio extraction saved to database");
+                                                    audio_message = format!(
+                                                        " + Audio extracted ({} bytes)",
+                                                        audio_size
+                                                    );
+                                                    println!(
+                                                        "✅ Audio extraction saved to database"
+                                                    );
                                                 }
                                                 Err(e) => {
-                                                    println!("❌ Failed to save audio to database: {}", e);
+                                                    println!(
+                                                        "❌ Failed to save audio to database: {}",
+                                                        e
+                                                    );
                                                 }
                                             }
                                         }
@@ -1309,8 +1477,14 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                     ConversionComplete {
                                         source_id: source_id_for_complete,
                                         success: true,
-                                        message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}", result_path.display(), frame_count, total_size, audio_message)
-                                    }
+                                        message: format!(
+                                            "ASCII frames saved to: {} ({} frames, {} bytes){}",
+                                            result_path.display(),
+                                            frame_count,
+                                            total_size,
+                                            audio_message
+                                        ),
+                                    },
                                 );
                             }
                             Err(e) => {
@@ -1320,28 +1494,55 @@ async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest)
                                     ConversionComplete {
                                         source_id: source_id_for_complete,
                                         success: false,
-                                        message: format!("Failed to save conversion to database: {}", e)
-                                    }
+                                        message: format!(
+                                            "Failed to save conversion to database: {}",
+                                            e
+                                        ),
+                                    },
                                 );
                             }
                         }
                     }
                     Err(e) => {
-                        let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
+                        let _ = app_for_complete.emit(
+                            "conversion-complete",
+                            ConversionComplete {
+                                source_id: source_id_for_complete,
+                                success: false,
+                                message: e,
+                            },
+                        );
                     }
                 }
             }
             Ok(Err(e)) => {
-                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
+                let _ = app_for_complete.emit(
+                    "conversion-complete",
+                    ConversionComplete {
+                        source_id: source_id_for_complete,
+                        success: false,
+                        message: e,
+                    },
+                );
             }
             Err(e) => {
-                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete,success: false, message: format!("Task failed: {}", e)});
+                let _ = app_for_complete.emit(
+                    "conversion-complete",
+                    ConversionComplete {
+                        source_id: source_id_for_complete,
+                        success: false,
+                        message: format!("Task failed: {}", e),
+                    },
+                );
             }
         }
     });
 
     // Return immediately - conversion runs in background
-    Ok(format!("Conversion started for: {}", display_name_for_return))
+    Ok(format!(
+        "Conversion started for: {}",
+        display_name_for_return
+    ))
 }
 
 fn generate_random_suffix() -> String {
@@ -1380,25 +1581,38 @@ fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
     Ok((frame_count, total_size))
 }
 
-fn extract_audio_from_video(input_path: &PathBuf, audio_dir: &PathBuf, random_suffix: &str) -> Result<(PathBuf, i64, f64), String> {
+fn extract_audio_from_video(
+    input_path: &PathBuf,
+    audio_dir: &PathBuf,
+    random_suffix: &str,
+) -> Result<(PathBuf, i64, f64), String> {
     use std::process::{Command, Stdio};
 
     // Get video duration for audio_track_end
     let duration = get_video_duration(input_path.to_str().unwrap_or("")).unwrap_or(0.0) as f64;
 
     // Create audio directory
-    fs::create_dir_all(audio_dir).map_err(|e| format!("Failed to create audio directory: {}", e))?;
+    fs::create_dir_all(audio_dir)
+        .map_err(|e| format!("Failed to create audio directory: {}", e))?;
 
     // Generate output filename
-    let file_stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("audio");
+    let file_stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("audio");
     let folder_name = format!("{}_audio{}", file_stem, random_suffix);
     let output_folder = audio_dir.join(&folder_name);
 
-    fs::create_dir_all(&output_folder).map_err(|e| format!("Failed to create audio output folder: {}", e))?;
+    fs::create_dir_all(&output_folder)
+        .map_err(|e| format!("Failed to create audio output folder: {}", e))?;
 
     let output_file = output_folder.join(format!("{}.mp3", file_stem));
 
-    println!("🎵 Extracting audio from: {} to: {}", input_path.display(), output_file.display());
+    println!(
+        "🎵 Extracting audio from: {} to: {}",
+        input_path.display(),
+        output_file.display()
+    );
 
     // Run ffmpeg to extract audio
     let status = Command::new("ffmpeg")
@@ -1414,15 +1628,30 @@ fn extract_audio_from_video(input_path: &PathBuf, audio_dir: &PathBuf, random_su
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .status()
-        .map_err(|e| {format!("Failed to run ffmpeg for audio extraction: {}. Make sure ffmpeg is installed.", e)})?;
+        .map_err(|e| {
+            format!(
+                "Failed to run ffmpeg for audio extraction: {}. Make sure ffmpeg is installed.",
+                e
+            )
+        })?;
 
     if !status.success() {
-        return Err(format!("ffmpeg audio extraction failed with status: {}", status));
+        return Err(format!(
+            "ffmpeg audio extraction failed with status: {}",
+            status
+        ));
     }
 
     // Calculate file size
-    let file_size = fs::metadata(&output_file).map_err(|e| format!("Failed to get audio file size: {}", e))?.len() as i64;
-    println!("✅ Audio extracted: {} ({} bytes, duration: {}s)", output_file.display(), file_size, duration);
+    let file_size = fs::metadata(&output_file)
+        .map_err(|e| format!("Failed to get audio file size: {}", e))?
+        .len() as i64;
+    println!(
+        "✅ Audio extracted: {} ({} bytes, duration: {}s)",
+        output_file.display(),
+        file_size,
+        duration
+    );
 
     Ok((output_folder, file_size, duration))
 }
@@ -1444,16 +1673,23 @@ struct CutVideoArgs {
 }
 
 #[tauri::command]
-async fn cut_video(args: CutVideoArgs, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+async fn cut_video(
+    args: CutVideoArgs,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
     tokio::task::spawn_blocking(move || cut_video_blocking(args.request, app))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+fn cut_video_blocking(
+    request: CutVideoRequest,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
     use std::process::{Command, Stdio};
     let settings = settings::load();
-    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
 
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
     let cuts_dir = project_dir.join("cuts");
@@ -1463,7 +1699,10 @@ fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result
 
     // Generate unique filename
     let input_path = PathBuf::from(&request.source_file_path);
-    let file_stem = input_path.file_stem().and_then(|s| s.to_str()).ok_or("Invalid input filename")?;
+    let file_stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input filename")?;
 
     let cut_id = Uuid::new_v4().to_string();
     let output_filename = format!("{}_cut_{}.mp4", file_stem, &cut_id[..8]);
@@ -1472,10 +1711,25 @@ fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result
     let duration = request.end_time - request.start_time;
 
     // Emit progress event
-    let _ = app.emit("cut-progress", FileProgress {file_name: output_filename.clone(), status: "processing".to_string(), message: "Cutting video...".to_string(), percentage: Some(0.0)});
+    let _ = app.emit(
+        "cut-progress",
+        FileProgress {
+            file_name: output_filename.clone(),
+            status: "processing".to_string(),
+            message: "Cutting video...".to_string(),
+            percentage: Some(0.0),
+        },
+    );
 
-    println!("🎬 Cutting video: {} -> {}", request.source_file_path, output_path.display());
-    println!("   Start: {}s, End: {}s, Duration: {}s", request.start_time, request.end_time, duration);
+    println!(
+        "🎬 Cutting video: {} -> {}",
+        request.source_file_path,
+        output_path.display()
+    );
+    println!(
+        "   Start: {}s, End: {}s, Duration: {}s",
+        request.start_time, request.end_time, duration
+    );
 
     // Run ffmpeg to cut the video
     // Using -ss before -i for fast seeking, then -t for duration
@@ -1499,7 +1753,12 @@ fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .status()
-        .map_err(|e| {format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e)})?;
+        .map_err(|e| {
+            format!(
+                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
+                e
+            )
+        })?;
 
     if !status.success() {
         return Err(format!("ffmpeg cut failed with status: {}", status));
@@ -1533,8 +1792,8 @@ fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result
             file_name: output_filename,
             status: "completed".to_string(),
             message: "Cut completed".to_string(),
-            percentage: Some(100.0)
-        }
+            percentage: Some(100.0),
+        },
     );
 
     println!("✅ Cut saved: {} ({} bytes)", cut.file_path, file_size);
@@ -1591,29 +1850,38 @@ struct PreprocessVideoArgs {
 }
 
 #[tauri::command]
-async fn preprocess_video(args: PreprocessVideoArgs, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+async fn preprocess_video(
+    args: PreprocessVideoArgs,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
     tokio::task::spawn_blocking(move || preprocess_video_blocking(args.request, app))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+fn preprocess_video_blocking(
+    request: PreprocessVideoRequest,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
     use std::process::{Command, Stdio};
 
     // Resolve the ffmpeg filter
     let filter = match request.preset.as_deref() {
         Some("other") => {
-            cascii::preprocessing::resolve_preprocess_filter(request.custom_filter.as_deref(), None).map_err(|e| format!("Invalid preprocessing filter: {}", e))?
+            cascii::preprocessing::resolve_preprocess_filter(request.custom_filter.as_deref(), None)
+                .map_err(|e| format!("Invalid preprocessing filter: {}", e))?
         }
         Some(preset_name) => {
-            cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name)).map_err(|e| format!("Invalid preprocessing preset: {}", e))?
+            cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
+                .map_err(|e| format!("Invalid preprocessing preset: {}", e))?
         }
         None => return Err("No preprocessing preset selected".to_string()),
     };
     let filter = filter.ok_or("Empty preprocessing filter")?;
 
     let current_settings = settings::load();
-    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
 
     let project_dir = PathBuf::from(&current_settings.output_directory).join(&project.project_path);
     let cuts_dir = project_dir.join("cuts");
@@ -1651,7 +1919,11 @@ fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHan
         },
     );
 
-    println!("🎨 Preprocessing video: {} -> {}", request.source_file_path, output_path.display());
+    println!(
+        "🎨 Preprocessing video: {} -> {}",
+        request.source_file_path,
+        output_path.display()
+    );
 
     // Get ffmpeg config
     let ffmpeg_config = get_ffmpeg_config(&app, &current_settings.ffmpeg_source);
@@ -1691,7 +1963,8 @@ fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHan
 
     if in_place {
         // Replace the original file with the preprocessed one
-        fs::rename(&output_path, &input_path).map_err(|e| format!("Failed to replace original file: {}", e))?;
+        fs::rename(&output_path, &input_path)
+            .map_err(|e| format!("Failed to replace original file: {}", e))?;
     }
 
     let final_path = if in_place { &input_path } else { &output_path };
@@ -1749,7 +2022,11 @@ fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHan
         },
     );
 
-    println!("✅ Preprocessed video saved: {} ({} bytes)", final_path.display(), file_size);
+    println!(
+        "✅ Preprocessed video saved: {} ({} bytes)",
+        final_path.display(),
+        file_size
+    );
     Ok(cut)
 }
 
@@ -1783,9 +2060,14 @@ async fn cut_frames(request: CutFramesRequest, app: tauri::AppHandle) -> Result<
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Result<String, String> {
+fn cut_frames_blocking(
+    request: CutFramesRequest,
+    _app: tauri::AppHandle,
+) -> Result<String, String> {
     // 1. Get original conversion
-    let conversion = database::get_conversion_by_folder_path(&request.folder_path).map_err(|e| e.to_string())?.ok_or("Original conversion not found")?;
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
+        .map_err(|e| e.to_string())?
+        .ok_or("Original conversion not found")?;
 
     // 2. Prepare new paths
     let original_dir = PathBuf::from(&conversion.folder_path);
@@ -1834,13 +2116,17 @@ fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Res
 
     for (new_idx, frame) in frames_to_copy.iter().enumerate() {
         let src_path = PathBuf::from(&frame.path);
-        let ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
+        let ext = src_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("txt");
 
         // Format: frame_0001.txt (1-based index)
         let new_filename = format!("frame_{:04}.{}", new_idx + 1, ext);
         let dest_path = new_folder_path.join(new_filename);
 
-        fs::copy(&src_path, &dest_path).map_err(|e| format!("Failed to copy {}: {}", frame.name, e))?;
+        fs::copy(&src_path, &dest_path)
+            .map_err(|e| format!("Failed to copy {}: {}", frame.name, e))?;
 
         let size = fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
         total_size += size as i64;
@@ -1869,7 +2155,11 @@ fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Res
 
     database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
 
-    Ok(format!("Cut frames saved to: {} ({} frames)", new_folder_path.display(), copied_count))
+    Ok(format!(
+        "Cut frames saved to: {} ({} frames)",
+        new_folder_path.display(),
+        copied_count
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -1884,7 +2174,9 @@ struct CropFramesRequest {
 
 #[tauri::command]
 async fn crop_frames(request: CropFramesRequest) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || crop_frames_blocking(request)).await.map_err(|e| format!("Task failed: {}", e))?
+    tokio::task::spawn_blocking(move || crop_frames_blocking(request))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
 }
 
 fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
@@ -1905,7 +2197,14 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
             .ok_or("Invalid directory structure")?
             .join(format!(".crop_tmp_{}", Uuid::new_v4()));
 
-        let result = cascii::crop_frames(&original_dir, request.top, request.bottom, request.left, request.right, &temp_dir)
+        let result = cascii::crop_frames(
+            &original_dir,
+            request.top,
+            request.bottom,
+            request.left,
+            request.right,
+            &temp_dir,
+        )
         .map_err(|e| {
             let _ = fs::remove_dir_all(&temp_dir);
             e.to_string()
@@ -1927,7 +2226,10 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         }
 
         // Move cropped frames into original dir
-        for entry in fs::read_dir(&temp_dir).map_err(|e| e.to_string())?.flatten() {
+        for entry in fs::read_dir(&temp_dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
             let dest = original_dir.join(entry.file_name());
             fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
         }
@@ -1935,9 +2237,20 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         let _ = fs::remove_dir_all(&temp_dir);
 
         // Update conversion record
-        database::update_conversion_dimensions(&conversion.id, result.frame_count as i32, result.total_size as i64).map_err(|e| e.to_string())?;
+        database::update_conversion_dimensions(
+            &conversion.id,
+            result.frame_count as i32,
+            result.total_size as i64,
+        )
+        .map_err(|e| e.to_string())?;
 
-        Ok(format!("Cropped frames in-place: {} ({} frames, {}x{})", original_dir.display(), result.frame_count, result.new_width, result.new_height))
+        Ok(format!(
+            "Cropped frames in-place: {} ({} frames, {}x{})",
+            original_dir.display(),
+            result.frame_count,
+            result.new_width,
+            result.new_height
+        ))
     } else {
         // New frames: create a new folder (existing behavior)
         let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
@@ -1954,7 +2267,14 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
         let new_folder_path = parent_dir.join(&new_folder_name);
 
-        let result = cascii::crop_frames(&original_dir, request.top, request.bottom, request.left, request.right, &new_folder_path)
+        let result = cascii::crop_frames(
+            &original_dir,
+            request.top,
+            request.bottom,
+            request.left,
+            request.right,
+            &new_folder_path,
+        )
         .map_err(|e| e.to_string())?;
 
         let custom_name = if let Some(name) = &conversion.custom_name {
@@ -1978,12 +2298,21 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
 
         database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
 
-        Ok(format!("Cropped frames saved to: {} ({} frames, {}x{})", new_folder_path.display(), result.frame_count, result.new_width, result.new_height))
+        Ok(format!(
+            "Cropped frames saved to: {} ({} frames, {}x{})",
+            new_folder_path.display(),
+            result.frame_count,
+            result.new_width,
+            result.new_height
+        ))
     }
 }
 
 #[tauri::command]
-async fn create_preview(app: tauri::AppHandle, request: CreatePreviewRequest) -> Result<database::Preview, String> {
+async fn create_preview(
+    app: tauri::AppHandle,
+    request: CreatePreviewRequest,
+) -> Result<database::Preview, String> {
     use cascii::{AsciiConverter, ConversionOptions};
     use std::process::{Command, Stdio};
 
@@ -2007,12 +2336,19 @@ async fn create_preview(app: tauri::AppHandle, request: CreatePreviewRequest) ->
     let frame_number = (request.timestamp * request.fps as f64).floor() as u32;
 
     // Generate folder name: preview_{source_name}_frame_{xxx}_{random}
-    let source_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+    let source_name = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
     let random_suffix = generate_random_suffix();
-    let folder_name = format!("preview_{}_frame_{:04}{}", source_name, frame_number, random_suffix);
+    let folder_name = format!(
+        "preview_{}_frame_{:04}{}",
+        source_name, frame_number, random_suffix
+    );
     let output_dir = previews_dir.join(&folder_name);
 
-    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create preview output directory: {}", e))?;
+    fs::create_dir_all(&output_dir)
+        .map_err(|e| format!("Failed to create preview output directory: {}", e))?;
 
     // Extract single frame with ffmpeg
     let temp_frame_path = output_dir.join("temp_frame.png");
@@ -2046,7 +2382,10 @@ async fn create_preview(app: tauri::AppHandle, request: CreatePreviewRequest) ->
         })?;
 
     if !status.success() {
-        return Err(format!("ffmpeg frame extraction failed with status: {}", status));
+        return Err(format!(
+            "ffmpeg frame extraction failed with status: {}",
+            status
+        ));
     }
 
     if !temp_frame_path.exists() {
@@ -2131,7 +2470,8 @@ fn delete_preview(request: DeletePreviewRequest) -> Result<(), String> {
     // Delete the folder
     let dir_path = PathBuf::from(&request.folder_path);
     if dir_path.exists() {
-        fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete preview folder: {}", e))?;
+        fs::remove_dir_all(&dir_path)
+            .map_err(|e| format!("Failed to delete preview folder: {}", e))?;
     }
 
     // Delete from database
@@ -2146,7 +2486,8 @@ struct RenamePreviewRequest {
 
 #[tauri::command]
 fn rename_preview(request: RenamePreviewRequest) -> Result<(), String> {
-    database::update_preview_custom_name(&request.preview_id, request.custom_name).map_err(|e| format!("Failed to rename preview: {}", e))
+    database::update_preview_custom_name(&request.preview_id, request.custom_name)
+        .map_err(|e| format!("Failed to rename preview: {}", e))
 }
 
 // ============== Explorer Layout ==============
@@ -2165,7 +2506,8 @@ struct SaveExplorerLayoutRequest {
 
 #[tauri::command]
 fn save_explorer_layout(request: SaveExplorerLayoutRequest) -> Result<(), String> {
-    database::save_explorer_layout(&request.project_id, &request.layout_json).map_err(|e| format!("Failed to save explorer layout: {}", e))
+    database::save_explorer_layout(&request.project_id, &request.layout_json)
+        .map_err(|e| format!("Failed to save explorer layout: {}", e))
 }
 
 #[derive(Default)]
@@ -2175,6 +2517,17 @@ struct ResourcesContextMenuState {
 
 #[derive(Clone, Debug)]
 struct PendingResourcesContextMenu {
+    window_label: String,
+    node_id: String,
+}
+
+#[derive(Default)]
+struct ExplorerContextMenuState {
+    pending: Mutex<Option<PendingExplorerContextMenu>>,
+}
+
+#[derive(Clone, Debug)]
+struct PendingExplorerContextMenu {
     window_label: String,
     node_id: String,
 }
@@ -2194,9 +2547,26 @@ struct ResourcesContextMenuActionPayload {
     action: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShowExplorerContextMenuRequest {
+    node_id: String,
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExplorerContextMenuActionPayload {
+    node_id: String,
+    action: String,
+}
+
 const RESOURCES_MENU_ITEM_RENAME: &str = "resources-context-menu:rename";
 const RESOURCES_MENU_ITEM_OPEN: &str = "resources-context-menu:open";
 const RESOURCES_MENU_ITEM_DELETE: &str = "resources-context-menu:delete";
+const EXPLORER_MENU_ITEM_RENAME: &str = "explorer-context-menu:rename";
+const EXPLORER_MENU_ITEM_DELETE: &str = "explorer-context-menu:delete";
 
 fn resources_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
@@ -2207,8 +2577,20 @@ fn resources_menu_action(menu_id: &str) -> Option<&'static str> {
     }
 }
 
+fn explorer_menu_action(menu_id: &str) -> Option<&'static str> {
+    match menu_id {
+        EXPLORER_MENU_ITEM_RENAME => Some("rename"),
+        EXPLORER_MENU_ITEM_DELETE => Some("delete"),
+        _ => None,
+    }
+}
+
 #[tauri::command]
-fn show_resources_context_menu(window: tauri::Window, state: tauri::State<ResourcesContextMenuState>, request: ShowResourcesContextMenuRequest) -> Result<(), String> {
+fn show_resources_context_menu(
+    window: tauri::Window,
+    state: tauri::State<ResourcesContextMenuState>,
+    request: ShowResourcesContextMenuRequest,
+) -> Result<(), String> {
     let node_id = request.node_id;
     let is_source = node_id.starts_with("res:source:");
     let is_cut = node_id.starts_with("res:cut:");
@@ -2231,7 +2613,10 @@ fn show_resources_context_menu(window: tauri::Window, state: tauri::State<Resour
         .map_err(|e| format!("Failed to build resources context menu: {}", e))?;
 
     if let Ok(mut pending) = state.pending.lock() {
-        *pending = Some(PendingResourcesContextMenu {window_label: window.label().to_string(), node_id});
+        *pending = Some(PendingResourcesContextMenu {
+            window_label: window.label().to_string(),
+            node_id,
+        });
     }
 
     window
@@ -2239,7 +2624,36 @@ fn show_resources_context_menu(window: tauri::Window, state: tauri::State<Resour
         .map_err(|e| format!("Failed to show resources context menu: {}", e))
 }
 
-fn handle_resources_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
+#[tauri::command]
+fn show_explorer_context_menu(
+    window: tauri::Window,
+    state: tauri::State<ExplorerContextMenuState>,
+    request: ShowExplorerContextMenuRequest,
+) -> Result<(), String> {
+    if !request.node_id.starts_with("exp:folder:") {
+        return Ok(());
+    }
+
+    let menu = MenuBuilder::new(&window)
+        .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
+        .separator()
+        .text(EXPLORER_MENU_ITEM_DELETE, "Delete Folder")
+        .build()
+        .map_err(|e| format!("Failed to build explorer context menu: {}", e))?;
+
+    if let Ok(mut pending) = state.pending.lock() {
+        *pending = Some(PendingExplorerContextMenu {
+            window_label: window.label().to_string(),
+            node_id: request.node_id,
+        });
+    }
+
+    window
+        .popup_menu_at(&menu, LogicalPosition::new(request.x, request.y))
+        .map_err(|e| format!("Failed to show explorer context menu: {}", e))
+}
+
+fn handle_resources_menu_event(app: &tauri::AppHandle, event: &MenuEvent) {
     let Some(action) = resources_menu_action(event.id().as_ref()) else {
         return;
     };
@@ -2262,8 +2676,44 @@ fn handle_resources_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
         action: action.to_string(),
     };
 
-    if let Err(err) = app.emit_to(EventTarget::window(pending.window_label), "resources-context-menu-action", payload) {
+    if let Err(err) = app.emit_to(
+        EventTarget::window(pending.window_label),
+        "resources-context-menu-action",
+        payload,
+    ) {
         eprintln!("Failed to emit resources context menu action: {}", err);
+    }
+}
+
+fn handle_explorer_menu_event(app: &tauri::AppHandle, event: &MenuEvent) {
+    let Some(action) = explorer_menu_action(event.id().as_ref()) else {
+        return;
+    };
+
+    let Some(state) = app.try_state::<ExplorerContextMenuState>() else {
+        return;
+    };
+
+    let pending = match state.pending.lock() {
+        Ok(mut pending) => pending.take(),
+        Err(_) => None,
+    };
+
+    let Some(pending) = pending else {
+        return;
+    };
+
+    let payload = ExplorerContextMenuActionPayload {
+        node_id: pending.node_id,
+        action: action.to_string(),
+    };
+
+    if let Err(err) = app.emit_to(
+        EventTarget::window(pending.window_label),
+        "explorer-context-menu-action",
+        payload,
+    ) {
+        eprintln!("Failed to emit explorer context menu action: {}", err);
     }
 }
 
@@ -2273,7 +2723,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(ResourcesContextMenuState::default())
-        .on_menu_event(handle_resources_menu_event)
+        .manage(ExplorerContextMenuState::default())
+        .on_menu_event(|app, event| {
+            handle_resources_menu_event(app, &event);
+            handle_explorer_menu_event(app, &event);
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             load_settings,
@@ -2317,7 +2771,8 @@ pub fn run() {
             rename_preview,
             get_explorer_layout,
             save_explorer_layout,
-            show_resources_context_menu
+            show_resources_context_menu,
+            show_explorer_context_menu
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

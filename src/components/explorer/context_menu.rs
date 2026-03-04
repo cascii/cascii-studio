@@ -1,6 +1,6 @@
+use gloo::events::EventListener;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use gloo::events::EventListener;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContextMenuItem {
@@ -33,10 +33,7 @@ pub fn context_menu(props: &ContextMenuProps) -> Html {
         });
     }
 
-    let style = format!(
-        "left: {}px; top: {}px;",
-        props.x, props.y
-    );
+    let style = format!("left: {}px; top: {}px;", props.x, props.y);
 
     html! {
         <div id="explorer-context-menu" class="explorer-context-menu" {style}

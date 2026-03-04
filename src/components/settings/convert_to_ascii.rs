@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use yew_icons::{Icon, IconId};
-use crate::pages::project::{SourceContent, ContentType};
-use wasm_bindgen::prelude::*;
+use crate::pages::project::{ContentType, SourceContent};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 #[derive(Serialize, Deserialize)]
 struct ConvertToAsciiRequest {
@@ -178,7 +178,17 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let invoke_args = ConvertToAsciiInvokeArgs {
-                        request: ConvertToAsciiRequest {file_path, luminance, font_ratio, columns, fps: Some(fps), project_id: project_id_clone.clone(), source_file_id, color, extract_audio}
+                        request: ConvertToAsciiRequest {
+                            file_path,
+                            luminance,
+                            font_ratio,
+                            columns,
+                            fps: Some(fps),
+                            project_id: project_id_clone.clone(),
+                            source_file_id,
+                            color,
+                            extract_audio,
+                        },
                     };
 
                     let args = serde_wasm_bindgen::to_value(&invoke_args).unwrap();
@@ -192,10 +202,17 @@ pub fn convert_to_ascii(props: &ConvertToAsciiProps) -> Html {
                                     on_error_message_change.emit(None);
 
                                     // Refresh frame directories after conversion
-                                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id_clone })).unwrap();
+                                    let args = serde_wasm_bindgen::to_value(
+                                        &json!({ "projectId": project_id_clone }),
+                                    )
+                                    .unwrap();
                                     match tauri_invoke("get_project_frames", args).await {
                                         result => {
-                                            if let Ok(_frames) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(result) {
+                                            if let Ok(_frames) = serde_wasm_bindgen::from_value::<
+                                                Vec<serde_json::Value>,
+                                            >(
+                                                result
+                                            ) {
                                                 on_refresh_frames.emit(());
                                             }
                                         }

@@ -1,7 +1,7 @@
+use crate::pages::project::{FrameDirectory, SourceContent};
+use wasm_bindgen::JsCast;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use wasm_bindgen::JsCast;
-use crate::pages::project::{SourceContent, FrameDirectory};
 
 #[derive(Properties, PartialEq)]
 pub struct ControlsProps {
@@ -54,7 +54,8 @@ pub fn controls(props: &ControlsProps) -> Html {
             let on_should_reset_change_clone = on_should_reset_change.clone();
             gloo_timers::callback::Timeout::new(0, move || {
                 on_should_reset_change_clone.emit(false);
-            }).forget();
+            })
+            .forget();
         })
     };
 

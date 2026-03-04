@@ -350,6 +350,7 @@ fn open_or_activate_tab(
 pub struct ProjectPageProps {
     pub project_id: String,
     pub on_project_name_change: Callback<String>,
+    pub explorer_on_left: bool,
 }
 
 #[function_component(ProjectPage)]
@@ -1016,27 +1017,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
-    // Callback to refresh cuts after rename
-    let on_rename_cut = {
-        let video_cuts = video_cuts.clone();
-        let project_id = project_id.clone();
-
-        Callback::from(move |(_cut_id, _new_name): (String, String)| {
-            let video_cuts = video_cuts.clone();
-            let project_id = (*project_id).clone();
-
-            wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                {
-                    video_cuts.set(cuts);
-                }
-            });
-        })
-    };
-
     // Callback to delete a source file
     let on_delete_source_file = {
         let source_files = source_files.clone();
@@ -1412,21 +1392,56 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
-    // Explorer sidebar: rename preview (refresh list)
+    // Explorer sidebar: rename preview
     let on_rename_preview_explorer = {
         let previews = previews.clone();
+        let selected_preview = selected_preview.clone();
+        let open_tabs = open_tabs.clone();
         let project_id = project_id.clone();
 
-        Callback::from(move |_preview: Preview| {
+        Callback::from(move |(preview, custom_name): (Preview, Option<String>)| {
             let previews = previews.clone();
+            let selected_preview = selected_preview.clone();
+            let open_tabs = open_tabs.clone();
             let project_id = (*project_id).clone();
+            let preview_id = preview.id.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
+                let rename_args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "preview_id": preview_id.clone(),
+                        "custom_name": custom_name
+                    }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("rename_preview", rename_args).await;
+
                 let args =
                     serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(new_previews) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_previews", args).await)
-                {
+                if let Ok(new_previews) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
+                    if let Some(updated_preview) =
+                        new_previews.iter().find(|p| p.id == preview_id).cloned()
+                    {
+                        if selected_preview
+                            .as_ref()
+                            .map(|p| p.id == preview_id)
+                            .unwrap_or(false)
+                        {
+                            selected_preview.set(Some(updated_preview.clone()));
+                        }
+
+                        let tab_id = tab_id_for_resource(&ResourceRef::Preview {
+                            preview_id: preview_id.clone(),
+                        });
+                        let mut tabs = (*open_tabs).clone();
+                        if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                            tab.label = preview_tab_label(&updated_preview);
+                        }
+                        open_tabs.set(tabs);
+                    }
+
                     previews.set(new_previews);
                 }
             });
@@ -1599,49 +1614,167 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
-    // Explorer sidebar: rename source (refresh list)
+    // Explorer sidebar: rename source
     let on_rename_source_explorer = {
         let source_files = source_files.clone();
+        let selected_source = selected_source.clone();
+        let open_tabs = open_tabs.clone();
         let project_id = project_id.clone();
-        Callback::from(move |_source: SourceContent| {
-            let source_files = source_files.clone();
-            let project_id = (*project_id).clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(s) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
-                {
-                    source_files.set(s);
-                }
-            });
-        })
+        Callback::from(
+            move |(source, custom_name): (SourceContent, Option<String>)| {
+                let source_files = source_files.clone();
+                let selected_source = selected_source.clone();
+                let open_tabs = open_tabs.clone();
+                let project_id = (*project_id).clone();
+                let source_id = source.id.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let rename_args = serde_wasm_bindgen::to_value(&json!({
+                        "sourceId": source_id.clone(),
+                        "customName": custom_name
+                    }))
+                    .unwrap();
+                    let _ = tauri_invoke("rename_source_file", rename_args).await;
+
+                    let args =
+                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                        tauri_invoke("get_project_sources", args).await,
+                    ) {
+                        if let Some(updated_source) =
+                            sources.iter().find(|s| s.id == source_id).cloned()
+                        {
+                            if selected_source
+                                .as_ref()
+                                .map(|s| s.id == source_id)
+                                .unwrap_or(false)
+                            {
+                                selected_source.set(Some(updated_source.clone()));
+                            }
+
+                            let tab_id = tab_id_for_resource(&ResourceRef::SourceFile {
+                                source_id: source_id.clone(),
+                            });
+                            let mut tabs = (*open_tabs).clone();
+                            if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                                tab.label = source_tab_label(&updated_source);
+                            }
+                            open_tabs.set(tabs);
+                        }
+
+                        source_files.set(sources);
+                    }
+                });
+            },
+        )
     };
 
-    // Explorer sidebar: rename frame (refresh list)
+    // Explorer sidebar: rename frame
     let on_rename_frame_explorer = {
         let frame_directories = frame_directories.clone();
+        let selected_frame_dir = selected_frame_dir.clone();
+        let open_tabs = open_tabs.clone();
         let project_id = project_id.clone();
-        Callback::from(move |_frame: FrameDirectory| {
-            let frame_directories = frame_directories.clone();
-            let project_id = (*project_id).clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
-                {
-                    frame_directories.set(frames);
-                }
-            });
-        })
+        Callback::from(
+            move |(frame_dir, custom_name): (FrameDirectory, Option<String>)| {
+                let frame_directories = frame_directories.clone();
+                let selected_frame_dir = selected_frame_dir.clone();
+                let open_tabs = open_tabs.clone();
+                let project_id = (*project_id).clone();
+                let directory_path = frame_dir.directory_path.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let rename_args = serde_wasm_bindgen::to_value(&json!({
+                        "request": {
+                            "folderPath": directory_path.clone(),
+                            "customName": custom_name
+                        }
+                    }))
+                    .unwrap();
+                    let _ = tauri_invoke("update_frame_custom_name", rename_args).await;
+
+                    let args =
+                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
+                        tauri_invoke("get_project_frames", args).await,
+                    ) {
+                        if let Some(updated_frame) = frames
+                            .iter()
+                            .find(|frame| frame.directory_path == directory_path)
+                            .cloned()
+                        {
+                            if selected_frame_dir
+                                .as_ref()
+                                .map(|f| f.directory_path == directory_path)
+                                .unwrap_or(false)
+                            {
+                                selected_frame_dir.set(Some(updated_frame.clone()));
+                            }
+
+                            let tab_id = tab_id_for_resource(&ResourceRef::FrameDirectory {
+                                directory_path: directory_path.clone(),
+                            });
+                            let mut tabs = (*open_tabs).clone();
+                            if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                                tab.label = frame_dir_tab_label(&updated_frame);
+                            }
+                            open_tabs.set(tabs);
+                        }
+
+                        frame_directories.set(frames);
+                    }
+                });
+            },
+        )
     };
 
-    // Explorer sidebar: rename cut (wraps existing on_rename_cut which expects (String, String))
+    // Explorer sidebar: rename cut
     let on_rename_cut_explorer = {
-        let on_rename_cut = on_rename_cut.clone();
-        Callback::from(move |cut: VideoCut| {
-            on_rename_cut.emit((cut.id.clone(), String::new()));
+        let video_cuts = video_cuts.clone();
+        let selected_cut = selected_cut.clone();
+        let open_tabs = open_tabs.clone();
+        let project_id = project_id.clone();
+        Callback::from(move |(cut, custom_name): (VideoCut, Option<String>)| {
+            let video_cuts = video_cuts.clone();
+            let selected_cut = selected_cut.clone();
+            let open_tabs = open_tabs.clone();
+            let project_id = (*project_id).clone();
+            let cut_id = cut.id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let rename_args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "cut_id": cut_id.clone(),
+                        "custom_name": custom_name
+                    }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("rename_cut", rename_args).await;
+
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
+                    tauri_invoke("get_project_cuts", args).await,
+                ) {
+                    if let Some(updated_cut) = cuts.iter().find(|c| c.id == cut_id).cloned() {
+                        if selected_cut
+                            .as_ref()
+                            .map(|c| c.id == cut_id)
+                            .unwrap_or(false)
+                        {
+                            selected_cut.set(Some(updated_cut.clone()));
+                        }
+
+                        let tab_id = tab_id_for_resource(&ResourceRef::VideoCut {
+                            cut_id: cut_id.clone(),
+                        });
+                        let mut tabs = (*open_tabs).clone();
+                        if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                            tab.label = cut_tab_label(&updated_cut);
+                        }
+                        open_tabs.set(tabs);
+                    }
+
+                    video_cuts.set(cuts);
+                }
+            });
         })
     };
 
@@ -2057,7 +2190,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     html! {
         <div id="project-page" class="container project-page">
-            <div id="project-layout" class="project-layout">
+            <div
+                id="project-layout"
+                class={classes!(
+                    "project-layout",
+                    props.explorer_on_left.then_some("project-layout--explorer-left")
+                )}
+            >
                 <div id="project-explorer-sidebar" class="explorer-sidebar">
                     <div id="project-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree

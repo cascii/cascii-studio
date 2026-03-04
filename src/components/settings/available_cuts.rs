@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use wasm_bindgen::prelude::*;
-use serde::{Deserialize, Serialize};
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"

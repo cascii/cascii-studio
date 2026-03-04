@@ -1,13 +1,13 @@
-use yew::prelude::*;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::closure::Closure;
+use gloo_timers::callback::Interval;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use yew_icons::{Icon, IconId};
-use std::collections::VecDeque;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
-use gloo_timers::callback::Interval;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 use cascii_core_view::{
     draw_cached_canvas, draw_frame_from_cache, load_color_frames, load_text_frames,
@@ -66,8 +66,7 @@ extern "C" {
 async fn sleep_ms(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         if let Some(window) = web_sys::window() {
-            let _ = window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
         } else {
             let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
         }
@@ -81,11 +80,13 @@ const COLOR_LOADING_PROGRESS_TICK_MS: u32 = 500;
 struct TauriFrameProvider;
 
 impl FrameDataProvider for TauriFrameProvider {
-    fn get_frame_files(&self, directory: &str) -> impl std::future::Future<Output = LoadResult<Vec<FrameFile>>> {
+    fn get_frame_files(
+        &self,
+        directory: &str,
+    ) -> impl std::future::Future<Output = LoadResult<Vec<FrameFile>>> {
         let dir = directory.to_string();
         async move {
-            let args =
-                serde_wasm_bindgen::to_value(&json!({ "directoryPath": dir })).unwrap();
+            let args = serde_wasm_bindgen::to_value(&json!({ "directoryPath": dir })).unwrap();
             serde_wasm_bindgen::from_value::<Vec<FrameFile>>(
                 tauri_invoke("get_frame_files", args).await,
             )
@@ -96,20 +97,19 @@ impl FrameDataProvider for TauriFrameProvider {
     fn read_frame_text(&self, path: &str) -> impl std::future::Future<Output = LoadResult<String>> {
         let path = path.to_string();
         async move {
-            let args =
-                serde_wasm_bindgen::to_value(&json!({ "filePath": path })).unwrap();
-            serde_wasm_bindgen::from_value::<String>(
-                tauri_invoke("read_frame_file", args).await,
-            )
-            .map_err(|e| format!("Failed to read frame: {:?}", e))
+            let args = serde_wasm_bindgen::to_value(&json!({ "filePath": path })).unwrap();
+            serde_wasm_bindgen::from_value::<String>(tauri_invoke("read_frame_file", args).await)
+                .map_err(|e| format!("Failed to read frame: {:?}", e))
         }
     }
 
-    fn read_cframe_bytes(&self, txt_path: &str) -> impl std::future::Future<Output = LoadResult<Option<Vec<u8>>>> {
+    fn read_cframe_bytes(
+        &self,
+        txt_path: &str,
+    ) -> impl std::future::Future<Output = LoadResult<Option<Vec<u8>>>> {
         let path = txt_path.to_string();
         async move {
-            let args =
-                serde_wasm_bindgen::to_value(&json!({ "txtFilePath": path })).unwrap();
+            let args = serde_wasm_bindgen::to_value(&json!({ "txtFilePath": path })).unwrap();
             serde_wasm_bindgen::from_value::<Option<Vec<u8>>>(
                 tauri_invoke("read_cframe_file", args).await,
             )
@@ -285,7 +285,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 *handle.borrow_mut() = Some(interval);
             }
             let cleanup_handle = handle.clone();
-            move || { cleanup_handle.borrow_mut().take(); }
+            move || {
+                cleanup_handle.borrow_mut().take();
+            }
         });
     }
 
@@ -388,8 +390,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                         if *color_enabled_for_color
                                             && i == *current_index_ref_for_color.borrow()
                                         {
-                                            color_cache_refresh_for_color
-                                                .set((*color_cache_refresh_for_color).wrapping_add(1));
+                                            color_cache_refresh_for_color.set(
+                                                (*color_cache_refresh_for_color).wrapping_add(1),
+                                            );
                                         }
                                     }
                                     *progress_for_color.borrow_mut() = (i + 1, total);
@@ -400,7 +403,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                     async move {
                                         // While B/W is actively playing, back off color loading cadence
                                         // to preserve animation smoothness.
-                                        if *is_playing_ref.borrow() && !*color_enabled_ref.borrow() {
+                                        if *is_playing_ref.borrow() && !*color_enabled_ref.borrow()
+                                        {
                                             sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
                                         } else {
                                             yield_to_event_loop().await;
@@ -444,56 +448,53 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let playing = *is_playing;
         let total_frames = *frame_count;
 
-        use_effect_with(
-            (playing, current_fps, total_frames),
-            move |_| {
-                // Always clear existing interval first
-                interval_handle.borrow_mut().take();
+        use_effect_with((playing, current_fps, total_frames), move |_| {
+            // Always clear existing interval first
+            interval_handle.borrow_mut().take();
 
-                if playing && total_frames > 0 {
-                    let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
-                    let current_index_clone = current_index.clone();
-                    let current_index_ref_clone = current_index_ref.clone();
-                    let is_playing_clone = is_playing_state.clone();
-                    let interval_handle_clone = interval_handle.clone();
-                    let left_value_clone = left_value.clone();
-                    let right_value_clone = right_value.clone();
+            if playing && total_frames > 0 {
+                let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
+                let current_index_clone = current_index.clone();
+                let current_index_ref_clone = current_index_ref.clone();
+                let is_playing_clone = is_playing_state.clone();
+                let interval_handle_clone = interval_handle.clone();
+                let left_value_clone = left_value.clone();
+                let right_value_clone = right_value.clone();
 
-                    let interval = Interval::new(interval_ms, move || {
-                        let max_idx = total_frames.saturating_sub(1) as f64;
-                        let effective_start = (*left_value_clone * max_idx).round() as usize;
-                        let effective_end = (*right_value_clone * max_idx).round() as usize;
+                let interval = Interval::new(interval_ms, move || {
+                    let max_idx = total_frames.saturating_sub(1) as f64;
+                    let effective_start = (*left_value_clone * max_idx).round() as usize;
+                    let effective_end = (*right_value_clone * max_idx).round() as usize;
 
-                        // Use ref for latest value
-                        let mut current = *current_index_ref_clone.borrow();
+                    // Use ref for latest value
+                    let mut current = *current_index_ref_clone.borrow();
 
-                        if current < effective_start {
-                             current = effective_start;
-                        }
+                    if current < effective_start {
+                        current = effective_start;
+                    }
 
-                        if current >= effective_end {
-                            if loop_enabled {
-                                current = effective_start;
-                                *current_index_ref_clone.borrow_mut() = current;
-                                current_index_clone.set(current);
-                            } else {
-                                interval_handle_clone.borrow_mut().take();
-                                is_playing_clone.set(false);
-                            }
-                        } else {
-                            current += 1;
+                    if current >= effective_end {
+                        if loop_enabled {
+                            current = effective_start;
                             *current_index_ref_clone.borrow_mut() = current;
                             current_index_clone.set(current);
+                        } else {
+                            interval_handle_clone.borrow_mut().take();
+                            is_playing_clone.set(false);
                         }
-                    });
+                    } else {
+                        current += 1;
+                        *current_index_ref_clone.borrow_mut() = current;
+                        current_index_clone.set(current);
+                    }
+                });
 
-                    // Store the interval to keep it alive
-                    *interval_handle.borrow_mut() = Some(interval);
-                }
-
-                || ()
+                // Store the interval to keep it alive
+                *interval_handle.borrow_mut() = Some(interval);
             }
-        );
+
+            || ()
+        });
     }
 
     // External play/pause control
@@ -629,24 +630,32 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let total_frames = *frame_count;
         let phase = *loading_phase;
 
-        use_effect_with((total_frames, phase, container_width as i32, container_height as i32), move |_| {
-            let frames = frames_ref.borrow();
-            if frames.is_empty() {
-                return;
-            }
-
-            if let Some(first_frame) = frames.first() {
-                let (cols, rows) = first_frame.dimensions();
-
-                if rows == 0 || cols == 0 {
+        use_effect_with(
+            (
+                total_frames,
+                phase,
+                container_width as i32,
+                container_height as i32,
+            ),
+            move |_| {
+                let frames = frames_ref.borrow();
+                if frames.is_empty() {
                     return;
                 }
 
-                let optimal_font_size =
-                    FontSizing::calculate(cols, rows, container_width, container_height);
-                calculated_font_size.set(optimal_font_size);
-            }
-        });
+                if let Some(first_frame) = frames.first() {
+                    let (cols, rows) = first_frame.dimensions();
+
+                    if rows == 0 || cols == 0 {
+                        return;
+                    }
+
+                    let optimal_font_size =
+                        FontSizing::calculate(cols, rows, container_width, container_height);
+                    calculated_font_size.set(optimal_font_size);
+                }
+            },
+        );
     }
 
     // Keep the color cache warm in background without hurting B/W playback.
@@ -666,89 +675,92 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let font_size = *calculated_font_size;
         let font_size_key = (font_size * 100.0) as i32;
 
-        use_effect_with((total_frames, has_any_color_val, font_size_key), move |_| {
-            if total_frames == 0 || !has_any_color_val {
-                return;
-            }
+        use_effect_with(
+            (total_frames, has_any_color_val, font_size_key),
+            move |_| {
+                if total_frames == 0 || !has_any_color_val {
+                    return;
+                }
 
-            let next_worker_id = color_cache_worker_id.borrow().wrapping_add(1);
-            *color_cache_worker_id.borrow_mut() = next_worker_id;
+                let next_worker_id = color_cache_worker_id.borrow().wrapping_add(1);
+                *color_cache_worker_id.borrow_mut() = next_worker_id;
 
-            {
-                let mut cache = frame_canvas_cache.borrow_mut();
-                cache.resize(total_frames);
-                cache.invalidate_for_font_size_key(font_size_key);
-            }
+                {
+                    let mut cache = frame_canvas_cache.borrow_mut();
+                    cache.resize(total_frames);
+                    cache.invalidate_for_font_size_key(font_size_key);
+                }
 
-            // Rebuild queue from already-loaded color frames.
-            {
-                let loaded_flags = color_loaded_flags.borrow();
-                let mut queue = color_cache_queue.borrow_mut();
-                queue.clear();
-                for (idx, loaded) in loaded_flags.iter().enumerate() {
-                    if *loaded {
-                        queue.push_back(idx);
+                // Rebuild queue from already-loaded color frames.
+                {
+                    let loaded_flags = color_loaded_flags.borrow();
+                    let mut queue = color_cache_queue.borrow_mut();
+                    queue.clear();
+                    for (idx, loaded) in loaded_flags.iter().enumerate() {
+                        if *loaded {
+                            queue.push_back(idx);
+                        }
                     }
                 }
-            }
 
-            let frames_for_cache = frames_ref.clone();
-            let cache_for_cache = frame_canvas_cache.clone();
-            let queue_for_cache = color_cache_queue.clone();
-            let refresh_for_cache = color_cache_refresh.clone();
-            let worker_id_ref = color_cache_worker_id.clone();
-            let current_index_ref = current_index_ref.clone();
-            let is_playing_ref = is_playing_ref.clone();
-            let color_enabled_ref = color_enabled_ref.clone();
-            let loading_phase_ref = loading_phase_ref.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let config = RenderConfig::new(font_size);
+                let frames_for_cache = frames_ref.clone();
+                let cache_for_cache = frame_canvas_cache.clone();
+                let queue_for_cache = color_cache_queue.clone();
+                let refresh_for_cache = color_cache_refresh.clone();
+                let worker_id_ref = color_cache_worker_id.clone();
+                let current_index_ref = current_index_ref.clone();
+                let is_playing_ref = is_playing_ref.clone();
+                let color_enabled_ref = color_enabled_ref.clone();
+                let loading_phase_ref = loading_phase_ref.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let config = RenderConfig::new(font_size);
 
-                loop {
-                    if *worker_id_ref.borrow() != next_worker_id {
-                        return;
-                    }
-
-                    // While B/W playback is active, prioritize smooth animation and
-                    // defer expensive canvas prerendering.
-                    if *is_playing_ref.borrow() && !*color_enabled_ref.borrow() {
-                        sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
-                        continue;
-                    }
-
-                    let next_frame = { queue_for_cache.borrow_mut().pop_front() };
-                    let Some(i) = next_frame else {
-                        if *loading_phase_ref.borrow() == LoadingPhase::Complete {
-                            refresh_for_cache.set((*refresh_for_cache).wrapping_add(1));
+                    loop {
+                        if *worker_id_ref.borrow() != next_worker_id {
                             return;
                         }
-                        sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
-                        continue;
-                    };
 
-                    if cache_for_cache.borrow().has(i) {
-                        continue;
-                    }
-
-                    let offscreen = {
-                        let frames = frames_for_cache.borrow();
-                        frames
-                            .get(i)
-                            .and_then(|f| f.cframe.as_ref())
-                            .and_then(|cframe| render_to_offscreen_canvas(cframe, &config).ok())
-                    };
-
-                    if let Some(canvas) = offscreen {
-                        cache_for_cache.borrow_mut().store(i, canvas);
-                        if i == *current_index_ref.borrow() {
-                            refresh_for_cache.set((*refresh_for_cache).wrapping_add(1));
+                        // While B/W playback is active, prioritize smooth animation and
+                        // defer expensive canvas prerendering.
+                        if *is_playing_ref.borrow() && !*color_enabled_ref.borrow() {
+                            sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
+                            continue;
                         }
-                    }
 
-                    yield_to_event_loop().await;
-                }
-            });
-        });
+                        let next_frame = { queue_for_cache.borrow_mut().pop_front() };
+                        let Some(i) = next_frame else {
+                            if *loading_phase_ref.borrow() == LoadingPhase::Complete {
+                                refresh_for_cache.set((*refresh_for_cache).wrapping_add(1));
+                                return;
+                            }
+                            sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
+                            continue;
+                        };
+
+                        if cache_for_cache.borrow().has(i) {
+                            continue;
+                        }
+
+                        let offscreen = {
+                            let frames = frames_for_cache.borrow();
+                            frames
+                                .get(i)
+                                .and_then(|f| f.cframe.as_ref())
+                                .and_then(|cframe| render_to_offscreen_canvas(cframe, &config).ok())
+                        };
+
+                        if let Some(canvas) = offscreen {
+                            cache_for_cache.borrow_mut().store(i, canvas);
+                            if i == *current_index_ref.borrow() {
+                                refresh_for_cache.set((*refresh_for_cache).wrapping_add(1));
+                            }
+                        }
+
+                        yield_to_event_loop().await;
+                    }
+                });
+            },
+        );
     }
 
     // Update frame content: draw pre-rendered color canvas when available,
@@ -765,46 +777,57 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let font_size_key = (font_size * 100.0) as i32;
         let cache_refresh_tick = *color_cache_refresh;
 
-        use_effect_with((current_frame_idx, color_enabled_val, total_frames, font_size_key, cache_refresh_tick), move |_| {
-            let frames = frames_ref.borrow();
-            if let Some(frame) = frames.get(current_frame_idx) {
-                if color_enabled_val {
-                    if let Some(cframe) = frame.cframe.as_ref() {
-                        if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
-                            {
-                                let mut cache = frame_canvas_cache.borrow_mut();
-                                cache.resize(total_frames);
-                                cache.invalidate_for_font_size_key(font_size_key);
-                            }
+        use_effect_with(
+            (
+                current_frame_idx,
+                color_enabled_val,
+                total_frames,
+                font_size_key,
+                cache_refresh_tick,
+            ),
+            move |_| {
+                let frames = frames_ref.borrow();
+                if let Some(frame) = frames.get(current_frame_idx) {
+                    if color_enabled_val {
+                        if let Some(cframe) = frame.cframe.as_ref() {
+                            if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
+                                {
+                                    let mut cache = frame_canvas_cache.borrow_mut();
+                                    cache.resize(total_frames);
+                                    cache.invalidate_for_font_size_key(font_size_key);
+                                }
 
-                            let drawn = {
-                                let cache = frame_canvas_cache.borrow();
-                                draw_frame_from_cache(&canvas, &cache, current_frame_idx)
-                                    .unwrap_or(false)
-                            };
-                            if drawn {
-                                return;
-                            }
-
-                            if let Ok(offscreen) = render_to_offscreen_canvas(cframe, &RenderConfig::new(font_size))
-                            {
-                                let draw_ok = draw_cached_canvas(&canvas, &offscreen).is_ok();
-                                frame_canvas_cache
-                                    .borrow_mut()
-                                    .store(current_frame_idx, offscreen);
-                                if draw_ok {
+                                let drawn = {
+                                    let cache = frame_canvas_cache.borrow();
+                                    draw_frame_from_cache(&canvas, &cache, current_frame_idx)
+                                        .unwrap_or(false)
+                                };
+                                if drawn {
                                     return;
+                                }
+
+                                if let Ok(offscreen) = render_to_offscreen_canvas(
+                                    cframe,
+                                    &RenderConfig::new(font_size),
+                                ) {
+                                    let draw_ok = draw_cached_canvas(&canvas, &offscreen).is_ok();
+                                    frame_canvas_cache
+                                        .borrow_mut()
+                                        .store(current_frame_idx, offscreen);
+                                    if draw_ok {
+                                        return;
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if let Some(element) = content_ref.cast::<web_sys::HtmlElement>() {
-                    element.set_text_content(Some(&frame.content));
+                    if let Some(element) = content_ref.cast::<web_sys::HtmlElement>() {
+                        element.set_text_content(Some(&frame.content));
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 
     // Toggle play/pause - effect handles actual start/stop
@@ -835,7 +858,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
                             // Convert slider position (0-1) to frame index within range
                             let range_len = (range_end - range_start) as f64;
-                            let target_frame = (range_start as f64 + slider_val.clamp(0.0, 1.0) * range_len).round() as usize;
+                            let target_frame = (range_start as f64
+                                + slider_val.clamp(0.0, 1.0) * range_len)
+                                .round() as usize;
                             let clamped_frame = target_frame.min(range_end).max(range_start);
 
                             // Pause when seeking
@@ -915,7 +940,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         })
     };
 
-    let play_icon = if *is_playing { IconId::LucidePause } else { IconId::LucidePlay };
+    let play_icon = if *is_playing {
+        IconId::LucidePause
+    } else {
+        IconId::LucidePlay
+    };
     let total_frames = *frame_count;
     let current_frame = (*current_index).min(total_frames.saturating_sub(1));
 
@@ -927,10 +956,12 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
     // Progress within the range (0.0 to 1.0)
     let progress_in_range = if range_frame_count > 1 {
-        ((current_frame as f64) - (range_start_frame as f64)) / ((range_end_frame - range_start_frame) as f64)
+        ((current_frame as f64) - (range_start_frame as f64))
+            / ((range_end_frame - range_start_frame) as f64)
     } else {
         0.0
-    }.clamp(0.0, 1.0);
+    }
+    .clamp(0.0, 1.0);
 
     // Position within the subset (1-based)
     let position_in_subset = if current_frame >= range_start_frame {

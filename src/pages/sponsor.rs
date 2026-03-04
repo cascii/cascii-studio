@@ -3,7 +3,9 @@ use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
 
-#[wasm_bindgen(inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }")]
+#[wasm_bindgen(
+    inline_js = "export function copy_to_clipboard(text) { navigator.clipboard.writeText(text); }"
+)]
 extern "C" {
     fn copy_to_clipboard(text: &str);
 }

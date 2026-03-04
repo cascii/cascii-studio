@@ -1,23 +1,38 @@
+use serde_json::json;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use serde_json::json;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-pub enum DefaultBehavior { Move, Copy }
+pub enum DefaultBehavior {
+    Move,
+    Copy,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-pub enum DeleteMode { Soft, Hard }
+pub enum DeleteMode {
+    Soft,
+    Hard,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-pub enum FfmpegSource { System, Sidecar }
+pub enum FfmpegSource {
+    System,
+    Sidecar,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-pub enum CropOutput { NewFrames, CurrentFrames }
+pub enum CropOutput {
+    NewFrames,
+    CurrentFrames,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-pub enum PreprocessOutput { NewFile, CurrentFile }
+pub enum PreprocessOutput {
+    NewFile,
+    CurrentFile,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct Settings {
@@ -38,11 +53,21 @@ pub struct Settings {
     pub preprocess_output: PreprocessOutput,
 }
 
-fn default_color_frames() -> bool { true }
-fn default_extract_audio() -> bool { false }
-fn default_ffmpeg_source() -> FfmpegSource { FfmpegSource::System }
-fn default_crop_output() -> CropOutput { CropOutput::NewFrames }
-fn default_preprocess_output() -> PreprocessOutput { PreprocessOutput::NewFile }
+fn default_color_frames() -> bool {
+    true
+}
+fn default_extract_audio() -> bool {
+    false
+}
+fn default_ffmpeg_source() -> FfmpegSource {
+    FfmpegSource::System
+}
+fn default_crop_output() -> CropOutput {
+    CropOutput::NewFrames
+}
+fn default_preprocess_output() -> PreprocessOutput {
+    PreprocessOutput::NewFile
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -73,7 +98,8 @@ pub fn settings_page() -> Html {
     let system_ffmpeg_available = use_state(|| false);
     let sidecar_ffmpeg_available = use_state(|| false);
 
-    { // load settings and check ffmpeg availability
+    {
+        // load settings and check ffmpeg availability
         let settings = settings.clone();
         let system_ffmpeg_available = system_ffmpeg_available.clone();
         let sidecar_ffmpeg_available = sidecar_ffmpeg_available.clone();
@@ -130,7 +156,9 @@ pub fn settings_page() -> Html {
     let on_dir_input = {
         let settings = settings.clone();
         Callback::from(move |e: InputEvent| {
-            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .value();
             let mut s = (*settings).clone();
             s.output_directory = v;
             settings.set(s);
@@ -140,9 +168,15 @@ pub fn settings_page() -> Html {
     let on_behavior_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             let mut s = (*settings).clone();
-            s.default_behavior = if v == "Copy" { DefaultBehavior::Copy } else { DefaultBehavior::Move };
+            s.default_behavior = if v == "Copy" {
+                DefaultBehavior::Copy
+            } else {
+                DefaultBehavior::Move
+            };
             settings.set(s);
         })
     };
@@ -150,9 +184,15 @@ pub fn settings_page() -> Html {
     let on_delete_mode_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             let mut s = (*settings).clone();
-            s.delete_mode = if v == "Hard" { DeleteMode::Hard } else { DeleteMode::Soft };
+            s.delete_mode = if v == "Hard" {
+                DeleteMode::Hard
+            } else {
+                DeleteMode::Soft
+            };
             settings.set(s);
         })
     };
@@ -160,7 +200,9 @@ pub fn settings_page() -> Html {
     let on_debug_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .checked();
             let mut s = (*settings).clone();
             s.debug_logs = v;
             settings.set(s);
@@ -170,7 +212,9 @@ pub fn settings_page() -> Html {
     let on_color_frames_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .checked();
             let mut s = (*settings).clone();
             s.color_frames_default = v;
             settings.set(s);
@@ -180,7 +224,9 @@ pub fn settings_page() -> Html {
     let on_extract_audio_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlInputElement>().checked();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlInputElement>()
+                .checked();
             let mut s = (*settings).clone();
             s.extract_audio_default = v;
             settings.set(s);
@@ -190,9 +236,15 @@ pub fn settings_page() -> Html {
     let on_crop_output_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             let mut s = (*settings).clone();
-            s.crop_output = if v == "CurrentFrames" { CropOutput::CurrentFrames } else { CropOutput::NewFrames };
+            s.crop_output = if v == "CurrentFrames" {
+                CropOutput::CurrentFrames
+            } else {
+                CropOutput::NewFrames
+            };
             settings.set(s);
         })
     };
@@ -200,9 +252,15 @@ pub fn settings_page() -> Html {
     let on_preprocess_output_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             let mut s = (*settings).clone();
-            s.preprocess_output = if v == "CurrentFile" { PreprocessOutput::CurrentFile } else { PreprocessOutput::NewFile };
+            s.preprocess_output = if v == "CurrentFile" {
+                PreprocessOutput::CurrentFile
+            } else {
+                PreprocessOutput::NewFile
+            };
             settings.set(s);
         })
     };
@@ -210,9 +268,15 @@ pub fn settings_page() -> Html {
     let on_ffmpeg_source_change = {
         let settings = settings.clone();
         Callback::from(move |e: Event| {
-            let v = e.target_unchecked_into::<web_sys::HtmlSelectElement>().value();
+            let v = e
+                .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                .value();
             let mut s = (*settings).clone();
-            s.ffmpeg_source = if v == "Sidecar" { FfmpegSource::Sidecar } else { FfmpegSource::System };
+            s.ffmpeg_source = if v == "Sidecar" {
+                FfmpegSource::Sidecar
+            } else {
+                FfmpegSource::System
+            };
             settings.set(s);
         })
     };

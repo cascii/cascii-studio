@@ -1,11 +1,11 @@
-use yew::prelude::*;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
+use gloo::events::EventListener;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use yew_icons::{Icon, IconId};
 use std::rc::Rc;
-use gloo::events::EventListener;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use yew::prelude::*;
+use yew_icons::{Icon, IconId};
 
 use super::open::Project;
 use super::project::SourceContent;
@@ -384,7 +384,7 @@ pub struct TimelineItem {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct DragData {
-    origin: String, // "sidebar" or "timeline"
+    origin: String,    // "sidebar" or "timeline"
     item_type: String, // "source", "frame", "cut" (for sidebar)
     id: String,
     name: String,
@@ -441,19 +441,25 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
                 // Fetch source files
                 let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
+                if let Ok(sources) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
+                {
                     source_files.set(sources);
                 }
 
                 // Fetch frame directories
                 let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                if let Ok(frames) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
                     frame_directories.set(frames);
                 }
 
                 // Fetch video cuts
                 let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
+                if let Ok(cuts) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
                     video_cuts.set(cuts);
                 }
             });
@@ -461,7 +467,6 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             || ()
         });
     }
-
 
     // Helper to get display name from file path
     fn get_file_name(path: &str) -> String {
@@ -481,37 +486,43 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     // Add item to timeline helper
     let add_to_timeline = {
         let timeline_items = timeline_items.clone();
-        Rc::new(move |item_type: &str, id: String, name: String, insert_at: Option<usize>| {
-            web_sys::console::log_1(&format!("Adding to timeline: type={}, name={}", item_type, name).into());
-            let type_enum = match item_type {
-                "source" => TimelineItemType::Source,
-                "frame" => TimelineItemType::AsciiConversion,
-                "cut" => TimelineItemType::VideoCut,
-                _ => {
-                    web_sys::console::log_1(&format!("Unknown item type: {}", item_type).into());
-                    return;
-                },
-            };
+        Rc::new(
+            move |item_type: &str, id: String, name: String, insert_at: Option<usize>| {
+                web_sys::console::log_1(
+                    &format!("Adding to timeline: type={}, name={}", item_type, name).into(),
+                );
+                let type_enum = match item_type {
+                    "source" => TimelineItemType::Source,
+                    "frame" => TimelineItemType::AsciiConversion,
+                    "cut" => TimelineItemType::VideoCut,
+                    _ => {
+                        web_sys::console::log_1(
+                            &format!("Unknown item type: {}", item_type).into(),
+                        );
+                        return;
+                    }
+                };
 
-            let mut items = (*timeline_items).clone();
-            let new_item = TimelineItem {
-                id: make_unique_timeline_item_id(&id),
-                name,
-                item_type: type_enum,
-                original_id: id,
-            };
+                let mut items = (*timeline_items).clone();
+                let new_item = TimelineItem {
+                    id: make_unique_timeline_item_id(&id),
+                    name,
+                    item_type: type_enum,
+                    original_id: id,
+                };
 
-            if let Some(index) = insert_at {
-                if index <= items.len() {
-                    items.insert(index, new_item);
+                if let Some(index) = insert_at {
+                    if index <= items.len() {
+                        items.insert(index, new_item);
+                    } else {
+                        items.push(new_item);
+                    }
                 } else {
                     items.push(new_item);
                 }
-            } else {
-                items.push(new_item);
-            }
-            timeline_items.set(items);
-        })
+                timeline_items.set(items);
+            },
+        )
     };
 
     // Use a ref to always have the latest timeline_items available for the event listener
@@ -536,60 +547,78 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     web_sys::console::log_1(&format!("Pending drop data: {}", data_str).into());
                     match serde_json::from_str::<DragData>(&data_str) {
                         Ok(drag_data) => {
-                            web_sys::console::log_1(&format!("Parsed drag data - origin: {}, index: {:?}", drag_data.origin, drag_data.index).into());
+                            web_sys::console::log_1(
+                                &format!(
+                                    "Parsed drag data - origin: {}, index: {:?}",
+                                    drag_data.origin, drag_data.index
+                                )
+                                .into(),
+                            );
                             let mut items = timeline_items_ref.borrow().clone();
-                            web_sys::console::log_1(&format!("Current items count: {}", items.len()).into());
+                            web_sys::console::log_1(
+                                &format!("Current items count: {}", items.len()).into(),
+                            );
 
-                        if drag_data.origin == "sidebar" {
-                            // Adding new item from sidebar
-                            let type_enum = match drag_data.item_type.as_str() {
-                                "source" => TimelineItemType::Source,
-                                "frame" => TimelineItemType::AsciiConversion,
-                                "cut" => TimelineItemType::VideoCut,
-                                _ => return,
-                            };
+                            if drag_data.origin == "sidebar" {
+                                // Adding new item from sidebar
+                                let type_enum = match drag_data.item_type.as_str() {
+                                    "source" => TimelineItemType::Source,
+                                    "frame" => TimelineItemType::AsciiConversion,
+                                    "cut" => TimelineItemType::VideoCut,
+                                    _ => return,
+                                };
 
-                            let new_item = TimelineItem {
-                                id: make_unique_timeline_item_id(&drag_data.id),
-                                name: drag_data.name,
-                                item_type: type_enum,
-                                original_id: drag_data.id,
-                            };
+                                let new_item = TimelineItem {
+                                    id: make_unique_timeline_item_id(&drag_data.id),
+                                    name: drag_data.name,
+                                    item_type: type_enum,
+                                    original_id: drag_data.id,
+                                };
 
-                            if let Some(idx) = target_index {
-                                if idx <= items.len() {
-                                    items.insert(idx, new_item);
+                                if let Some(idx) = target_index {
+                                    if idx <= items.len() {
+                                        items.insert(idx, new_item);
+                                    } else {
+                                        items.push(new_item);
+                                    }
                                 } else {
                                     items.push(new_item);
                                 }
-                            } else {
-                                items.push(new_item);
-                            }
-                            timeline_items.set(items);
-                        } else if drag_data.origin == "timeline" {
-                            // Reordering existing timeline item
-                            if let Some(from_index) = drag_data.index {
-                                if let Some(to_index) = target_index {
-                                    web_sys::console::log_1(&format!("Moving item from {} to {}", from_index, to_index).into());
-                                    if from_index < items.len() {
-                                        let item = items.remove(from_index);
-                                        // Adjust target index after removal
-                                        let adjusted_to = if to_index > from_index {
-                                            (to_index - 1).min(items.len())
-                                        } else {
-                                            to_index.min(items.len())
-                                        };
-                                        items.insert(adjusted_to, item);
-                                        timeline_items.set(items);
+                                timeline_items.set(items);
+                            } else if drag_data.origin == "timeline" {
+                                // Reordering existing timeline item
+                                if let Some(from_index) = drag_data.index {
+                                    if let Some(to_index) = target_index {
+                                        web_sys::console::log_1(
+                                            &format!(
+                                                "Moving item from {} to {}",
+                                                from_index, to_index
+                                            )
+                                            .into(),
+                                        );
+                                        if from_index < items.len() {
+                                            let item = items.remove(from_index);
+                                            // Adjust target index after removal
+                                            let adjusted_to = if to_index > from_index {
+                                                (to_index - 1).min(items.len())
+                                            } else {
+                                                to_index.min(items.len())
+                                            };
+                                            items.insert(adjusted_to, item);
+                                            timeline_items.set(items);
+                                        }
+                                    } else {
+                                        web_sys::console::log_1(
+                                            &"No target index for timeline reorder".into(),
+                                        );
                                     }
-                                } else {
-                                    web_sys::console::log_1(&"No target index for timeline reorder".into());
                                 }
                             }
                         }
-                        },
                         Err(e) => {
-                            web_sys::console::log_1(&format!("Failed to parse drag data: {:?}", e).into());
+                            web_sys::console::log_1(
+                                &format!("Failed to parse drag data: {:?}", e).into(),
+                            );
                         }
                     }
                 } else {
@@ -660,7 +689,12 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             // Don't start drag if clicking on the remove button
             if let Some(target) = e.target() {
                 if let Some(element) = target.dyn_ref::<web_sys::Element>() {
-                    if element.closest(".timeline-item-remove").ok().flatten().is_some() {
+                    if element
+                        .closest(".timeline-item-remove")
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    {
                         return;
                     }
                 }

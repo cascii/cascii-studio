@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew_icons::IconId;
 
+use super::drag_state::set_active_resource_drag;
 use super::explorer_types::{NodeKind, ResourceRef, SidebarState, TreeNode, TreeNodeId};
 use super::tree_node::TreeNodeView;
 use super::tree_section::TreeSection;
@@ -57,10 +58,10 @@ pub struct ResourcesTreeProps {
     pub on_delete_frame: Callback<FrameDirectory>,
     pub on_delete_cut: Callback<VideoCut>,
     pub on_delete_preview: Callback<Preview>,
-    pub on_rename_source: Callback<SourceContent>,
-    pub on_rename_frame: Callback<FrameDirectory>,
-    pub on_rename_cut: Callback<VideoCut>,
-    pub on_rename_preview: Callback<Preview>,
+    pub on_rename_source: Callback<(SourceContent, Option<String>)>,
+    pub on_rename_frame: Callback<(FrameDirectory, Option<String>)>,
+    pub on_rename_cut: Callback<(VideoCut, Option<String>)>,
+    pub on_rename_preview: Callback<(Preview, Option<String>)>,
     pub on_open_source: Callback<SourceContent>,
     pub on_open_frame: Callback<FrameDirectory>,
     pub on_open_cut: Callback<VideoCut>,
@@ -79,10 +80,6 @@ struct ResourcesMenuHandlers {
     on_delete_frame: Callback<FrameDirectory>,
     on_delete_cut: Callback<VideoCut>,
     on_delete_preview: Callback<Preview>,
-    on_rename_source: Callback<SourceContent>,
-    on_rename_frame: Callback<FrameDirectory>,
-    on_rename_cut: Callback<VideoCut>,
-    on_rename_preview: Callback<Preview>,
     on_open_source: Callback<SourceContent>,
     on_open_frame: Callback<FrameDirectory>,
     on_open_cut: Callback<VideoCut>,
@@ -104,6 +101,10 @@ struct NativeResourcesMenuActionPayload {
     action: String,
 }
 
+fn log_drag(message: &str) {
+    web_sys::console::log_1(&message.into());
+}
+
 fn is_resource_leaf_node(id: &str) -> bool {
     id.starts_with("res:source:")
         || id.starts_with("res:cut:")
@@ -119,9 +120,16 @@ fn build_resources_tree(
     previews: &[Preview],
     sidebar_state: &SidebarState,
     selected_id: &Option<TreeNodeId>,
+    rename_target_id: &Option<TreeNodeId>,
 ) -> Vec<TreeNode> {
     let is_selected =
         |id: &str| -> bool { selected_id.as_ref().map(|s| s.0 == id).unwrap_or(false) };
+    let is_renaming = |id: &str| -> bool {
+        rename_target_id
+            .as_ref()
+            .map(|r| r.0 == id)
+            .unwrap_or(false)
+    };
 
     // Source Files -> Original Files
     let original_files: Vec<TreeNode> = source_files
@@ -148,7 +156,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
-                is_rename_active: false,
+                is_rename_active: is_renaming(&id),
                 children: vec![],
             }
         })
@@ -178,7 +186,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
-                is_rename_active: false,
+                is_rename_active: is_renaming(&id),
                 children: vec![],
             }
         })
@@ -210,7 +218,7 @@ fn build_resources_tree(
             depth: 3,
             is_expanded: false,
             is_selected: is_selected(&id),
-            is_rename_active: false,
+            is_rename_active: is_renaming(&id),
             children: vec![],
         };
 
@@ -240,7 +248,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
-                is_rename_active: false,
+                is_rename_active: is_renaming(&id),
                 children: vec![],
             }
         })
@@ -340,6 +348,9 @@ fn build_resources_tree(
 
 #[function_component(ResourcesTree)]
 pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
+    let rename_target_id = use_state(|| None::<TreeNodeId>);
+    let rename_value = use_state(String::new);
+
     let tree = build_resources_tree(
         &props.source_files,
         &props.video_cuts,
@@ -347,6 +358,7 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         &props.previews,
         &props.sidebar_state,
         &props.selected_node_id,
+        &*rename_target_id,
     );
 
     let menu_handlers_ref = use_mut_ref(|| ResourcesMenuHandlers {
@@ -358,10 +370,6 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         on_delete_frame: props.on_delete_frame.clone(),
         on_delete_cut: props.on_delete_cut.clone(),
         on_delete_preview: props.on_delete_preview.clone(),
-        on_rename_source: props.on_rename_source.clone(),
-        on_rename_frame: props.on_rename_frame.clone(),
-        on_rename_cut: props.on_rename_cut.clone(),
-        on_rename_preview: props.on_rename_preview.clone(),
         on_open_source: props.on_open_source.clone(),
         on_open_frame: props.on_open_frame.clone(),
         on_open_cut: props.on_open_cut.clone(),
@@ -378,10 +386,6 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
             on_delete_frame: props.on_delete_frame.clone(),
             on_delete_cut: props.on_delete_cut.clone(),
             on_delete_preview: props.on_delete_preview.clone(),
-            on_rename_source: props.on_rename_source.clone(),
-            on_rename_frame: props.on_rename_frame.clone(),
-            on_rename_cut: props.on_rename_cut.clone(),
-            on_rename_preview: props.on_rename_preview.clone(),
             on_open_source: props.on_open_source.clone(),
             on_open_frame: props.on_open_frame.clone(),
             on_open_cut: props.on_open_cut.clone(),
@@ -396,11 +400,15 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         let menu_handlers_ref = menu_handlers_ref.clone();
         let menu_listener_handle = menu_listener_handle.clone();
         let menu_listener_closure = menu_listener_closure.clone();
+        let rename_target_id = rename_target_id.clone();
+        let rename_value = rename_value.clone();
 
         use_effect_with((), move |_| {
             let menu_handlers_ref = menu_handlers_ref.clone();
             let menu_listener_handle = menu_listener_handle.clone();
             let menu_listener_closure_storage = menu_listener_closure.clone();
+            let rename_target_id = rename_target_id.clone();
+            let rename_value = rename_value.clone();
 
             let on_menu_action = Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
                 let payload_key = JsValue::from_str("payload");
@@ -420,7 +428,19 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                                 .cloned()
                             {
                                 match action {
-                                    "rename" => handlers.on_rename_source.emit(file),
+                                    "rename" => {
+                                        let display_name =
+                                            file.custom_name.clone().unwrap_or_else(|| {
+                                                std::path::Path::new(&file.file_path)
+                                                    .file_stem()
+                                                    .and_then(|s| s.to_str())
+                                                    .unwrap_or("")
+                                                    .to_string()
+                                            });
+                                        rename_value.set(display_name);
+                                        rename_target_id
+                                            .set(Some(TreeNodeId(payload.node_id.clone())));
+                                    }
                                     "open" => handlers.on_open_source.emit(file),
                                     "delete" => handlers.on_delete_source.emit(file),
                                     _ => {}
@@ -431,7 +451,19 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                                 handlers.video_cuts.iter().find(|c| c.id == cut_id).cloned()
                             {
                                 match action {
-                                    "rename" => handlers.on_rename_cut.emit(cut),
+                                    "rename" => {
+                                        let display_name =
+                                            cut.custom_name.clone().unwrap_or_else(|| {
+                                                std::path::Path::new(&cut.file_path)
+                                                    .file_stem()
+                                                    .and_then(|s| s.to_str())
+                                                    .unwrap_or("")
+                                                    .to_string()
+                                            });
+                                        rename_value.set(display_name);
+                                        rename_target_id
+                                            .set(Some(TreeNodeId(payload.node_id.clone())));
+                                    }
                                     "open" => handlers.on_open_cut.emit(cut),
                                     "delete" => handlers.on_delete_cut.emit(cut),
                                     _ => {}
@@ -446,7 +478,11 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                                 .cloned()
                             {
                                 match action {
-                                    "rename" => handlers.on_rename_frame.emit(frame_dir),
+                                    "rename" => {
+                                        rename_value.set(frame_dir.name.clone());
+                                        rename_target_id
+                                            .set(Some(TreeNodeId(payload.node_id.clone())));
+                                    }
                                     "open" => handlers.on_open_frame.emit(frame_dir),
                                     "delete" => handlers.on_delete_frame.emit(frame_dir),
                                     _ => {}
@@ -462,7 +498,15 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                                 .cloned()
                             {
                                 match action {
-                                    "rename" => handlers.on_rename_preview.emit(preview),
+                                    "rename" => {
+                                        let display_name = preview
+                                            .custom_name
+                                            .clone()
+                                            .unwrap_or_else(|| preview.folder_name.clone());
+                                        rename_value.set(display_name);
+                                        rename_target_id
+                                            .set(Some(TreeNodeId(payload.node_id.clone())));
+                                    }
                                     "open" => handlers.on_open_preview.emit(preview),
                                     "delete" => handlers.on_delete_preview.emit(preview),
                                     _ => {}
@@ -570,6 +614,76 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         })
     };
 
+    let on_mouse_down = Callback::from(move |id: TreeNodeId| {
+        if is_resource_leaf_node(&id.0) {
+            log_drag(&format!(
+                "[Resources DnD] Mouse down on draggable node: {}",
+                id.0
+            ));
+            set_active_resource_drag(Some(id.0));
+        }
+    });
+
+    let on_rename_submit = {
+        let rename_target_id = rename_target_id.clone();
+        let rename_value = rename_value.clone();
+        let source_files = props.source_files.clone();
+        let video_cuts = props.video_cuts.clone();
+        let frame_directories = props.frame_directories.clone();
+        let previews = props.previews.clone();
+        let on_rename_source = props.on_rename_source.clone();
+        let on_rename_frame = props.on_rename_frame.clone();
+        let on_rename_cut = props.on_rename_cut.clone();
+        let on_rename_preview = props.on_rename_preview.clone();
+        Callback::from(move |(id, new_name): (TreeNodeId, String)| {
+            let trimmed = new_name.trim().to_string();
+            let custom_name = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            };
+            if let Some(source_id) = id.0.strip_prefix("res:source:") {
+                if let Some(file) = source_files.iter().find(|f| f.id == source_id).cloned() {
+                    on_rename_source.emit((file, custom_name));
+                }
+            } else if let Some(cut_id) = id.0.strip_prefix("res:cut:") {
+                if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
+                    on_rename_cut.emit((cut, custom_name));
+                }
+            } else if let Some(dir_path) = id.0.strip_prefix("res:framedir:") {
+                if let Some(frame_dir) = frame_directories
+                    .iter()
+                    .find(|d| d.directory_path == dir_path)
+                    .cloned()
+                {
+                    on_rename_frame.emit((frame_dir, custom_name));
+                }
+            } else if let Some(preview_id) = id.0.strip_prefix("res:preview:") {
+                if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
+                    on_rename_preview.emit((preview, custom_name));
+                }
+            }
+            rename_target_id.set(None);
+            rename_value.set(String::new());
+        })
+    };
+
+    let on_rename_cancel = {
+        let rename_target_id = rename_target_id.clone();
+        let rename_value = rename_value.clone();
+        Callback::from(move |_: TreeNodeId| {
+            rename_target_id.set(None);
+            rename_value.set(String::new());
+        })
+    };
+
+    let on_rename_input = {
+        let rename_value = rename_value.clone();
+        Callback::from(move |(_, value): (TreeNodeId, String)| {
+            rename_value.set(value);
+        })
+    };
+
     // Add files button for the section header
     let add_btn = if let Some(on_add) = &props.on_add_files {
         let on_add = on_add.clone();
@@ -597,6 +711,11 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                             on_toggle_expand={on_toggle_expand.clone()}
                             on_select={on_select.clone()}
                             on_context_menu={on_context_menu.clone()}
+                            on_rename_submit={Some(on_rename_submit.clone())}
+                            on_rename_cancel={Some(on_rename_cancel.clone())}
+                            on_rename_input={Some(on_rename_input.clone())}
+                            rename_value={if rename_target_id.is_some() { Some((*rename_value).clone()) } else { None }}
+                            on_mouse_down={Some(on_mouse_down.clone())}
                         />
                     }
                 })}

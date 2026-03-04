@@ -1,8 +1,8 @@
+use crate::pages::project::SourceContent;
+use serde_json::json;
+use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
-use crate::pages::project::SourceContent;
-use wasm_bindgen::prelude::*;
-use serde_json::json;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -86,7 +86,10 @@ impl Component for SourceFiles {
                 };
 
                 // Find the source file to pass to the callback
-                let source_file = ctx.props().source_files.iter()
+                let source_file = ctx
+                    .props()
+                    .source_files
+                    .iter()
                     .find(|f| f.id == source_id_clone)
                     .cloned();
 
@@ -100,7 +103,8 @@ impl Component for SourceFiles {
                     let args = serde_wasm_bindgen::to_value(&json!({
                         "sourceId": source_id_clone,
                         "customName": new_name_clone
-                    })).unwrap();
+                    }))
+                    .unwrap();
                     let _ = tauri_invoke("rename_source_file", args).await;
 
                     // Trigger refresh after successful save

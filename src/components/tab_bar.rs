@@ -220,15 +220,7 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
     };
 
     html! {
-        <div
-            id="tab-bar"
-            class="tab-bar"
-            role="tablist"
-            aria-label="Open resources"
-            onmousemove={on_tab_bar_mouse_move}
-            onmouseup={on_tab_bar_mouse_up}
-            onmouseleave={on_tab_bar_mouse_leave}
-        >
+        <div id="tab-bar" class="tab-bar" role="tablist" aria-label="Open resources" onmousemove={on_tab_bar_mouse_move} onmouseup={on_tab_bar_mouse_up} onmouseleave={on_tab_bar_mouse_leave}>
             {for props.tabs.iter().map(|tab| {
                 let tab_id = tab.id.clone();
                 let close_id = tab.id.clone();
@@ -295,15 +287,8 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                 });
 
                 html! {
-                    <div
-                        class={class_name}
-                        data-tab-id={tab.id.clone()}
-                        role="tab"
-                        aria-selected={is_active.to_string()}
-                        title={tab.label.clone()}
-                        onclick={on_tab_click}
-                        onmousedown={on_mouse_down}
-                    >
+                    <div class={class_name} data-tab-id={tab.id.clone()} role="tab" aria-selected={is_active.to_string()} title={tab.label.clone()}
+                        onclick={on_tab_click} onmousedown={on_mouse_down}>
                         <span class="tab__icon">
                             <Icon icon_id={icon_id} width={"14"} height={"14"} />
                         </span>

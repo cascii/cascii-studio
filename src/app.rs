@@ -12,7 +12,9 @@ pub fn app() -> Html {
     let on_nav = {
         let current_page = current_page.clone();
         Callback::from(move |route: &'static str| {
-            current_page.set(route.to_string());
+            if current_page.as_str() != route {
+                current_page.set(route.to_string());
+            }
         })
     };
 

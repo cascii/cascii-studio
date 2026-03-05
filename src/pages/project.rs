@@ -2295,9 +2295,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     </div>
                     <div id="project-sidebar-bottom" class="explorer-sidebar__bottom">
-                        if let Some(ref on_navigate) = props.on_navigate {
-                            <ToolsSection on_navigate={on_navigate.clone()} current_page={"project"} />
-                        }
                         // Controls as a collapsible section (like Outline in VS Code)
                         <Controls
                             selected_source={(*selected_source).clone()}
@@ -2364,6 +2361,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 })
                             }}
                         />
+                        if let Some(ref on_navigate) = props.on_navigate {
+                            <ToolsSection on_navigate={on_navigate.clone()} current_page={"project"} />
+                        }
                     </div>
                 </div>
 

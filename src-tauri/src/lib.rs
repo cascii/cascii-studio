@@ -675,6 +675,34 @@ fn get_all_projects() -> Result<Vec<database::Project>, String> {
 }
 
 #[tauri::command]
+fn rename_project(project_id: String, project_name: String) -> Result<(), String> {
+    let normalized_name = project_name.trim();
+    if normalized_name.is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+
+    database::update_project_name(&project_id, normalized_name)
+        .map_err(|e| format!("Failed to rename project: {}", e))
+}
+
+#[tauri::command]
+fn open_project_folder(project_id: String) -> Result<(), String> {
+    let project =
+        database::get_project(&project_id).map_err(|e| format!("Failed to get project: {}", e))?;
+    let settings = settings::load();
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+
+    if !project_dir.exists() {
+        return Err(format!(
+            "Project directory does not exist: {}",
+            project_dir.display()
+        ));
+    }
+
+    open_directory(project_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn get_project(project_id: String) -> Result<database::Project, String> {
     database::get_project(&project_id).map_err(|e| e.to_string())
 }
@@ -2532,6 +2560,17 @@ struct PendingExplorerContextMenu {
     node_id: String,
 }
 
+#[derive(Default)]
+struct OpenProjectsContextMenuState {
+    pending: Mutex<Option<PendingOpenProjectsContextMenu>>,
+}
+
+#[derive(Clone, Debug)]
+struct PendingOpenProjectsContextMenu {
+    window_label: String,
+    project_id: String,
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ShowResourcesContextMenuRequest {
@@ -2555,10 +2594,25 @@ struct ShowExplorerContextMenuRequest {
     y: f64,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShowOpenProjectsContextMenuRequest {
+    project_id: String,
+    x: f64,
+    y: f64,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExplorerContextMenuActionPayload {
     node_id: String,
+    action: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenProjectsContextMenuActionPayload {
+    project_id: String,
     action: String,
 }
 
@@ -2567,6 +2621,9 @@ const RESOURCES_MENU_ITEM_OPEN: &str = "resources-context-menu:open";
 const RESOURCES_MENU_ITEM_DELETE: &str = "resources-context-menu:delete";
 const EXPLORER_MENU_ITEM_RENAME: &str = "explorer-context-menu:rename";
 const EXPLORER_MENU_ITEM_DELETE: &str = "explorer-context-menu:delete";
+const OPEN_PROJECTS_MENU_ITEM_RENAME: &str = "open-projects-context-menu:rename";
+const OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER: &str = "open-projects-context-menu:open-folder";
+const OPEN_PROJECTS_MENU_ITEM_DELETE: &str = "open-projects-context-menu:delete";
 
 fn resources_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
@@ -2581,6 +2638,15 @@ fn explorer_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         EXPLORER_MENU_ITEM_RENAME => Some("rename"),
         EXPLORER_MENU_ITEM_DELETE => Some("delete"),
+        _ => None,
+    }
+}
+
+fn open_projects_menu_action(menu_id: &str) -> Option<&'static str> {
+    match menu_id {
+        OPEN_PROJECTS_MENU_ITEM_RENAME => Some("rename"),
+        OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER => Some("open-folder"),
+        OPEN_PROJECTS_MENU_ITEM_DELETE => Some("delete"),
         _ => None,
     }
 }
@@ -2653,6 +2719,37 @@ fn show_explorer_context_menu(
         .map_err(|e| format!("Failed to show explorer context menu: {}", e))
 }
 
+#[tauri::command]
+fn show_open_projects_context_menu(
+    window: tauri::Window,
+    state: tauri::State<OpenProjectsContextMenuState>,
+    request: ShowOpenProjectsContextMenuRequest,
+) -> Result<(), String> {
+    if request.project_id.trim().is_empty() {
+        return Ok(());
+    }
+
+    let menu = MenuBuilder::new(&window)
+        .text(OPEN_PROJECTS_MENU_ITEM_RENAME, "Rename")
+        .separator()
+        .text(OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER, "Open Folder")
+        .separator()
+        .text(OPEN_PROJECTS_MENU_ITEM_DELETE, "Delete")
+        .build()
+        .map_err(|e| format!("Failed to build open projects context menu: {}", e))?;
+
+    if let Ok(mut pending) = state.pending.lock() {
+        *pending = Some(PendingOpenProjectsContextMenu {
+            window_label: window.label().to_string(),
+            project_id: request.project_id,
+        });
+    }
+
+    window
+        .popup_menu_at(&menu, LogicalPosition::new(request.x, request.y))
+        .map_err(|e| format!("Failed to show open projects context menu: {}", e))
+}
+
 fn handle_resources_menu_event(app: &tauri::AppHandle, event: &MenuEvent) {
     let Some(action) = resources_menu_action(event.id().as_ref()) else {
         return;
@@ -2717,6 +2814,38 @@ fn handle_explorer_menu_event(app: &tauri::AppHandle, event: &MenuEvent) {
     }
 }
 
+fn handle_open_projects_menu_event(app: &tauri::AppHandle, event: &MenuEvent) {
+    let Some(action) = open_projects_menu_action(event.id().as_ref()) else {
+        return;
+    };
+
+    let Some(state) = app.try_state::<OpenProjectsContextMenuState>() else {
+        return;
+    };
+
+    let pending = match state.pending.lock() {
+        Ok(mut pending) => pending.take(),
+        Err(_) => None,
+    };
+
+    let Some(pending) = pending else {
+        return;
+    };
+
+    let payload = OpenProjectsContextMenuActionPayload {
+        project_id: pending.project_id,
+        action: action.to_string(),
+    };
+
+    if let Err(err) = app.emit_to(
+        EventTarget::window(pending.window_label),
+        "open-projects-context-menu-action",
+        payload,
+    ) {
+        eprintln!("Failed to emit open projects context menu action: {}", err);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2724,9 +2853,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ResourcesContextMenuState::default())
         .manage(ExplorerContextMenuState::default())
+        .manage(OpenProjectsContextMenuState::default())
         .on_menu_event(|app, event| {
             handle_resources_menu_event(app, &event);
             handle_explorer_menu_event(app, &event);
+            handle_open_projects_menu_event(app, &event);
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -2740,6 +2871,8 @@ pub fn run() {
             add_source_files,
             create_project,
             get_all_projects,
+            rename_project,
+            open_project_folder,
             get_project,
             get_project_sources,
             get_project_conversions,
@@ -2772,7 +2905,8 @@ pub fn run() {
             get_explorer_layout,
             save_explorer_layout,
             show_resources_context_menu,
-            show_explorer_context_menu
+            show_explorer_context_menu,
+            show_open_projects_context_menu
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -501,7 +501,7 @@ pub fn get_project(project_id: &str) -> SqlResult<Project> {
         |row| {
             let creation_str: String = row.get(6)?;
             let modified_str: String = row.get(7)?;
-            
+
             Ok(Project {
                 id: row.get(0)?,
                 project_name: row.get(1)?,
@@ -622,6 +622,19 @@ pub fn update_project_size_and_frames(project_id: &str, size: i64, frames: i32) 
          SET size = ?1, frames = ?2, last_modified = ?3 
          WHERE id = ?4",
         params![size, frames, Utc::now().to_rfc3339(), project_id],
+    )?;
+
+    Ok(())
+}
+
+pub fn update_project_name(project_id: &str, project_name: &str) -> SqlResult<()> {
+    let conn = init_database()?;
+
+    conn.execute(
+        "UPDATE projects
+         SET project_name = ?1, last_modified = ?2
+         WHERE id = ?3",
+        params![project_name, Utc::now().to_rfc3339(), project_id],
     )?;
 
     Ok(())

@@ -163,7 +163,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         },
         SidebarAction {
             id: "sidebar-open-btn",
-            title: "Open".to_string(),
+            title: "Projects".to_string(),
             icon: SidebarActionIcon::Lucide(IconId::LucideFolderOpen),
             kind: SidebarActionKind::Navigate("open"),
             route: Some("open"),

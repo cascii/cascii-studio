@@ -1,139 +1,169 @@
-/* Open Project Page Styles */
+/* Open Projects Sidebar */
 
 .open-page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 2rem;
-    color: #f6f6f6;
-}
-
-.open-page h1 {
-    margin-bottom: 2rem;
-    color: #f6f6f6;
-    font-size: 2rem;
-    font-weight: 300;
-    opacity: 0.8;
-}
-
-.project-table {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--topbar-height, 35px));
     width: 100%;
-    border-collapse: collapse;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.open-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    background-color: #1e1e1e;
+}
+
+.open-layout > .open-main-content {
+    order: 0;
+}
+
+.open-layout > .open-projects-sidebar {
+    order: 1;
+}
+
+.open-layout--explorer-left > .open-main-content {
+    order: 1;
+}
+
+.open-layout--explorer-left > .open-projects-sidebar {
+    order: 0;
+    border-left: none;
+    border-right: 1px solid #333;
+}
+
+.open-projects-sidebar {
+    border-left: 1px solid #333;
+    border-right: none;
+}
+
+.open-projects-scroll {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.open-projects-section {
+    flex: 1;
+    min-height: 0;
+}
+
+.open-projects-header {
+    cursor: default;
+}
+
+.open-projects-header__title {
     text-align: left;
 }
 
-.project-table th, .project-table td {
-    padding: 1rem;
-    border-bottom: 1px solid #555;
+.open-projects-header__actions {
+    gap: 4px;
 }
 
-.project-table th {
-    font-weight: 600;
-    color: #aaa;
-    text-transform: uppercase;
-    font-size: 0.85rem;
+.open-projects-content {
+    min-height: 0;
 }
 
-.project-table th.actions-column {
-    width: 60px;
+.open-projects-list {
+    display: flex;
+    flex-direction: column;
 }
 
-.project-table th.open-actions-column {
-    width: 80px;
+.open-project-item {
+    width: 100%;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: #ccc;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 0 8px 0 0;
 }
 
-.project-table tbody tr {
-    transition: background-color 0.2s;
-    position: relative;
+.open-project-item:hover {
+    background-color: #2a2d2e;
 }
 
-.project-table tbody tr:hover {
-    background-color: #3a3a3a;
-    cursor: pointer;
+.open-project-item:active {
+    border: none;
+    background-color: #2a2d2e;
 }
 
-.project-table tbody tr.deleting {
-    opacity: 0.5;
+.open-project-item .tree-node__label {
     pointer-events: none;
 }
 
-.actions-cell {
-    text-align: center;
-    padding: 0.5rem !important;
+.open-project-item--renaming {
+    background-color: #2a2d2e;
+    cursor: default;
 }
 
-.delete-btn {
-    opacity: 0;
-    background: none;
-    border: none;
-    color: #ffffff;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 4px;
-    transition: opacity 0.2s, background-color 0.2s;
+.open-project-rename-input {
+    width: 100%;
+}
+
+.open-projects-sort-key-btn {
+    width: 11ch !important;
+    min-width: 14ch !important;
+    padding: 0 4px !important;
+    color: #a8a8a8 !important;
+    font-size: 11px !important;
+    text-transform: lowercase;
+    text-align: right;
+}
+
+.open-projects-sort-key-btn:hover {
+    color: #ffffff !important;
+}
+
+.open-projects-sort-direction-btn {
+    width: 20px !important;
+    height: 20px !important;
+    padding: 0 !important;
+}
+
+.open-projects-sort-direction-icon {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: none;
+    transform: rotate(90deg);
+    transition: transform 0.15s ease;
 }
 
-.project-table tbody tr:hover .delete-btn {
-    opacity: 1;
+.open-projects-sort-direction-icon--asc {
+    transform: rotate(-90deg);
 }
 
-.delete-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+.open-projects-search-container {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    padding: 8px;
+    border-top: 1px solid #333;
+    background-color: #252526;
 }
 
-.delete-btn:active {
-    transform: scale(0.95);
+.open-projects-search-input {
+    all: revert;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    -webkit-appearance: searchfield;
+    appearance: searchfield;
+    color-scheme: dark;
 }
 
-.delete-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+.open-projects-error {
+    color: #f48771;
 }
 
-/* Open action buttons (paintbrush and film) */
-.open-actions-cell {
-    padding: 1rem 0.5rem !important;
-}
-
-.open-actions-cell > button {
-    display: inline-flex;
-    vertical-align: middle;
-    margin-right: 4px;
-}
-
-.open-action-btn {
-    opacity: 0.7;
-    background: none;
-    border: none;
-    color: #ffffff;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 4px;
-    transition: opacity 0.2s, background-color 0.2s;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: none;
-}
-
-.project-table tbody tr:hover .open-action-btn {
-    opacity: 1;
-}
-
-.open-action-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-}
-
-.open-action-btn:active {
-    transform: scale(0.95);
-}
-
-.open-action-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+.open-main-content {
+    flex: 1;
+    min-width: 0;
 }

@@ -54,6 +54,7 @@ pub fn app() -> Html {
 
     let context_label = match current_page.as_str() {
         "home" => "cascii studio".to_string(),
+        "open" => "cascii studio - projects".to_string(),
         "project" | "montage" => {
             if let Some(project_name) = &*active_project_name {
                 format!("cascii studio - {}", project_name)
@@ -79,7 +80,7 @@ pub fn app() -> Html {
                     match current_page.as_str() {
                         "home"      => html! { <pages::home::HomePage /> },
                         "new"       => html! { <pages::new::NewPage on_open_project={on_open_project.clone()} /> },
-                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> },
+                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> },
                         "settings"  => html! { <pages::settings::SettingsPage /> },
                         "library"   => html! { <pages::library::LibraryPage /> },
                         "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
@@ -87,14 +88,14 @@ pub fn app() -> Html {
                             if let Some(id) = &*active_project_id {
                                 html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} /> }
                             } else {
-                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> }
+                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }
                         },
                         "montage" => {
                             if let Some(id) = &*active_project_id {
                                 html! { <pages::montage::MontagePage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} /> }
                             } else {
-                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} /> }
+                                html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }
                         },
                         _ => html! { <pages::home::HomePage /> },

@@ -31,6 +31,7 @@
     display: flex;
     align-items: center;
     height: 22px;
+    line-height: 1;
     padding: 0 8px;
     background-color: #252526;
     border-bottom: 1px solid #333;
@@ -66,6 +67,10 @@
 
 .tree-section-header__title {
     flex: 1;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    line-height: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

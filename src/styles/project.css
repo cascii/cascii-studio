@@ -388,6 +388,8 @@
     gap: 1.5rem;
     flex-grow: 1;
     min-height: 0;
+    padding-bottom: 12px;
+    box-sizing: border-box;
 }
 
 .preview-column {

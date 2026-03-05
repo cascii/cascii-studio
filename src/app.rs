@@ -68,7 +68,7 @@ pub fn app() -> Html {
     html! {
         <>
             <Sidebar
-                on_navigate={on_nav}
+                on_navigate={on_nav.clone()}
                 current_page={(*current_page).clone()}
                 context_label={context_label}
                 has_active_project={active_project_id.is_some()}
@@ -86,14 +86,14 @@ pub fn app() -> Html {
                         "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
                         "project" => {
                             if let Some(id) = &*active_project_id {
-                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} /> }
+                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} /> }
                             } else {
                                 html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }
                         },
                         "montage" => {
                             if let Some(id) = &*active_project_id {
-                                html! { <pages::montage::MontagePage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} /> }
+                                html! { <pages::montage::MontagePage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} /> }
                             } else {
                                 html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }

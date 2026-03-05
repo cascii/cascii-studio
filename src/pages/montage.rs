@@ -8,7 +8,12 @@ use yew::prelude::*;
 use yew_icons::{Icon, IconId};
 
 use super::open::Project;
-use super::project::SourceContent;
+use super::project::{FrameDirectory, Preview, SourceContent};
+use crate::components::explorer::{
+    ExplorerLayout, ExplorerTree, ResourcesTree, SidebarState, TreeNodeId,
+};
+use crate::components::settings::available_cuts::VideoCut;
+use crate::components::settings::ToolsSection;
 
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
@@ -345,27 +350,6 @@ extern "C" {
     fn start_pointer_drag_at(x: i32, y: i32);
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct FrameDirectory {
-    pub name: String,
-    pub directory_path: String,
-    pub source_file_name: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct VideoCut {
-    pub id: String,
-    pub project_id: String,
-    pub source_file_id: String,
-    pub file_path: String,
-    pub date_added: String,
-    pub size: i64,
-    pub custom_name: Option<String>,
-    pub start_time: f64,
-    pub end_time: f64,
-    pub duration: f64,
-}
-
 // Timeline item types
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimelineItemType {
@@ -395,6 +379,9 @@ struct DragData {
 pub struct MontagePageProps {
     pub project_id: String,
     pub on_project_name_change: Callback<String>,
+    pub explorer_on_left: bool,
+    #[prop_or_default]
+    pub on_navigate: Option<Callback<&'static str>>,
 }
 
 #[function_component(MontagePage)]
@@ -403,12 +390,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let source_files = use_state(|| Vec::<SourceContent>::new());
     let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
     let video_cuts = use_state(|| Vec::<VideoCut>::new());
+    let previews = use_state(|| Vec::<Preview>::new());
     let error_message = use_state(|| Option::<String>::None);
 
-    // Collapsible section states
-    let sources_collapsed = use_state(|| false);
-    let frames_collapsed = use_state(|| false);
-    let cuts_collapsed = use_state(|| false);
+    // Explorer sidebar state
+    let sidebar_state = use_state(SidebarState::default);
+    let explorer_layout = use_state(ExplorerLayout::default);
+    let selected_node_id = use_state(|| None::<TreeNodeId>);
 
     // Timeline state
     let timeline_items = use_state(|| Vec::<TimelineItem>::new());
@@ -421,6 +409,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
         let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
         let error_message = error_message.clone();
 
         use_effect_with(project_id.clone(), move |id| {
@@ -461,6 +450,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
                 {
                     video_cuts.set(cuts);
+                }
+
+                // Fetch previews
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
+                    previews.set(p);
                 }
             });
 
@@ -641,42 +638,305 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
-    // Pointer-based drag start for sidebar items
-    let on_sidebar_pointer_down = |item_type: String, id: String, name: String| {
-        Callback::from(move |e: MouseEvent| {
-            // Only start drag on left mouse button
-            if e.button() != 0 {
-                return;
+    // Explorer sidebar: toggle section callback
+    let on_toggle_section = {
+        let sidebar_state = sidebar_state.clone();
+        Callback::from(move |section: String| {
+            let mut state = (*sidebar_state).clone();
+            match section.as_str() {
+                "resources" => state.resources_expanded = !state.resources_expanded,
+                "explorer" => state.explorer_expanded = !state.explorer_expanded,
+                "res:source_files" => state.source_files_expanded = !state.source_files_expanded,
+                "res:original_files" => {
+                    state.original_files_expanded = !state.original_files_expanded
+                }
+                "res:cuts" => state.cuts_expanded = !state.cuts_expanded,
+                "res:frames" => state.frames_expanded = !state.frames_expanded,
+                "res:source_frames" => state.source_frames_expanded = !state.source_frames_expanded,
+                "res:frame_cuts" => state.frame_cuts_expanded = !state.frame_cuts_expanded,
+                "res:previews" => state.previews_expanded = !state.previews_expanded,
+                _ => {}
             }
-            web_sys::console::log_1(&format!("Sidebar pointer down: {}", name).into());
-            let data = DragData {
-                origin: "sidebar".to_string(),
-                item_type: item_type.clone(),
-                id: id.clone(),
-                name: name.clone(),
-                index: None,
-            };
-            if let Ok(json_str) = serde_json::to_string(&data) {
-                set_drag_data(&json_str);
-                start_pointer_drag_at(e.client_x(), e.client_y());
-            }
+            sidebar_state.set(state);
         })
     };
 
-    // Click to add (alternative to drag)
-    let on_sidebar_click = {
+    // Select callbacks — add selected item to timeline
+    let on_select_source = {
         let add_to_timeline = add_to_timeline.clone();
-        move |item_type: String, id: String, name: String| {
-            let add_to_timeline = add_to_timeline.clone();
-            Callback::from(move |_: MouseEvent| {
-                // Skip if we just did a pointer drop (to avoid double-adding)
-                if consume_just_dropped() {
-                    web_sys::console::log_1(&"Click skipped - just dropped".into());
-                    return;
+        Callback::from(move |source: SourceContent| {
+            let name = source
+                .custom_name
+                .clone()
+                .unwrap_or_else(|| get_file_name(&source.file_path));
+            add_to_timeline("source", source.id.clone(), name, None);
+        })
+    };
+
+    let on_select_frame_dir = {
+        let add_to_timeline = add_to_timeline.clone();
+        Callback::from(move |frame_dir: FrameDirectory| {
+            add_to_timeline(
+                "frame",
+                frame_dir.directory_path.clone(),
+                frame_dir.name.clone(),
+                None,
+            );
+        })
+    };
+
+    let on_select_cut = {
+        let add_to_timeline = add_to_timeline.clone();
+        Callback::from(move |cut: VideoCut| {
+            let name = cut
+                .custom_name
+                .clone()
+                .unwrap_or_else(|| get_file_name(&cut.file_path));
+            add_to_timeline("cut", cut.id.clone(), name, None);
+        })
+    };
+
+    let on_select_preview = {
+        let add_to_timeline = add_to_timeline.clone();
+        Callback::from(move |preview: Preview| {
+            let name = preview
+                .custom_name
+                .clone()
+                .unwrap_or_else(|| preview.folder_name.clone());
+            add_to_timeline("frame", preview.id.clone(), name, None);
+        })
+    };
+
+    // Delete callbacks
+    let on_delete_source = {
+        let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |source: SourceContent| {
+            let source_files = source_files.clone();
+            let frame_directories = frame_directories.clone();
+            let video_cuts = video_cuts.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "source_id": source.id, "file_path": source.file_path }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("delete_source_file", args).await;
+                // Refresh all data
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(s) = serde_wasm_bindgen::from_value(
+                    tauri_invoke("get_project_sources", args).await,
+                ) {
+                    source_files.set(s);
                 }
-                add_to_timeline(&item_type, id.clone(), name.clone(), None);
-            })
-        }
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(f) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
+                    frame_directories.set(f);
+                }
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
+                    video_cuts.set(c);
+                }
+            });
+        })
+    };
+
+    let on_delete_frame = {
+        let frame_directories = frame_directories.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |frame_dir: FrameDirectory| {
+            let frame_directories = frame_directories.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "directoryPath": frame_dir.directory_path
+                }))
+                .unwrap();
+                let _ = tauri_invoke("delete_frame_directory", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(f) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
+                    frame_directories.set(f);
+                }
+            });
+        })
+    };
+
+    let on_delete_cut = {
+        let video_cuts = video_cuts.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |cut: VideoCut| {
+            let video_cuts = video_cuts.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "cut_id": cut.id, "file_path": cut.file_path }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("delete_cut", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
+                    video_cuts.set(c);
+                }
+            });
+        })
+    };
+
+    let on_delete_preview = {
+        let previews = previews.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |preview: Preview| {
+            let previews = previews.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "preview_id": preview.id, "folder_path": preview.folder_path }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("delete_preview", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
+                    previews.set(p);
+                }
+            });
+        })
+    };
+
+    // Rename callbacks
+    let on_rename_source = {
+        let source_files = source_files.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |(source, custom_name): (SourceContent, Option<String>)| {
+            let source_files = source_files.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "sourceId": source.id, "customName": custom_name
+                }))
+                .unwrap();
+                let _ = tauri_invoke("rename_source_file", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(s) = serde_wasm_bindgen::from_value(
+                    tauri_invoke("get_project_sources", args).await,
+                ) {
+                    source_files.set(s);
+                }
+            });
+        })
+    };
+
+    let on_rename_frame = {
+        let frame_directories = frame_directories.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |(frame_dir, custom_name): (FrameDirectory, Option<String>)| {
+            let frame_directories = frame_directories.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "folderPath": frame_dir.directory_path, "customName": custom_name }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("update_frame_custom_name", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(f) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
+                {
+                    frame_directories.set(f);
+                }
+            });
+        })
+    };
+
+    let on_rename_cut = {
+        let video_cuts = video_cuts.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |(cut, custom_name): (VideoCut, Option<String>)| {
+            let video_cuts = video_cuts.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "cutId": cut.id, "customName": custom_name }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("rename_cut", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                {
+                    video_cuts.set(c);
+                }
+            });
+        })
+    };
+
+    let on_rename_preview = {
+        let previews = previews.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |(preview, custom_name): (Preview, Option<String>)| {
+            let previews = previews.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": { "previewId": preview.id, "customName": custom_name }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("rename_preview", args).await;
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
+                    previews.set(p);
+                }
+            });
+        })
+    };
+
+    // Open callbacks (no-op for montage — no viewer pane)
+    let on_open_source: Callback<SourceContent> = Callback::from(|_| {});
+    let on_open_frame: Callback<FrameDirectory> = Callback::from(|_| {});
+    let on_open_cut: Callback<VideoCut> = Callback::from(|_| {});
+    let on_open_preview: Callback<Preview> = Callback::from(|_| {});
+
+    // Explorer layout change callback
+    let on_explorer_layout_change = {
+        let explorer_layout = explorer_layout.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |new_layout: ExplorerLayout| {
+            explorer_layout.set(new_layout.clone());
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let layout_json = serde_json::to_string(&new_layout).unwrap_or_default();
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "request": {
+                        "project_id": project_id,
+                        "layout_json": layout_json
+                    }
+                }))
+                .unwrap();
+                let _ = tauri_invoke("save_explorer_layout", args).await;
+            });
+        })
     };
 
     // Pointer-based drag handler for timeline items (for reordering)
@@ -716,106 +976,62 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
     html! {
         <div id="montage-page" class="container montage-page">
-            <div id="montage-layout" class="montage-layout">
-                <div id="montage-left-sidebar" class="left-sidebar">
-                    // Source Files Section
-                    <div id="montage-sources-section" class="sidebar-section">
-                        <div id="montage-sources-header" class="section-header" onclick={{
-                            let sources_collapsed = sources_collapsed.clone();
-                            Callback::from(move |_| sources_collapsed.set(!*sources_collapsed))
-                        }}>
-                            <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
-                            <span class="section-title">{"Source Files"}</span>
-                            <span class="section-count">{format!("({})", source_files.len())}</span>
-                            <Icon icon_id={if *sources_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
-                        </div>
-                        if !*sources_collapsed {
-                            <div id="montage-sources-content" class="section-content">
-                                if source_files.is_empty() {
-                                    <div id="montage-sources-empty" class="empty-message">{"No source files"}</div>
-                                } else {
-                                    { source_files.iter().map(|source| {
-                                        let display_name = source.custom_name.clone()
-                                            .unwrap_or_else(|| get_file_name(&source.file_path));
-                                        let id = source.id.clone();
-                                        let name = display_name.clone();
-
-                                        let click_id = source.id.clone();
-                                        let click_name = display_name.clone();
-                                        html! {
-                                            <div class="list-item clickable" key={source.id.clone()} draggable="false" onmousedown={on_sidebar_pointer_down("source".to_string(), id, name.clone())} onclick={on_sidebar_click("source".to_string(), click_id, click_name)}>
-                                                <span class="item-name">{display_name}</span>
-                                            </div>
-                                        }
-                                    }).collect::<Html>() }
-                                }
-                            </div>
-                        }
+            <div
+                id="montage-layout"
+                class={classes!(
+                    "montage-layout",
+                    props.explorer_on_left.then_some("montage-layout--explorer-left")
+                )}
+            >
+                <div id="montage-explorer-sidebar" class="explorer-sidebar">
+                    <div id="montage-sidebar-scroll" class="explorer-sidebar__scroll-area">
+                        <ResourcesTree
+                            source_files={(*source_files).clone()}
+                            video_cuts={(*video_cuts).clone()}
+                            frame_directories={(*frame_directories).clone()}
+                            previews={(*previews).clone()}
+                            sidebar_state={(*sidebar_state).clone()}
+                            selected_node_id={(*selected_node_id).clone()}
+                            on_toggle_section={on_toggle_section.clone()}
+                            on_select_source={on_select_source.clone()}
+                            on_select_frame_dir={on_select_frame_dir.clone()}
+                            on_select_cut={on_select_cut.clone()}
+                            on_select_preview={on_select_preview.clone()}
+                            on_delete_source={on_delete_source.clone()}
+                            on_delete_frame={on_delete_frame.clone()}
+                            on_delete_cut={on_delete_cut.clone()}
+                            on_delete_preview={on_delete_preview.clone()}
+                            on_rename_source={on_rename_source.clone()}
+                            on_rename_frame={on_rename_frame.clone()}
+                            on_rename_cut={on_rename_cut.clone()}
+                            on_rename_preview={on_rename_preview.clone()}
+                            on_open_source={on_open_source.clone()}
+                            on_open_frame={on_open_frame.clone()}
+                            on_open_cut={on_open_cut.clone()}
+                            on_open_preview={on_open_preview.clone()}
+                        />
+                        <ExplorerTree
+                            explorer_layout={(*explorer_layout).clone()}
+                            source_files={(*source_files).clone()}
+                            video_cuts={(*video_cuts).clone()}
+                            frame_directories={(*frame_directories).clone()}
+                            previews={(*previews).clone()}
+                            is_expanded={sidebar_state.explorer_expanded}
+                            selected_node_id={(*selected_node_id).clone()}
+                            on_toggle_section={{
+                                let on_toggle = on_toggle_section.clone();
+                                Callback::from(move |_| on_toggle.emit("explorer".to_string()))
+                            }}
+                            on_layout_change={on_explorer_layout_change.clone()}
+                            on_select_source={on_select_source.clone()}
+                            on_select_frame_dir={on_select_frame_dir.clone()}
+                            on_select_cut={on_select_cut.clone()}
+                            on_select_preview={on_select_preview.clone()}
+                        />
                     </div>
-
-                    // ASCII Conversions Section
-                    <div id="montage-frames-section" class="sidebar-section">
-                        <div id="montage-frames-header" class="section-header" onclick={{
-                            let frames_collapsed = frames_collapsed.clone();
-                            Callback::from(move |_| frames_collapsed.set(!*frames_collapsed))
-                        }}>
-                            <Icon icon_id={IconId::LucideWand} width={"16"} height={"16"} />
-                            <span class="section-title">{"ASCII Conversions"}</span>
-                            <span class="section-count">{format!("({})", frame_directories.len())}</span>
-                            <Icon icon_id={if *frames_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
-                        </div>
-                        if !*frames_collapsed {
-                            <div id="montage-frames-content" class="section-content">
-                                if frame_directories.is_empty() {
-                                    <div id="montage-frames-empty" class="empty-message">{"No ASCII conversions"}</div>
-                                } else {
-                                    { frame_directories.iter().map(|frame_dir| {
-                                        let id = frame_dir.directory_path.clone();
-                                        let name = frame_dir.name.clone();
-                                        let click_id = frame_dir.directory_path.clone();
-                                        let click_name = frame_dir.name.clone();
-                                        html! {
-                                            <div class="list-item clickable" key={frame_dir.directory_path.clone()} draggable="false" onmousedown={on_sidebar_pointer_down("frame".to_string(), id, name.clone())} onclick={on_sidebar_click("frame".to_string(), click_id, click_name)}>
-                                                <span class="item-name">{&frame_dir.name}</span>
-                                            </div>
-                                        }
-                                    }).collect::<Html>() }
-                                }
-                            </div>
-                        }
-                    </div>
-
-                    // Video Cuts Section
-                    <div id="montage-cuts-section" class="sidebar-section">
-                        <div id="montage-cuts-header" class="section-header" onclick={{
-                            let cuts_collapsed = cuts_collapsed.clone();
-                            Callback::from(move |_| cuts_collapsed.set(!*cuts_collapsed))
-                        }}>
-                            <Icon icon_id={IconId::LucideScissors} width={"16"} height={"16"} />
-                            <span class="section-title">{"Video Cuts"}</span>
-                            <span class="section-count">{format!("({})", video_cuts.len())}</span>
-                            <Icon icon_id={if *cuts_collapsed { IconId::LucidePlus } else { IconId::LucideMinus }} width={"14"} height={"14"} />
-                        </div>
-                        if !*cuts_collapsed {
-                            <div id="montage-cuts-content" class="section-content">
-                                if video_cuts.is_empty() {
-                                    <div id="montage-cuts-empty" class="empty-message">{"No video cuts"}</div>
-                                } else {
-                                    { video_cuts.iter().map(|cut| {
-                                        let display_name = cut.custom_name.clone()
-                                            .unwrap_or_else(|| get_file_name(&cut.file_path));
-                                        let id = cut.id.clone();
-                                        let name = display_name.clone();
-                                        let click_id = cut.id.clone();
-                                        let click_name = display_name.clone();
-                                        html! {
-                                            <div class="list-item clickable" key={cut.id.clone()} draggable="false" onmousedown={on_sidebar_pointer_down("cut".to_string(), id, name.clone())} onclick={on_sidebar_click("cut".to_string(), click_id, click_name)}>
-                                                <span class="item-name">{display_name}</span>
-                                            </div>
-                                        }
-                                    }).collect::<Html>() }
-                                }
-                            </div>
+                    <div id="montage-sidebar-bottom" class="explorer-sidebar__bottom">
+                        if let Some(ref on_navigate) = props.on_navigate {
+                            <ToolsSection on_navigate={on_navigate.clone()} current_page={"montage"} />
                         }
                     </div>
                 </div>

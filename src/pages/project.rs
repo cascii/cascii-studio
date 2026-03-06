@@ -13,7 +13,7 @@ use crate::components::explorer::{
     ExplorerLayout, ExplorerTree, ResourceRef, ResourcesTree, SidebarState, TreeNodeId,
 };
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::Controls;
+use crate::components::settings::{Controls, ToolsSection};
 use crate::components::tab_bar::{OpenTab, TabBar};
 use crate::components::video_player::VideoPlayer;
 
@@ -351,6 +351,8 @@ pub struct ProjectPageProps {
     pub project_id: String,
     pub on_project_name_change: Callback<String>,
     pub explorer_on_left: bool,
+    #[prop_or_default]
+    pub on_navigate: Option<Callback<&'static str>>,
 }
 
 #[function_component(ProjectPage)]
@@ -2359,6 +2361,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 })
                             }}
                         />
+                        if let Some(ref on_navigate) = props.on_navigate {
+                            <ToolsSection on_navigate={on_navigate.clone()} current_page={"project"} />
+                        }
                     </div>
                 </div>
 

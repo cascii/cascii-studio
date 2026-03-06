@@ -386,36 +386,15 @@ pub fn open_page(props: &OpenPageProps) -> Html {
 
     html! {
         <div id="open-page" class="container open-page">
-            <div
-                id="open-layout"
-                class={classes!(
-                    "open-layout",
-                    props.explorer_on_left.then_some("open-layout--explorer-left")
-                )}
-            >
+            <div id="open-layout" class={classes!("open-layout", props.explorer_on_left.then_some("open-layout--explorer-left"))}>
                 <div id="open-projects-sidebar" class="explorer-sidebar open-projects-sidebar">
                     <div id="open-projects-scroll" class="explorer-sidebar__scroll-area open-projects-scroll">
                         <div id="open-projects-section" class="tree-section open-projects-section">
                             <div id="open-projects-header" class="tree-section-header open-projects-header">
                                 <span class="tree-section-header__title open-projects-header__title">{"Open"}</span>
                                 <div id="open-projects-header-actions" class="tree-section-header__actions open-projects-header__actions">
-                                    <button
-                                        id="open-projects-sort-key-btn"
-                                        type="button"
-                                        class="open-projects-sort-key-btn"
-                                        onclick={on_cycle_sort_key}
-                                        title="Change sort field"
-                                    >
-                                        {sort_key_label}
-                                    </button>
-                                    <button
-                                        id="open-projects-sort-direction-btn"
-                                        type="button"
-                                        class="open-projects-sort-direction-btn"
-                                        onclick={on_toggle_sort_direction}
-                                        title={if *sort_desc { "Descending" } else { "Ascending" }}
-                                        aria-label="Toggle sort direction"
-                                    >
+                                    <button id="open-projects-sort-key-btn" type="button" class="open-projects-sort-key-btn" onclick={on_cycle_sort_key} title="Change sort field">{sort_key_label}</button>
+                                    <button id="open-projects-sort-direction-btn" type="button" class="open-projects-sort-direction-btn" onclick={on_toggle_sort_direction} title={if *sort_desc {"Descending"} else {"Ascending"}} aria-label="Toggle sort direction">
                                         <span class={classes!("open-projects-sort-direction-icon", (!*sort_desc).then_some("open-projects-sort-direction-icon--asc"))}>
                                             <Icon icon_id={IconId::LucideChevronRight} width={"14"} height={"14"} />
                                         </span>
@@ -477,25 +456,12 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                                                     };
 
                                                     html! {
-                                                        <div
-                                                            id={format!("open-project-item-{}", project.id)}
-                                                            class="tree-node open-project-item open-project-item--renaming"
-                                                        >
+                                                        <div id={format!("open-project-item-{}", project.id)} class="tree-node open-project-item open-project-item--renaming">
                                                             <span class="tree-node__chevron-spacer"></span>
                                                             <span class="tree-node__icon">
                                                                 <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
                                                             </span>
-                                                            <input
-                                                                id="open-project-rename-input"
-                                                                class="tree-node__rename-input open-project-rename-input"
-                                                                type="text"
-                                                                value={(*rename_value).clone()}
-                                                                oninput={on_rename_input}
-                                                                onkeydown={on_rename_keydown}
-                                                                onblur={on_rename_blur}
-                                                                onclick={Callback::from(|e: MouseEvent| e.stop_propagation())}
-                                                                autofocus=true
-                                                            />
+                                                            <input id="open-project-rename-input" class="tree-node__rename-input open-project-rename-input" type="text" value={(*rename_value).clone()} oninput={on_rename_input} onkeydown={on_rename_keydown} onblur={on_rename_blur} onclick={Callback::from(|e: MouseEvent| e.stop_propagation())} autofocus=true />
                                                         </div>
                                                     }
                                                 } else {
@@ -530,14 +496,7 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                                                     });
 
                                                     html! {
-                                                        <button
-                                                            id={format!("open-project-item-{}", project.id)}
-                                                            type="button"
-                                                            class="tree-node open-project-item"
-                                                            title={project_name.clone()}
-                                                            onclick={on_click}
-                                                            oncontextmenu={on_context_menu}
-                                                        >
+                                                        <button id={format!("open-project-item-{}", project.id)} type="button" class="tree-node open-project-item" title={project_name.clone()} onclick={on_click} oncontextmenu={on_context_menu}>
                                                             <span class="tree-node__chevron-spacer"></span>
                                                             <span class="tree-node__icon">
                                                                 <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
@@ -554,16 +513,7 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                         </div>
 
                         <div id="open-projects-search-container" class="open-projects-search-container">
-                            <input
-                                id="open-projects-search-input"
-                                class="open-projects-search-input"
-                                type="search"
-                                placeholder="Search projects"
-                                value={(*search_query).clone()}
-                                oninput={on_search_input}
-                                autocomplete="off"
-                                spellcheck="false"
-                            />
+                            <input id="open-projects-search-input" class="open-projects-search-input" type="search" placeholder="Search projects" value={(*search_query).clone()} oninput={on_search_input} autocomplete="off" spellcheck="false" />
                         </div>
                     </div>
                 </div>

@@ -285,6 +285,22 @@
     font-style: italic;
 }
 
+/* Tools section — project/montage toggle buttons */
+
+.tools-section__content {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.tools-section__content .ctrl-btn.active {
+    background: #4a6a9a;
+    border-color: #6a8aba;
+    color: #fff;
+}
+
 /* Controls section — integrated into explorer sidebar */
 
 .controls-section {

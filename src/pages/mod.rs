@@ -4,5 +4,6 @@ pub mod montage;
 pub mod new;
 pub mod open;
 pub mod project;
+pub mod project_cache;
 pub mod settings;
 pub mod sponsor;

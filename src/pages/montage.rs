@@ -399,6 +399,35 @@ struct DragData {
     index: Option<usize>, // for timeline
 }
 
+fn calculate_workspace_height(
+    main_content: &web_sys::Element,
+    workspace: &web_sys::Element,
+    timeline: &web_sys::Element,
+    media_aspect_ratio: Option<f64>,
+) -> Option<f64> {
+    let main_rect = main_content.get_bounding_client_rect();
+    let workspace_rect = workspace.get_bounding_client_rect();
+    let timeline_rect = timeline.get_bounding_client_rect();
+    let gap_between_sections = (timeline_rect.top() - workspace_rect.bottom()).max(0.0);
+
+    let available_height =
+        (main_rect.bottom() - workspace_rect.top() - timeline_rect.height() - gap_between_sections
+            - 2.0)
+            .max(0.0);
+    let available_width = workspace_rect.width().max(0.0);
+
+    if available_height <= 0.0 || available_width <= 0.0 {
+        return Some(0.0);
+    }
+
+    let target_height = media_aspect_ratio
+        .filter(|ratio| ratio.is_finite() && *ratio > 0.0)
+        .map(|ratio| available_height.min(available_width / ratio))
+        .unwrap_or(available_height);
+
+    Some(target_height.max(0.0).floor())
+}
+
 #[derive(Properties, PartialEq)]
 pub struct MontagePageProps {
     pub project_id: String,
@@ -465,6 +494,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let active_timeline_index = use_state(|| None::<usize>);
     let active_playable = use_state(|| None::<PlayableItem>);
     let url_cache = use_state(|| HashMap::<String, String>::new());
+    let active_media_aspect_ratio = use_state(|| None::<f64>);
+    let workspace_height = use_state(|| None::<f64>);
+    let montage_main_content_ref = use_node_ref();
+    let montage_workspace_ref = use_node_ref();
+    let montage_timeline_ref = use_node_ref();
 
     // Load persisted loop setting once on mount.
     {
@@ -478,6 +512,82 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 }
             });
             || ()
+        });
+    }
+
+    let recalculate_workspace_height = {
+        let montage_main_content_ref = montage_main_content_ref.clone();
+        let montage_workspace_ref = montage_workspace_ref.clone();
+        let montage_timeline_ref = montage_timeline_ref.clone();
+        let workspace_height = workspace_height.clone();
+        let active_media_aspect_ratio = active_media_aspect_ratio.clone();
+
+        Rc::new(move || {
+            let next_height = montage_main_content_ref
+                .cast::<web_sys::Element>()
+                .and_then(|main_content| {
+                    montage_workspace_ref
+                        .cast::<web_sys::Element>()
+                        .map(|workspace| (main_content, workspace))
+                })
+                .and_then(|(main_content, workspace)| {
+                    montage_timeline_ref
+                        .cast::<web_sys::Element>()
+                        .map(|timeline| (main_content, workspace, timeline))
+                })
+                .and_then(|(main_content, workspace, timeline)| {
+                    calculate_workspace_height(
+                        &main_content,
+                        &workspace,
+                        &timeline,
+                        *active_media_aspect_ratio,
+                    )
+                });
+            workspace_height.set(next_height);
+        })
+    };
+
+    {
+        let active_playable = active_playable.clone();
+        let active_media_aspect_ratio = active_media_aspect_ratio.clone();
+
+        use_effect_with((*active_playable).clone(), move |_| {
+            active_media_aspect_ratio.set(None);
+            || ()
+        });
+    }
+
+    {
+        let recalculate_workspace_height = recalculate_workspace_height.clone();
+        let timeline_len = (*timeline_items).len();
+        let has_error = (*error_message).is_some();
+        let playable_present = (*active_playable).is_some();
+        let media_aspect_ratio = *active_media_aspect_ratio;
+
+        use_effect_with(
+            (timeline_len, has_error, playable_present, media_aspect_ratio),
+            move |_| {
+                recalculate_workspace_height();
+                || ()
+            },
+        );
+    }
+
+    {
+        let recalculate_workspace_height = recalculate_workspace_height.clone();
+
+        use_effect_with((), move |_| {
+            recalculate_workspace_height();
+            let listener = web_sys::window().map(|window| {
+                let recalculate_workspace_height = recalculate_workspace_height.clone();
+                EventListener::new(&window, "resize", move |_| {
+                    recalculate_workspace_height();
+                })
+            });
+
+            move || {
+                drop(listener);
+            }
         });
     }
 
@@ -1345,6 +1455,18 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         });
     });
 
+    let on_workspace_aspect_ratio_change = {
+        let active_media_aspect_ratio = active_media_aspect_ratio.clone();
+
+        Callback::from(move |ratio: Option<f64>| {
+            active_media_aspect_ratio.set(ratio.filter(|value| value.is_finite() && *value > 0.0));
+        })
+    };
+
+    let workspace_style = (*workspace_height)
+        .map(|height| format!("height: {:.0}px; max-height: {:.0}px;", height, height))
+        .unwrap_or_default();
+
     let on_add_files_explorer = {
         let project_id = props.project_id.clone();
         let source_files = source_files.clone();
@@ -1577,14 +1699,19 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
                 </div>
 
-                <div id="montage-main-content" class="main-content">
+                <div id="montage-main-content" class="main-content" ref={montage_main_content_ref.clone()}>
                     <h1 id="montage-heading">{ project.as_ref().map(|p| format!("Montage: {}", p.project_name)).unwrap_or_else(|| "Loading Montage...".into()) }</h1>
 
                     if let Some(error) = &*error_message {
                         <div id="montage-error-alert" class="alert alert-error">{error}</div>
                     }
 
-                    <div id="montage-workspace" class="montage-workspace">
+                    <div
+                        id="montage-workspace"
+                        class="montage-workspace"
+                        ref={montage_workspace_ref.clone()}
+                        style={workspace_style}
+                    >
                         {
                             match &*active_playable {
                                 Some(PlayableItem::Video {asset_url}) => html! {
@@ -1598,6 +1725,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         is_muted={*video_is_muted}
                                         on_progress={on_item_progress.clone()}
                                         on_ended={on_item_ended.clone()}
+                                        on_aspect_ratio_change={Some(on_workspace_aspect_ratio_change.clone())}
                                     />
                                 },
                                 Some(PlayableItem::Frames {directory_path, fps, settings: _}) => html! {
@@ -1617,6 +1745,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 frames_loading.set(loading);
                                             })
                                         }}
+                                        on_aspect_ratio_change={Some(on_workspace_aspect_ratio_change.clone())}
                                     />
                                 },
                                 None => html! {
@@ -1627,7 +1756,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     </div>
 
                     // Timeline axis - drag events handled by JavaScript
-                    <div id="montage-timeline-container" class="timeline-container">
+                    <div id="montage-timeline-container" class="timeline-container" ref={montage_timeline_ref.clone()}>
                         <div id="montage-timeline-header" class="timeline-header">
                             <span id="montage-timeline-title" class="timeline-title">{"Timeline"}</span>
                         </div>

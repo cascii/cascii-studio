@@ -185,6 +185,9 @@ pub struct AsciiFramesViewerProps {
     /// Callback to report current progress (0.0-1.0) relative to trim window
     #[prop_or_default]
     pub on_progress: Option<Callback<f64>>,
+    /// Callback to report the current frame content aspect ratio (width / height)
+    #[prop_or_default]
+    pub on_aspect_ratio_change: Option<Callback<Option<f64>>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -1043,6 +1046,39 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     };
     let has_crop = *crop_top > 0 || *crop_bottom > 0 || *crop_left > 0 || *crop_right > 0;
     let show_halo = *show_crop_settings && has_crop && frame_cols > 0 && frame_rows > 0;
+
+    {
+        let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
+        let directory_path = props.directory_path.clone();
+
+        use_effect_with(directory_path, move |_| {
+            if let Some(callback) = &on_aspect_ratio_change {
+                callback.emit(None);
+            }
+            || ()
+        });
+    }
+
+    {
+        let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
+
+        use_effect_with((frame_cols, frame_rows), move |(frame_cols, frame_rows)| {
+            if let Some(callback) = &on_aspect_ratio_change {
+                if *frame_cols > 0 && *frame_rows > 0 {
+                    let sizing = FontSizing::default();
+                    let (width, height) = sizing.canvas_dimensions(*frame_cols, *frame_rows, 1.0);
+                    if height > 0.0 && width.is_finite() && height.is_finite() {
+                        callback.emit(Some(width / height));
+                    } else {
+                        callback.emit(None);
+                    }
+                } else {
+                    callback.emit(None);
+                }
+            }
+            || ()
+        });
+    }
 
     html! {
         <div id="ascii-frames-viewer" class="ascii-frames-viewer">

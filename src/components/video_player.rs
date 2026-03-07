@@ -117,6 +117,9 @@ pub struct VideoPlayerProps {
     /// Callback emitted once when playback reaches the end (trim end) and loop is disabled
     #[prop_or_default]
     pub on_ended: Option<Callback<()>>,
+    /// Callback to report the intrinsic media aspect ratio (width / height)
+    #[prop_or_default]
+    pub on_aspect_ratio_change: Option<Callback<Option<f64>>>,
 
     // ---- Inline "Convert to ASCII" controls (rendered under trim bar) ----
     #[prop_or_default]
@@ -234,6 +237,19 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     } else {
         0.0
     };
+
+    {
+        let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
+        let src = props.src.clone();
+
+        use_effect_with(src, move |_| {
+            if let Some(callback) = &on_aspect_ratio_change {
+                callback.emit(None);
+            }
+            || ()
+        });
+    }
+
     // Toggle play/pause (trim-aware)
     let on_toggle = {
         let video_ref = video_ref.clone();
@@ -336,11 +352,19 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let duration = duration.clone();
         let current_time = current_time.clone();
         let left_value = left_value.clone();
+        let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
 
         Callback::from(move |_| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                 let dur = v.duration();
                 duration.set(dur);
+                let video_width = v.video_width();
+                let video_height = v.video_height();
+                if let Some(callback) = &on_aspect_ratio_change {
+                    if video_width > 0 && video_height > 0 {
+                        callback.emit(Some(video_width as f64 / video_height as f64));
+                    }
+                }
 
                 // Show something other than black:
                 // - if trim starts > 0 -> go there

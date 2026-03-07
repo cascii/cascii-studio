@@ -56,11 +56,97 @@
 .montage-workspace {
     background: #2a2a2a;
     border-radius: 8px;
-    padding: 2rem;
-    min-height: 400px;
+    height: 500px;
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Fill workspace but never exceed it */
+.montage-workspace > .video-player,
+.montage-workspace > .ascii-frames-viewer {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Video: let the wrap fill available space, hide inline controls */
+.montage-workspace .video-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.montage-workspace video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+/* Frames: let the display fill available space */
+.montage-workspace .frames-display {
+    flex: 1;
+    min-height: 0;
+}
+
+.montage-workspace canvas {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Hide all inline player/viewer controls inside montage workspace —
+   playback is driven by the sidebar Controls, not the embedded UI */
+.montage-workspace .controls,
+.montage-workspace .controls-divider,
+.montage-workspace #video-controls,
+.montage-workspace #frames-controls {
+    display: none !important;
+}
+
+/* Timeline progress bar — matches controls-section__slider styling */
+.timeline-progress {
+    padding: 6px 1rem 0;
+    width: auto;
+}
+
+.timeline-progress input[type="range"] {
+    width: 100%;
+    height: 12px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #3a3a3a;
+    border-radius: 6px;
+    cursor: pointer;
+    margin: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none !important;
+    outline: none;
+}
+
+.timeline-progress input[type="range"]::-webkit-slider-runnable-track {
+    height: 12px;
+    background: #3a3a3a;
+    border-radius: 6px;
+    border: none;
+    box-shadow: none !important;
+}
+
+.timeline-progress input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ccc;
+    cursor: pointer;
+    border: none;
 }
 
 .montage-workspace p {
@@ -169,6 +255,12 @@
 .timeline-item.ascii,
 .timeline-item.cut {
     /* All types share the same base styling now */
+}
+
+.timeline-item.active {
+    background: #3e4a5a;
+    border-color: #4a9eff;
+    box-shadow: inset 0 0 0 1px #4a9eff;
 }
 
 .timeline-item-name {

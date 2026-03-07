@@ -179,6 +179,12 @@ pub struct AsciiFramesViewerProps {
     /// Whether a crop operation is in progress
     #[prop_or(false)]
     pub is_cropping: bool,
+    /// Callback emitted once when playback reaches the end and loop is disabled
+    #[prop_or_default]
+    pub on_ended: Option<Callback<()>>,
+    /// Callback to report current progress (0.0-1.0) relative to trim window
+    #[prop_or_default]
+    pub on_progress: Option<Callback<f64>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -437,6 +443,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     };
 
     // Effect to start/stop animation when is_playing or speed changes
+    let ended_fired = use_mut_ref(|| false);
     {
         let current_index = current_index.clone();
         let current_index_ref = current_index_ref.clone();
@@ -445,6 +452,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let left_value = left_value.clone();
         let right_value = right_value.clone();
         let loop_enabled = props.loop_enabled;
+        let on_ended = props.on_ended.clone();
+        let on_progress = props.on_progress.clone();
+        let ended_fired = ended_fired.clone();
         let playing = *is_playing;
         let total_frames = *frame_count;
 
@@ -453,6 +463,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             interval_handle.borrow_mut().take();
 
             if playing && total_frames > 0 {
+                *ended_fired.borrow_mut() = false;
                 let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
                 let current_index_clone = current_index.clone();
                 let current_index_ref_clone = current_index_ref.clone();
@@ -460,11 +471,15 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 let interval_handle_clone = interval_handle.clone();
                 let left_value_clone = left_value.clone();
                 let right_value_clone = right_value.clone();
+                let on_ended_clone = on_ended.clone();
+                let on_progress_clone = on_progress.clone();
+                let ended_fired_clone = ended_fired.clone();
 
                 let interval = Interval::new(interval_ms, move || {
                     let max_idx = total_frames.saturating_sub(1) as f64;
                     let effective_start = (*left_value_clone * max_idx).round() as usize;
                     let effective_end = (*right_value_clone * max_idx).round() as usize;
+                    let range_len = effective_end.saturating_sub(effective_start).max(1);
 
                     // Use ref for latest value
                     let mut current = *current_index_ref_clone.borrow();
@@ -481,11 +496,23 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         } else {
                             interval_handle_clone.borrow_mut().take();
                             is_playing_clone.set(false);
+                            if !*ended_fired_clone.borrow() {
+                                *ended_fired_clone.borrow_mut() = true;
+                                if let Some(cb) = &on_ended_clone {
+                                    cb.emit(());
+                                }
+                            }
                         }
                     } else {
                         current += 1;
                         *current_index_ref_clone.borrow_mut() = current;
                         current_index_clone.set(current);
+                    }
+
+                    // Emit progress relative to trim window
+                    if let Some(cb) = &on_progress_clone {
+                        let progress = (current.saturating_sub(effective_start)) as f64 / range_len as f64;
+                        cb.emit(progress.clamp(0.0, 1.0));
                     }
                 });
 

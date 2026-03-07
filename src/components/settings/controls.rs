@@ -24,6 +24,10 @@ pub struct ControlsProps {
     pub is_muted: bool,
     pub on_volume_change: Callback<f64>,
     pub on_is_muted_change: Callback<bool>,
+    #[prop_or(false)]
+    pub montage_mode: bool,
+    #[prop_or(false)]
+    pub has_timeline_items: bool,
 }
 
 #[function_component(Controls)]
@@ -127,10 +131,10 @@ pub fn controls(props: &ControlsProps) -> Html {
             if !props.controls_collapsed {
                 <div id="controls-content" class="controls-section__content">
                     <div id="controls-buttons" class="controls-section__buttons">
-                        <button id="controls-play-btn" class="ctrl-btn" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
+                        <button id="controls-play-btn" class="ctrl-btn" disabled={if props.montage_mode {!props.has_timeline_items || props.frames_loading} else {props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading}} onclick={on_play_pause} title={if props.is_playing {"Pause"} else if props.frames_loading {"Loading frames..."} else {"Play"}}>
                             <Icon icon_id={if props.is_playing {IconId::LucidePause} else {IconId::LucidePlay}} width={"16"} height={"16"} />
                         </button>
-                        <button id="controls-reset-btn" class="ctrl-btn" disabled={props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading} onclick={on_reset} title="Reset to beginning">
+                        <button id="controls-reset-btn" class="ctrl-btn" disabled={if props.montage_mode {!props.has_timeline_items || props.frames_loading} else {props.selected_source.is_none() && props.selected_frame_dir.is_none() || props.frames_loading}} onclick={on_reset} title="Reset to beginning">
                             <span class="reset-icon">{"↺"}</span>
                         </button>
                         <button id="controls-loop-btn" class={classes!("ctrl-btn", "loop-btn", props.loop_enabled.then_some("active"))} onclick={on_toggle_loop} title={if props.loop_enabled {"Loop enabled"} else {"Loop disabled"}}>
@@ -144,7 +148,7 @@ pub fn controls(props: &ControlsProps) -> Html {
                         <input id="controls-volume-input" class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
                     </div>
                     <div id="controls-progress-slider" class="controls-section__slider">
-                        <input id="controls-progress-input" class="synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={props.selected_source.is_none() || props.selected_frame_dir.is_none()} />
+                        <input id="controls-progress-input" class="synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={if props.montage_mode {!props.has_timeline_items} else {props.selected_source.is_none() || props.selected_frame_dir.is_none()}} />
                     </div>
                 </div>
             }

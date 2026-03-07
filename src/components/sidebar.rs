@@ -119,32 +119,34 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         }
     };
 
+    let current_context_action = if props.has_active_project {
+        match props.current_page.as_str() {
+            "project" => Some(SidebarAction {
+                id: "sidebar-project-btn",
+                title: "Project".to_string(),
+                icon: SidebarActionIcon::Lucide(IconId::LucideBrush),
+                kind: SidebarActionKind::Navigate("project"),
+                route: Some("project"),
+            }),
+            "montage" => Some(SidebarAction {
+                id: "sidebar-montage-btn",
+                title: "Montage".to_string(),
+                icon: SidebarActionIcon::Lucide(IconId::LucideFilm),
+                kind: SidebarActionKind::Navigate("montage"),
+                route: Some("montage"),
+            }),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let mut actions: Vec<SidebarAction> = Vec::new();
     let toggle_title = if props.explorer_on_left {
         "Move Explorer Right"
     } else {
         "Move Explorer Left"
     };
-
-    if props.has_active_project {
-        if props.current_page == "montage" {
-            actions.push(SidebarAction {
-                id: "sidebar-montage-btn",
-                title: "Montage".to_string(),
-                icon: SidebarActionIcon::Lucide(IconId::LucideFilm),
-                kind: SidebarActionKind::Navigate("montage"),
-                route: Some("montage"),
-            });
-        } else {
-            actions.push(SidebarAction {
-                id: "sidebar-project-btn",
-                title: "Project".to_string(),
-                icon: SidebarActionIcon::Lucide(IconId::LucideBrush),
-                kind: SidebarActionKind::Navigate("project"),
-                route: Some("project"),
-            });
-        }
-    }
 
     actions.extend([
         SidebarAction {
@@ -218,8 +220,6 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             "sidebar-settings-btn",
             "sidebar-sponsor-btn",
             "sidebar-home-btn",
-            "sidebar-project-btn",
-            "sidebar-montage-btn",
             "sidebar-library-btn",
             "sidebar-open-btn",
             "sidebar-new-btn",
@@ -275,98 +275,245 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             <div id="sidebar-center-title" class="sidebar__center-title" data-tauri-drag-region="" title={props.context_label.clone()}>
                 <span id="sidebar-center-title-text" class="sidebar__center-title-text">{props.context_label.clone()}</span>
             </div>
-            <nav id="sidebar-actions" class="sidebar__actions" aria-label="Primary Navigation">
-                {
-                    for visible_actions.iter().map(|action| {
-                        let route = action.route;
-                        let class_name = route
-                            .map(|r| get_btn_class(r, &props.current_page))
-                            .unwrap_or("nav-btn");
+            <div id="sidebar-side-cluster" class="sidebar__side-cluster">
+                if props.explorer_on_left {
+                    <nav id="sidebar-nav-region" class="sidebar__nav-region" aria-label="Primary Navigation">
+                        <div id="sidebar-actions" class="sidebar__actions">
+                            {
+                                for visible_actions.iter().map(|action| {
+                                    let route = action.route;
+                                    let class_name = route
+                                        .map(|r| get_btn_class(r, &props.current_page))
+                                        .unwrap_or("nav-btn");
 
-                        let onclick = match action.kind {
-                            SidebarActionKind::Navigate(route) => nav(route),
-                            SidebarActionKind::ToggleExplorerSide => {
-                                let cb = props.on_toggle_explorer_side.clone();
-                                Callback::from(move |_| cb.emit(()))
+                                    let onclick = match action.kind {
+                                        SidebarActionKind::Navigate(route) => nav(route),
+                                        SidebarActionKind::ToggleExplorerSide => {
+                                            let cb = props.on_toggle_explorer_side.clone();
+                                            Callback::from(move |_| cb.emit(()))
+                                        }
+                                    };
+
+                                    html! {
+                                        <button
+                                            id={action.id}
+                                            class={class_name}
+                                            title={action.title.clone()}
+                                            aria-label={action.title.clone()}
+                                            type="button"
+                                            onclick={onclick}
+                                        >
+                                            {render_action_icon(&action.icon, props.explorer_on_left)}
+                                        </button>
+                                    }
+                                })
                             }
-                        };
 
-                        html! {
+                            if !overflow_actions.is_empty() {
+                                <div id="sidebar-overflow-menu-container" class="sidebar__more" onmousedown={Callback::from(|e: MouseEvent| e.stop_propagation())}>
+                                    <button
+                                        id="sidebar-overflow-btn"
+                                        class="nav-btn"
+                                        title="More"
+                                        aria-label="More"
+                                        type="button"
+                                        onclick={on_toggle_more.clone()}
+                                    >
+                                        <span class="sidebar__more-dots" aria-hidden="true">{"..."}</span>
+                                    </button>
+                                    if *is_more_open {
+                                        <div id="sidebar-overflow-menu" class="sidebar__more-menu" role="menu" aria-label="More navigation actions">
+                                            {
+                                                for overflow_actions.iter().map(|action| {
+                                                    let is_active = action
+                                                        .route
+                                                        .map(|route| route == props.current_page)
+                                                        .unwrap_or(false);
+
+                                                    let class = classes!("sidebar__more-item", is_active.then_some("sidebar__more-item--active"));
+                                                    let is_more_open = is_more_open.clone();
+                                                    let onclick = match action.kind {
+                                                        SidebarActionKind::Navigate(route) => {
+                                                            let cb = props.on_navigate.clone();
+                                                            Callback::from(move |_| {
+                                                                cb.emit(route);
+                                                                is_more_open.set(false);
+                                                            })
+                                                        }
+                                                        SidebarActionKind::ToggleExplorerSide => {
+                                                            let cb = props.on_toggle_explorer_side.clone();
+                                                            Callback::from(move |_| {
+                                                                cb.emit(());
+                                                                is_more_open.set(false);
+                                                            })
+                                                        }
+                                                    };
+
+                                                    html! {
+                                                        <button
+                                                            id={format!("{}-overflow-item", action.id)}
+                                                            type="button"
+                                                            role="menuitem"
+                                                            class={class}
+                                                            onclick={onclick}
+                                                        >
+                                                            <span class="sidebar__more-item-icon">
+                                                                {render_action_icon(&action.icon, props.explorer_on_left)}
+                                                            </span>
+                                                            <span class="sidebar__more-item-label">{action.title.clone()}</span>
+                                                        </button>
+                                                    }
+                                                })
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </nav>
+                    if let Some(action) = current_context_action.as_ref() {
+                        <div class="sidebar__context-action">
                             <button
                                 id={action.id}
-                                class={class_name}
+                                class={action
+                                    .route
+                                    .map(|route| get_btn_class(route, &props.current_page))
+                                    .unwrap_or("nav-btn")}
                                 title={action.title.clone()}
                                 aria-label={action.title.clone()}
                                 type="button"
-                                onclick={onclick}
+                                onclick={match action.kind {
+                                    SidebarActionKind::Navigate(route) => nav(route),
+                                    SidebarActionKind::ToggleExplorerSide => {
+                                        let cb = props.on_toggle_explorer_side.clone();
+                                        Callback::from(move |_| cb.emit(()))
+                                    }
+                                }}
                             >
                                 {render_action_icon(&action.icon, props.explorer_on_left)}
                             </button>
-                        }
-                    })
-                }
+                        </div>
+                    }
+                } else {
+                    if let Some(action) = current_context_action.as_ref() {
+                        <div class="sidebar__context-action">
+                            <button
+                                id={action.id}
+                                class={action
+                                    .route
+                                    .map(|route| get_btn_class(route, &props.current_page))
+                                    .unwrap_or("nav-btn")}
+                                title={action.title.clone()}
+                                aria-label={action.title.clone()}
+                                type="button"
+                                onclick={match action.kind {
+                                    SidebarActionKind::Navigate(route) => nav(route),
+                                    SidebarActionKind::ToggleExplorerSide => {
+                                        let cb = props.on_toggle_explorer_side.clone();
+                                        Callback::from(move |_| cb.emit(()))
+                                    }
+                                }}
+                            >
+                                {render_action_icon(&action.icon, props.explorer_on_left)}
+                            </button>
+                        </div>
+                    }
+                    <nav id="sidebar-nav-region" class="sidebar__nav-region" aria-label="Primary Navigation">
+                        <div id="sidebar-actions" class="sidebar__actions">
+                            {
+                                for visible_actions.iter().map(|action| {
+                                    let route = action.route;
+                                    let class_name = route
+                                        .map(|r| get_btn_class(r, &props.current_page))
+                                        .unwrap_or("nav-btn");
 
-                if !overflow_actions.is_empty() {
-                    <div id="sidebar-overflow-menu-container" class="sidebar__more" onmousedown={Callback::from(|e: MouseEvent| e.stop_propagation())}>
-                        <button
-                            id="sidebar-overflow-btn"
-                            class="nav-btn"
-                            title="More"
-                            aria-label="More"
-                            type="button"
-                            onclick={on_toggle_more}
-                        >
-                            <span class="sidebar__more-dots" aria-hidden="true">{"..."}</span>
-                        </button>
-                        if *is_more_open {
-                            <div id="sidebar-overflow-menu" class="sidebar__more-menu" role="menu" aria-label="More navigation actions">
-                                {
-                                    for overflow_actions.iter().map(|action| {
-                                        let is_active = action
-                                            .route
-                                            .map(|route| route == props.current_page)
-                                            .unwrap_or(false);
-
-                                        let class = classes!("sidebar__more-item", is_active.then_some("sidebar__more-item--active"));
-                                        let is_more_open = is_more_open.clone();
-                                        let onclick = match action.kind {
-                                            SidebarActionKind::Navigate(route) => {
-                                                let cb = props.on_navigate.clone();
-                                                Callback::from(move |_| {
-                                                    cb.emit(route);
-                                                    is_more_open.set(false);
-                                                })
-                                            }
-                                            SidebarActionKind::ToggleExplorerSide => {
-                                                let cb = props.on_toggle_explorer_side.clone();
-                                                Callback::from(move |_| {
-                                                    cb.emit(());
-                                                    is_more_open.set(false);
-                                                })
-                                            }
-                                        };
-
-                                        html! {
-                                            <button
-                                                id={format!("{}-overflow-item", action.id)}
-                                                type="button"
-                                                role="menuitem"
-                                                class={class}
-                                                onclick={onclick}
-                                            >
-                                                <span class="sidebar__more-item-icon">
-                                                    {render_action_icon(&action.icon, props.explorer_on_left)}
-                                                </span>
-                                                <span class="sidebar__more-item-label">{action.title.clone()}</span>
-                                            </button>
+                                    let onclick = match action.kind {
+                                        SidebarActionKind::Navigate(route) => nav(route),
+                                        SidebarActionKind::ToggleExplorerSide => {
+                                            let cb = props.on_toggle_explorer_side.clone();
+                                            Callback::from(move |_| cb.emit(()))
                                         }
-                                    })
-                                }
-                            </div>
-                        }
-                    </div>
+                                    };
+
+                                    html! {
+                                        <button
+                                            id={action.id}
+                                            class={class_name}
+                                            title={action.title.clone()}
+                                            aria-label={action.title.clone()}
+                                            type="button"
+                                            onclick={onclick}
+                                        >
+                                            {render_action_icon(&action.icon, props.explorer_on_left)}
+                                        </button>
+                                    }
+                                })
+                            }
+
+                            if !overflow_actions.is_empty() {
+                                <div id="sidebar-overflow-menu-container" class="sidebar__more" onmousedown={Callback::from(|e: MouseEvent| e.stop_propagation())}>
+                                    <button
+                                        id="sidebar-overflow-btn"
+                                        class="nav-btn"
+                                        title="More"
+                                        aria-label="More"
+                                        type="button"
+                                        onclick={on_toggle_more}
+                                    >
+                                        <span class="sidebar__more-dots" aria-hidden="true">{"..."}</span>
+                                    </button>
+                                    if *is_more_open {
+                                        <div id="sidebar-overflow-menu" class="sidebar__more-menu" role="menu" aria-label="More navigation actions">
+                                            {
+                                                for overflow_actions.iter().map(|action| {
+                                                    let is_active = action
+                                                        .route
+                                                        .map(|route| route == props.current_page)
+                                                        .unwrap_or(false);
+
+                                                    let class = classes!("sidebar__more-item", is_active.then_some("sidebar__more-item--active"));
+                                                    let is_more_open = is_more_open.clone();
+                                                    let onclick = match action.kind {
+                                                        SidebarActionKind::Navigate(route) => {
+                                                            let cb = props.on_navigate.clone();
+                                                            Callback::from(move |_| {
+                                                                cb.emit(route);
+                                                                is_more_open.set(false);
+                                                            })
+                                                        }
+                                                        SidebarActionKind::ToggleExplorerSide => {
+                                                            let cb = props.on_toggle_explorer_side.clone();
+                                                            Callback::from(move |_| {
+                                                                cb.emit(());
+                                                                is_more_open.set(false);
+                                                            })
+                                                        }
+                                                    };
+
+                                                    html! {
+                                                        <button
+                                                            id={format!("{}-overflow-item", action.id)}
+                                                            type="button"
+                                                            role="menuitem"
+                                                            class={class}
+                                                            onclick={onclick}
+                                                        >
+                                                            <span class="sidebar__more-item-icon">
+                                                                {render_action_icon(&action.icon, props.explorer_on_left)}
+                                                            </span>
+                                                            <span class="sidebar__more-item-label">{action.title.clone()}</span>
+                                                        </button>
+                                                    }
+                                                })
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </nav>
                 }
-            </nav>
+            </div>
         </aside>
     }
 }

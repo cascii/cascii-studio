@@ -114,6 +114,9 @@ pub struct VideoPlayerProps {
     /// Callback to report current progress (0.0-1.0) — emitted RELATIVE TO TRIM WINDOW
     #[prop_or_default]
     pub on_progress: Option<Callback<f64>>,
+    /// Callback emitted once when playback reaches the end (trim end) and loop is disabled
+    #[prop_or_default]
+    pub on_ended: Option<Callback<()>>,
 
     // ---- Inline "Convert to ASCII" controls (rendered under trim bar) ----
     #[prop_or_default]
@@ -266,6 +269,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     };
 
     // Time update (clamp to trim end + emit trim-relative progress)
+    let ended_fired = use_mut_ref(|| false);
     let on_time_update = {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
@@ -275,6 +279,8 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let is_playing = is_playing.clone();
         let loop_enabled = props.loop_enabled;
         let on_progress = props.on_progress.clone();
+        let on_ended = props.on_ended.clone();
+        let ended_fired = ended_fired.clone();
 
         Callback::from(move |_| {
             if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
@@ -298,11 +304,18 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                             let _ = v.play();
                         }
                         is_playing.set(true);
+                        *ended_fired.borrow_mut() = false;
                     } else {
                         t = trim_end;
                         v.set_current_time(t);
                         v.pause().ok();
                         is_playing.set(false);
+                        if !*ended_fired.borrow() {
+                            *ended_fired.borrow_mut() = true;
+                            if let Some(cb) = &on_ended {
+                                cb.emit(());
+                            }
+                        }
                     }
                 }
 
@@ -430,6 +443,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let prev_should_play = use_mut_ref(|| None::<bool>);
         let left_value = left_value.clone();
         let right_value = right_value.clone();
+        let ended_fired = ended_fired.clone();
 
         use_effect_with(should_play, move |should_play| {
             let current = *should_play;
@@ -446,6 +460,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
                     match current {
                         Some(true) => {
+                            *ended_fired.borrow_mut() = false;
                             // Ensure we're in trim window
                             let t = v.current_time();
                             if t < trim_start || t >= trim_end {

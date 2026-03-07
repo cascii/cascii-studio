@@ -9,11 +9,12 @@ use yew_icons::{Icon, IconId};
 
 use super::open::Project;
 use super::project::{FrameDirectory, Preview, SourceContent};
-use crate::components::explorer::{
-    ExplorerLayout, ExplorerTree, ResourcesTree, SidebarState, TreeNodeId,
+use super::project_cache::{
+    get_project_sidebar_cache, set_project_sidebar_cache, ProjectSidebarCache,
 };
+use crate::components::explorer::{ExplorerLayout, ExplorerTree, ResourcesTree, TreeNodeId};
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::ToolsSection;
+use crate::components::settings::{Controls, ToolsSection};
 
 #[wasm_bindgen(inline_js = r#"
 export async function tauriInvoke(cmd, args) {
@@ -386,20 +387,71 @@ pub struct MontagePageProps {
 
 #[function_component(MontagePage)]
 pub fn montage_page(props: &MontagePageProps) -> Html {
-    let project = use_state(|| None::<Project>);
-    let source_files = use_state(|| Vec::<SourceContent>::new());
-    let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
-    let video_cuts = use_state(|| Vec::<VideoCut>::new());
-    let previews = use_state(|| Vec::<Preview>::new());
+    let cached_sidebar_data = get_project_sidebar_cache(&props.project_id);
+    let cached_project = cached_sidebar_data
+        .as_ref()
+        .and_then(|data| data.project.clone());
+    let cached_source_files = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.source_files.clone())
+        .unwrap_or_default();
+    let cached_frame_directories = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.frame_directories.clone())
+        .unwrap_or_default();
+    let cached_video_cuts = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.video_cuts.clone())
+        .unwrap_or_default();
+    let cached_previews = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.previews.clone())
+        .unwrap_or_default();
+    let cached_sidebar_state = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.sidebar_state.clone())
+        .unwrap_or_default();
+
+    let project = use_state(move || cached_project.clone());
+    let source_files = use_state(move || cached_source_files.clone());
+    let frame_directories = use_state(move || cached_frame_directories.clone());
+    let video_cuts = use_state(move || cached_video_cuts.clone());
+    let previews = use_state(move || cached_previews.clone());
     let error_message = use_state(|| Option::<String>::None);
+    let selected_source = use_state(|| None::<SourceContent>);
+    let selected_frame_dir = use_state(|| None::<FrameDirectory>);
+    let controls_collapsed = use_state(|| false);
+    let is_playing = use_state(|| false);
+    let should_reset = use_state(|| false);
+    let synced_progress = use_state(|| 0.0f64);
+    let seek_percentage = use_state(|| None::<f64>);
+    let frames_loading = use_state(|| false);
+    let loop_enabled = use_state(|| true);
+    let video_volume = use_state(|| 1.0f64);
+    let video_is_muted = use_state(|| false);
 
     // Explorer sidebar state
-    let sidebar_state = use_state(SidebarState::default);
+    let sidebar_state = use_state(move || cached_sidebar_state.clone());
     let explorer_layout = use_state(ExplorerLayout::default);
     let selected_node_id = use_state(|| None::<TreeNodeId>);
 
     // Timeline state
     let timeline_items = use_state(|| Vec::<TimelineItem>::new());
+
+    // Load persisted loop setting once on mount.
+    {
+        let loop_enabled = loop_enabled.clone();
+        use_effect_with((), move |_| {
+            let loop_enabled = loop_enabled.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = tauri_invoke("get_loop_enabled", JsValue::NULL).await;
+                if let Ok(enabled) = serde_wasm_bindgen::from_value::<bool>(result) {
+                    loop_enabled.set(enabled);
+                }
+            });
+            || ()
+        });
+    }
 
     // Load project details and data
     {
@@ -411,58 +463,128 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let video_cuts = video_cuts.clone();
         let previews = previews.clone();
         let error_message = error_message.clone();
+        let sidebar_state = sidebar_state.clone();
 
         use_effect_with(project_id.clone(), move |id| {
-            let id = id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Fetch project details
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project", args).await {
-                    result => {
-                        if let Ok(p) = serde_wasm_bindgen::from_value::<Project>(result) {
-                            on_project_name_change.emit(p.project_name.clone());
-                            project.set(Some(p));
-                        } else {
-                            error_message.set(Some("Failed to fetch project details.".to_string()));
+            if let Some(cached_data) = get_project_sidebar_cache(id) {
+                let cached_project = cached_data.project.clone();
+                if *project != cached_project {
+                    project.set(cached_project.clone());
+                }
+                if *source_files != cached_data.source_files {
+                    source_files.set(cached_data.source_files.clone());
+                }
+                if *frame_directories != cached_data.frame_directories {
+                    frame_directories.set(cached_data.frame_directories.clone());
+                }
+                if *video_cuts != cached_data.video_cuts {
+                    video_cuts.set(cached_data.video_cuts.clone());
+                }
+                if *previews != cached_data.previews {
+                    previews.set(cached_data.previews.clone());
+                }
+                if *sidebar_state != cached_data.sidebar_state {
+                    sidebar_state.set(cached_data.sidebar_state.clone());
+                }
+                if let Some(cached_project) = cached_project {
+                    on_project_name_change.emit(cached_project.project_name);
+                }
+            } else {
+                let id = id.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    // Fetch project details
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    match tauri_invoke("get_project", args).await {
+                        result => {
+                            if let Ok(p) = serde_wasm_bindgen::from_value::<Project>(result) {
+                                on_project_name_change.emit(p.project_name.clone());
+                                project.set(Some(p));
+                            } else {
+                                error_message
+                                    .set(Some("Failed to fetch project details.".to_string()));
+                            }
                         }
                     }
-                }
 
-                // Fetch source files
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(sources) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
-                {
-                    source_files.set(sources);
-                }
+                    // Fetch source files
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(sources) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_sources", args).await,
+                    ) {
+                        source_files.set(sources);
+                    }
 
-                // Fetch frame directories
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(frames) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
-                {
-                    frame_directories.set(frames);
-                }
+                    // Fetch frame directories
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(frames) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_frames", args).await,
+                    ) {
+                        frame_directories.set(frames);
+                    }
 
-                // Fetch video cuts
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(cuts) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                {
-                    video_cuts.set(cuts);
-                }
+                    // Fetch video cuts
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(cuts) =
+                        serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                    {
+                        video_cuts.set(cuts);
+                    }
 
-                // Fetch previews
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
-                    tauri_invoke("get_project_previews", args).await,
-                ) {
-                    previews.set(p);
-                }
-            });
+                    // Fetch previews
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                        tauri_invoke("get_project_previews", args).await,
+                    ) {
+                        previews.set(p);
+                    }
+                });
+            }
 
             || ()
         });
+    }
+
+    {
+        let project_id = props.project_id.clone();
+        let project = (*project).clone();
+        let source_files = (*source_files).clone();
+        let frame_directories = (*frame_directories).clone();
+        let video_cuts = (*video_cuts).clone();
+        let previews = (*previews).clone();
+        let sidebar_state = (*sidebar_state).clone();
+        use_effect_with(
+            (
+                project_id,
+                project,
+                source_files,
+                frame_directories,
+                video_cuts,
+                previews,
+                sidebar_state,
+            ),
+            move |(
+                project_id,
+                project,
+                source_files,
+                frame_directories,
+                video_cuts,
+                previews,
+                sidebar_state,
+            )| {
+                set_project_sidebar_cache(
+                    project_id,
+                    ProjectSidebarCache {
+                        project: project.clone(),
+                        source_files: source_files.clone(),
+                        frame_directories: frame_directories.clone(),
+                        video_cuts: video_cuts.clone(),
+                        previews: previews.clone(),
+                        sidebar_state: sidebar_state.clone(),
+                    },
+                );
+                || ()
+            },
+        );
     }
 
     // Helper to get display name from file path
@@ -664,7 +786,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     // Select callbacks — add selected item to timeline
     let on_select_source = {
         let add_to_timeline = add_to_timeline.clone();
+        let selected_source = selected_source.clone();
         Callback::from(move |source: SourceContent| {
+            selected_source.set(Some(source.clone()));
             let name = source
                 .custom_name
                 .clone()
@@ -675,7 +799,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
     let on_select_frame_dir = {
         let add_to_timeline = add_to_timeline.clone();
+        let selected_frame_dir = selected_frame_dir.clone();
         Callback::from(move |frame_dir: FrameDirectory| {
+            selected_frame_dir.set(Some(frame_dir.clone()));
             add_to_timeline(
                 "frame",
                 frame_dir.directory_path.clone(),
@@ -727,9 +853,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 // Refresh all data
                 let args =
                     serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(s) = serde_wasm_bindgen::from_value(
-                    tauri_invoke("get_project_sources", args).await,
-                ) {
+                if let Ok(s) =
+                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
+                {
                     source_files.set(s);
                 }
                 let args =
@@ -823,47 +949,51 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let on_rename_source = {
         let source_files = source_files.clone();
         let project_id = props.project_id.clone();
-        Callback::from(move |(source, custom_name): (SourceContent, Option<String>)| {
-            let source_files = source_files.clone();
-            let project_id = project_id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "sourceId": source.id, "customName": custom_name
-                }))
-                .unwrap();
-                let _ = tauri_invoke("rename_source_file", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(s) = serde_wasm_bindgen::from_value(
-                    tauri_invoke("get_project_sources", args).await,
-                ) {
-                    source_files.set(s);
-                }
-            });
-        })
+        Callback::from(
+            move |(source, custom_name): (SourceContent, Option<String>)| {
+                let source_files = source_files.clone();
+                let project_id = project_id.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
+                        "sourceId": source.id, "customName": custom_name
+                    }))
+                    .unwrap();
+                    let _ = tauri_invoke("rename_source_file", args).await;
+                    let args =
+                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    if let Ok(s) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_sources", args).await,
+                    ) {
+                        source_files.set(s);
+                    }
+                });
+            },
+        )
     };
 
     let on_rename_frame = {
         let frame_directories = frame_directories.clone();
         let project_id = props.project_id.clone();
-        Callback::from(move |(frame_dir, custom_name): (FrameDirectory, Option<String>)| {
-            let frame_directories = frame_directories.clone();
-            let project_id = project_id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
+        Callback::from(
+            move |(frame_dir, custom_name): (FrameDirectory, Option<String>)| {
+                let frame_directories = frame_directories.clone();
+                let project_id = project_id.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
                     "request": { "folderPath": frame_dir.directory_path, "customName": custom_name }
                 }))
                 .unwrap();
-                let _ = tauri_invoke("update_frame_custom_name", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(f) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
-                {
-                    frame_directories.set(f);
-                }
-            });
-        })
+                    let _ = tauri_invoke("update_frame_custom_name", args).await;
+                    let args =
+                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    if let Ok(f) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_frames", args).await,
+                    ) {
+                        frame_directories.set(f);
+                    }
+                });
+            },
+        )
     };
 
     let on_rename_cut = {
@@ -912,11 +1042,89 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
-    // Open callbacks (no-op for montage — no viewer pane)
-    let on_open_source: Callback<SourceContent> = Callback::from(|_| {});
-    let on_open_frame: Callback<FrameDirectory> = Callback::from(|_| {});
-    let on_open_cut: Callback<VideoCut> = Callback::from(|_| {});
-    let on_open_preview: Callback<Preview> = Callback::from(|_| {});
+    let on_open_source = Callback::from(|source: SourceContent| {
+        let file_path = source.file_path.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(parent) = std::path::Path::new(&file_path).parent() {
+                let folder_path = parent.to_string_lossy().to_string();
+                let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                let _ = tauri_invoke("open_directory", args).await;
+            }
+        });
+    });
+
+    let on_open_frame = Callback::from(|frame_dir: FrameDirectory| {
+        let folder_path = frame_dir.directory_path.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+            let _ = tauri_invoke("open_directory", args).await;
+        });
+    });
+
+    let on_open_cut = Callback::from(|cut: VideoCut| {
+        let file_path = cut.file_path.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(parent) = std::path::Path::new(&file_path).parent() {
+                let folder_path = parent.to_string_lossy().to_string();
+                let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+                let _ = tauri_invoke("open_directory", args).await;
+            }
+        });
+    });
+
+    let on_open_preview = Callback::from(|preview: Preview| {
+        let folder_path = preview.folder_path.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
+            let _ = tauri_invoke("open_directory", args).await;
+        });
+    });
+
+    let on_add_files_explorer = {
+        let project_id = props.project_id.clone();
+        let source_files = source_files.clone();
+        let error_message = error_message.clone();
+        Callback::from(move |_| {
+            let project_id = project_id.clone();
+            let source_files = source_files.clone();
+            let error_message = error_message.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                error_message.set(None);
+                match tauri_invoke("pick_files", JsValue::NULL).await {
+                    result => match serde_wasm_bindgen::from_value::<Vec<String>>(result) {
+                        Ok(file_paths) => {
+                            if file_paths.is_empty() {
+                                return;
+                            }
+
+                            let add_files_args = serde_wasm_bindgen::to_value(&json!({
+                                "args": {
+                                    "request": {
+                                        "project_id": project_id,
+                                        "file_paths": file_paths
+                                    }
+                                }
+                            }))
+                            .unwrap();
+                            let _ = tauri_invoke("add_source_files", add_files_args).await;
+
+                            let args =
+                                serde_wasm_bindgen::to_value(&json!({ "projectId": project_id }))
+                                    .unwrap();
+                            if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                                tauri_invoke("get_project_sources", args).await,
+                            ) {
+                                source_files.set(sources);
+                            }
+                        }
+                        Err(_) => {
+                            error_message.set(Some("Failed to pick files.".to_string()));
+                        }
+                    },
+                }
+            });
+        })
+    };
 
     // Explorer layout change callback
     let on_explorer_layout_change = {
@@ -1009,6 +1217,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             on_open_frame={on_open_frame.clone()}
                             on_open_cut={on_open_cut.clone()}
                             on_open_preview={on_open_preview.clone()}
+                            on_add_files={Some(on_add_files_explorer.clone())}
                         />
                         <ExplorerTree
                             explorer_layout={(*explorer_layout).clone()}
@@ -1030,6 +1239,71 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         />
                     </div>
                     <div id="montage-sidebar-bottom" class="explorer-sidebar__bottom">
+                        <Controls
+                            selected_source={(*selected_source).clone()}
+                            selected_frame_dir={(*selected_frame_dir).clone()}
+                            controls_collapsed={*controls_collapsed}
+                            on_toggle_collapsed={{
+                                let controls_collapsed = controls_collapsed.clone();
+                                Callback::from(move |_| {
+                                    controls_collapsed.set(!*controls_collapsed);
+                                })
+                            }}
+                            is_playing={*is_playing}
+                            on_is_playing_change={{
+                                let is_playing = is_playing.clone();
+                                Callback::from(move |val: bool| {
+                                    is_playing.set(val);
+                                })
+                            }}
+                            should_reset={*should_reset}
+                            on_should_reset_change={{
+                                let should_reset = should_reset.clone();
+                                Callback::from(move |val: bool| {
+                                    should_reset.set(val);
+                                })
+                            }}
+                            synced_progress={*synced_progress}
+                            on_synced_progress_change={{
+                                let synced_progress = synced_progress.clone();
+                                Callback::from(move |val: f64| {
+                                    synced_progress.set(val);
+                                })
+                            }}
+                            seek_percentage={*seek_percentage}
+                            on_seek_percentage_change={{
+                                let seek_percentage = seek_percentage.clone();
+                                Callback::from(move |val: Option<f64>| {
+                                    seek_percentage.set(val);
+                                })
+                            }}
+                            frames_loading={*frames_loading}
+                            loop_enabled={*loop_enabled}
+                            on_loop_change={{
+                                let loop_enabled = loop_enabled.clone();
+                                Callback::from(move |enabled: bool| {
+                                    loop_enabled.set(enabled);
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        let args = serde_wasm_bindgen::to_value(&json!({ "enabled": enabled })).unwrap();
+                                        let _ = tauri_invoke("set_loop_enabled", args).await;
+                                    });
+                                })
+                            }}
+                            volume={*video_volume}
+                            is_muted={*video_is_muted}
+                            on_volume_change={{
+                                let video_volume = video_volume.clone();
+                                Callback::from(move |value: f64| {
+                                    video_volume.set(value.clamp(0.0, 1.0));
+                                })
+                            }}
+                            on_is_muted_change={{
+                                let video_is_muted = video_is_muted.clone();
+                                Callback::from(move |muted: bool| {
+                                    video_is_muted.set(muted);
+                                })
+                            }}
+                        />
                         if let Some(ref on_navigate) = props.on_navigate {
                             <ToolsSection on_navigate={on_navigate.clone()} current_page={"montage"} />
                         }

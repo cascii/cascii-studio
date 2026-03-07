@@ -8,9 +8,12 @@ use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
 use super::open::Project;
+use super::project_cache::{
+    get_project_sidebar_cache, set_project_sidebar_cache, ProjectSidebarCache,
+};
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
 use crate::components::explorer::{
-    ExplorerLayout, ExplorerTree, ResourceRef, ResourcesTree, SidebarState, TreeNodeId,
+    ExplorerLayout, ExplorerTree, ResourceRef, ResourcesTree, TreeNodeId,
 };
 use crate::components::settings::available_cuts::VideoCut;
 use crate::components::settings::{Controls, ToolsSection};
@@ -357,10 +360,35 @@ pub struct ProjectPageProps {
 
 #[function_component(ProjectPage)]
 pub fn project_page(props: &ProjectPageProps) -> Html {
+    let cached_sidebar_data = get_project_sidebar_cache(&props.project_id);
+    let cached_project = cached_sidebar_data
+        .as_ref()
+        .and_then(|data| data.project.clone());
+    let cached_source_files = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.source_files.clone())
+        .unwrap_or_default();
+    let cached_frame_directories = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.frame_directories.clone())
+        .unwrap_or_default();
+    let cached_video_cuts = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.video_cuts.clone())
+        .unwrap_or_default();
+    let cached_previews = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.previews.clone())
+        .unwrap_or_default();
+    let cached_sidebar_state = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.sidebar_state.clone())
+        .unwrap_or_default();
+
     let project_id = use_state(|| props.project_id.clone());
-    let project = use_state(|| None::<Project>);
-    let source_files = use_state(|| Vec::<SourceContent>::new());
-    let frame_directories = use_state(|| Vec::<FrameDirectory>::new());
+    let project = use_state(move || cached_project.clone());
+    let source_files = use_state(move || cached_source_files.clone());
+    let frame_directories = use_state(move || cached_frame_directories.clone());
     let selected_source = use_state(|| None::<SourceContent>);
     let selected_frame_dir = use_state(|| None::<FrameDirectory>);
     let selected_frame_settings = use_state(|| None::<ConversionSettings>);
@@ -428,20 +456,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let controls_collapsed = use_state(|| false);
 
     // Explorer sidebar state
-    let sidebar_state = use_state(SidebarState::default);
+    let sidebar_state = use_state(move || cached_sidebar_state.clone());
     let explorer_layout = use_state(ExplorerLayout::default);
     let selected_node_id = use_state(|| None::<TreeNodeId>);
     let open_tabs = use_state(|| Vec::<OpenTab>::new());
     let active_tab_id = use_state(|| None::<String>);
 
     // Video cuts state
-    let video_cuts = use_state(|| Vec::<VideoCut>::new());
+    let video_cuts = use_state(move || cached_video_cuts.clone());
     let selected_cut = use_state(|| None::<VideoCut>);
     let is_cutting = use_state(|| false);
     let is_preprocessing = use_state(|| false);
 
     // Previews state
-    let previews = use_state(|| Vec::<Preview>::new());
+    let previews = use_state(move || cached_previews.clone());
     let selected_preview = use_state(|| None::<Preview>);
     let preview_container_ref = use_node_ref();
 
@@ -497,72 +525,130 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let video_cuts = video_cuts.clone();
         let previews = previews.clone();
         let error_message = error_message.clone();
+        let sidebar_state = sidebar_state.clone();
 
         use_effect_with((*project_id).clone(), move |id| {
-            let id = id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Fetch project details
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project", args).await {
-                    result => {
-                        if let Ok(p) = serde_wasm_bindgen::from_value::<Project>(result) {
-                            on_project_name_change.emit(p.project_name.clone());
-                            project.set(Some(p));
-                        } else {
-                            error_message.set(Some("Failed to fetch project details.".to_string()));
+            if let Some(cached_data) = get_project_sidebar_cache(id) {
+                let cached_project = cached_data.project.clone();
+                if *project != cached_project {
+                    project.set(cached_project.clone());
+                }
+                if *source_files != cached_data.source_files {
+                    source_files.set(cached_data.source_files.clone());
+                }
+                if *frame_directories != cached_data.frame_directories {
+                    frame_directories.set(cached_data.frame_directories.clone());
+                }
+                if *video_cuts != cached_data.video_cuts {
+                    video_cuts.set(cached_data.video_cuts.clone());
+                }
+                if *previews != cached_data.previews {
+                    previews.set(cached_data.previews.clone());
+                }
+                if *sidebar_state != cached_data.sidebar_state {
+                    sidebar_state.set(cached_data.sidebar_state.clone());
+                }
+                if let Some(cached_project) = cached_project {
+                    on_project_name_change.emit(cached_project.project_name);
+                }
+            } else {
+                let id = id.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    // Fetch project details
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    match tauri_invoke("get_project", args).await {
+                        result => {
+                            if let Ok(p) = serde_wasm_bindgen::from_value::<Project>(result) {
+                                on_project_name_change.emit(p.project_name.clone());
+                                project.set(Some(p));
+                            } else {
+                                error_message
+                                    .set(Some("Failed to fetch project details.".to_string()));
+                            }
                         }
                     }
-                }
 
-                // Fetch source files
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project_sources", args).await {
-                    result => {
-                        if let Ok(s) = serde_wasm_bindgen::from_value(result) {
-                            source_files.set(s);
-                        } else {
-                            error_message.set(Some("Failed to fetch source files.".to_string()));
-                        }
+                    // Fetch source files
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(sources) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_sources", args).await,
+                    ) {
+                        source_files.set(sources);
+                    } else {
+                        error_message.set(Some("Failed to fetch source files.".to_string()));
                     }
-                }
 
-                // Fetch frame directories
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project_frames", args).await {
-                    result => {
-                        if let Ok(frames) = serde_wasm_bindgen::from_value(result) {
-                            frame_directories.set(frames);
-                        } else {
-                            // Not critical, just log silently
-                        }
+                    // Fetch frame directories
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(frames) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_frames", args).await,
+                    ) {
+                        frame_directories.set(frames);
                     }
-                }
 
-                // Fetch video cuts
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project_cuts", args).await {
-                    result => {
-                        if let Ok(cuts) = serde_wasm_bindgen::from_value(result) {
-                            video_cuts.set(cuts);
-                        }
-                        // Not critical, just log silently
+                    // Fetch video cuts
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(cuts) =
+                        serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
+                    {
+                        video_cuts.set(cuts);
                     }
-                }
 
-                // Fetch previews
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                match tauri_invoke("get_project_previews", args).await {
-                    result => {
-                        if let Ok(p) = serde_wasm_bindgen::from_value(result) {
-                            previews.set(p);
-                        }
-                        // Not critical, just log silently
+                    // Fetch previews
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    if let Ok(previews_list) = serde_wasm_bindgen::from_value(
+                        tauri_invoke("get_project_previews", args).await,
+                    ) {
+                        previews.set(previews_list);
                     }
-                }
-            });
+                });
+            }
 
             || ()
         });
+    }
+
+    {
+        let project_id = (*project_id).clone();
+        let project = (*project).clone();
+        let source_files = (*source_files).clone();
+        let frame_directories = (*frame_directories).clone();
+        let video_cuts = (*video_cuts).clone();
+        let previews = (*previews).clone();
+        let sidebar_state = (*sidebar_state).clone();
+        use_effect_with(
+            (
+                project_id,
+                project,
+                source_files,
+                frame_directories,
+                video_cuts,
+                previews,
+                sidebar_state,
+            ),
+            move |(
+                project_id,
+                project,
+                source_files,
+                frame_directories,
+                video_cuts,
+                previews,
+                sidebar_state,
+            )| {
+                set_project_sidebar_cache(
+                    project_id,
+                    ProjectSidebarCache {
+                        project: project.clone(),
+                        source_files: source_files.clone(),
+                        frame_directories: frame_directories.clone(),
+                        video_cuts: video_cuts.clone(),
+                        previews: previews.clone(),
+                        sidebar_state: sidebar_state.clone(),
+                    },
+                );
+                || ()
+            },
+        );
     }
 
     // Storage for listener cleanup (prevents memory leaks)

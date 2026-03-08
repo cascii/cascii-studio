@@ -820,6 +820,7 @@ pub struct FrameDirectory {
     pub frame_count: i32,
     pub fps: u32,
     pub frame_speed: u32,
+    pub color: bool,
     pub output_mode: String,
     pub foreground_color: Option<String>,
     pub background_color: Option<String>,
@@ -919,6 +920,10 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                                             .map(|conversion| conversion.settings.fps)
                                             .unwrap_or(24)
                                     }),
+                                color: conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.settings.color)
+                                    .unwrap_or(false),
                                 output_mode: metadata.output_mode,
                                 foreground_color: Some(metadata.foreground_color),
                                 background_color: Some(metadata.background_color),

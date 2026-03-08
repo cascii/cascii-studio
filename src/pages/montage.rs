@@ -419,9 +419,11 @@ extern "C" {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlayableItem {
     Video {
+        clip_id: String,
         asset_url: String,
     },
     Frames {
+        clip_id: String,
         directory_path: String,
         fps: u32,
         frame_render_mode: FrameRenderMode,
@@ -537,6 +539,7 @@ fn frame_asset_metadata_from_directory(frame_dir: &FrameDirectory) -> FrameAsset
         fps: frame_dir.fps,
         frame_speed: frame_dir.frame_speed,
         frame_count: frame_dir.frame_count,
+        color_enabled: frame_dir.color,
         output_mode: frame_dir.output_mode.clone(),
         foreground_color: frame_dir.foreground_color.clone(),
         background_color: frame_dir.background_color.clone(),
@@ -551,6 +554,7 @@ fn frame_asset_metadata_from_preview(preview: &Preview) -> FrameAssetMetadata {
         fps: preview.settings.fps,
         frame_speed: preview.settings.fps,
         frame_count: preview.frame_count,
+        color_enabled: preview.settings.color,
         output_mode: preview.settings.output_mode.clone(),
         foreground_color: preview.settings.foreground_color.clone(),
         background_color: preview.settings.background_color.clone(),
@@ -962,8 +966,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 match item.media_type {
                                     TimelineMediaType::Video => {
                                         if let Some(asset_url) = preload.video_asset_url.clone() {
-                                            active_playable
-                                                .set(Some(PlayableItem::Video { asset_url }));
+                                            active_playable.set(Some(PlayableItem::Video {
+                                                clip_id: item.clip_id.clone(),
+                                                asset_url,
+                                            }));
                                         } else {
                                             active_playable.set(None);
                                         }
@@ -972,6 +978,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         if let Some(preloaded_bundle) = preload.frame_bundle.clone()
                                         {
                                             active_playable.set(Some(PlayableItem::Frames {
+                                                clip_id: item.clip_id.clone(),
                                                 directory_path: preloaded_bundle
                                                     .directory_path
                                                     .clone(),
@@ -2720,10 +2727,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     >
                         {
                             match &*active_playable {
-                                Some(PlayableItem::Video {asset_url}) => html! {
+                                Some(PlayableItem::Video {clip_id, asset_url}) => html! {
                                     <div id="montage-workspace-video-pane" class="montage-workspace-pane">
                                         <VideoPlayer
-                                            key={(*active_timeline_index).map(|i| format!("video-{}", i)).unwrap_or_default()}
+                                            key={format!("video-{}", clip_id)}
                                             src={asset_url.clone()}
                                             should_play={if *is_playing {Some(true)} else {Some(false)}}
                                             should_reset={*should_reset}
@@ -2735,10 +2742,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         />
                                     </div>
                                 },
-                                Some(PlayableItem::Frames {directory_path, fps, frame_render_mode, preloaded_bundle}) => html! {
+                                Some(PlayableItem::Frames {clip_id, directory_path, fps, frame_render_mode, preloaded_bundle}) => html! {
                                     <div id="montage-workspace-frames-pane" class="montage-workspace-pane">
                                         <AsciiFramesViewer
-                                            key={(*active_timeline_index).map(|i| format!("frames-{}", i)).unwrap_or_default()}
+                                            key={format!("frames-{}", clip_id)}
                                             directory_path={directory_path.clone()}
                                             fps={*fps}
                                             settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}

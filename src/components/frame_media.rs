@@ -101,6 +101,8 @@ pub struct FrameAssetMetadata {
     pub frame_speed: u32,
     #[serde(default)]
     pub frame_count: i32,
+    #[serde(default)]
+    pub color_enabled: bool,
     #[serde(default = "default_output_mode")]
     pub output_mode: String,
     #[serde(default)]
@@ -146,22 +148,32 @@ pub fn resolve_frame_colors(metadata: &FrameAssetMetadata) -> FrameColors {
 }
 
 pub fn supported_frame_render_modes(metadata: &FrameAssetMetadata) -> Vec<FrameRenderMode> {
+    let color_frames_available = metadata.color_enabled && metadata.has_color_frames;
+
     match metadata.output_mode.as_str() {
         "color-only" => {
-            if metadata.has_color_frames {
+            if color_frames_available {
                 vec![FrameRenderMode::ColorFrames]
             } else {
                 Vec::new()
             }
         }
         "text+color" => {
-            let mut modes = vec![FrameRenderMode::BwText, FrameRenderMode::StyledText];
-            if metadata.has_color_frames {
+            let mut modes = vec![FrameRenderMode::BwText];
+            if color_frames_available {
                 modes.push(FrameRenderMode::ColorFrames);
+            } else {
+                modes.push(FrameRenderMode::StyledText);
             }
             modes
         }
-        _ => vec![FrameRenderMode::BwText],
+        _ => {
+            if color_frames_available {
+                vec![FrameRenderMode::BwText, FrameRenderMode::ColorFrames]
+            } else {
+                vec![FrameRenderMode::BwText]
+            }
+        }
     }
 }
 

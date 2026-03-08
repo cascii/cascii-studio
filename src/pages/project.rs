@@ -244,6 +244,8 @@ pub struct FrameDirectory {
     pub fps: u32,
     #[serde(default)]
     pub frame_speed: u32,
+    #[serde(default)]
+    pub color: bool,
     #[serde(default = "default_frame_output_mode")]
     pub output_mode: String,
     #[serde(default)]
@@ -2598,10 +2600,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         />
                     }
 
-                    <div id="project-preview-container" class="preview-container" ref={preview_container_ref.clone()}>
+                        <div id="project-preview-container" class="preview-container" ref={preview_container_ref.clone()}>
                         <div id="project-source-column" class="preview-column">
                             if let Some(label) = &source_preview_label {
-                                <div id="project-source-label" class="preview-label">{label.clone()}</div>
+                                <div id="project-source-label" class="preview-label" data-full-label={label.clone()}>
+                                    <span id="project-source-label-text" class="preview-label-text">{label.clone()}</span>
+                                </div>
                             }
                             <div id="project-source-square" class="square">
                                 {
@@ -2819,7 +2823,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                         <div id="project-frames-column" class="preview-column">
                             if let Some(label) = &frames_preview_label {
-                                <div id="project-frames-label" class="preview-label">{label.clone()}</div>
+                                <div id="project-frames-label" class="preview-label" data-full-label={label.clone()}>
+                                    <span id="project-frames-label-text" class="preview-label-text">{label.clone()}</span>
+                                </div>
                             }
                             <div id="project-frames-square" class="square">
                                 {

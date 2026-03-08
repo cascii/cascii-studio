@@ -2,6 +2,7 @@ mod database;
 mod settings;
 
 use chrono::Utc;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -341,6 +342,77 @@ fn is_mp4_file(path: &str) -> bool {
     } else {
         false
     }
+}
+
+fn output_mode_from_color_flag(color: bool) -> String {
+    if color {
+        "text+color".to_string()
+    } else {
+        "text-only".to_string()
+    }
+}
+
+fn default_foreground_color() -> String {
+    "white".to_string()
+}
+
+fn default_background_color() -> String {
+    "black".to_string()
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedFrameMetadata {
+    output_mode: String,
+    foreground_color: String,
+    background_color: String,
+}
+
+fn resolve_frame_metadata(
+    directory: &Path,
+    fallback_output_mode: Option<&str>,
+    fallback_color: bool,
+    fallback_foreground_color: Option<&str>,
+    fallback_background_color: Option<&str>,
+) -> ResolvedFrameMetadata {
+    let default_output_mode = fallback_output_mode
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| output_mode_from_color_flag(fallback_color));
+
+    let mut resolved = ResolvedFrameMetadata {
+        output_mode: default_output_mode,
+        foreground_color: fallback_foreground_color
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(default_foreground_color),
+        background_color: fallback_background_color
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(default_background_color),
+    };
+
+    let details_path = directory.join("details.toml");
+    if let Ok(details_text) = fs::read_to_string(&details_path) {
+        if let Ok(details) = cascii_core_view::ProjectDetails::from_toml_str(&details_text) {
+            if let Some(output) = details.output {
+                if !output.trim().is_empty() {
+                    resolved.output_mode = output;
+                }
+            }
+            if let Some(color) = details.color {
+                if !color.trim().is_empty() {
+                    resolved.foreground_color = color;
+                }
+            }
+            if let Some(background_color) = details.background_color {
+                if !background_color.trim().is_empty() {
+                    resolved.background_color = background_color;
+                }
+            }
+        }
+    }
+
+    resolved
 }
 
 fn get_video_duration(input_path: &str) -> Result<f32, String> {
@@ -740,10 +812,19 @@ fn update_conversion_frame_speed(conversion_id: String, frame_speed: u32) -> Res
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct FrameDirectory {
+    pub conversion_id: String,
     pub name: String,                // Display name like "Notan Nigres - Frames"
     pub directory_path: String,      // Full path to the frames directory
     pub source_file_name: String,    // Original source file name
     pub custom_name: Option<String>, // Custom display name for the frame directory
+    pub frame_count: i32,
+    pub fps: u32,
+    pub frame_speed: u32,
+    pub output_mode: String,
+    pub foreground_color: Option<String>,
+    pub background_color: Option<String>,
+    pub has_text_frames: bool,
+    pub has_color_frames: bool,
 }
 
 #[tauri::command]
@@ -782,22 +863,67 @@ fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, String>
                                 dir_name.strip_suffix("_ascii").unwrap_or(dir_name)
                             };
 
-                            // Get custom name from database if it exists
-                            let folder_path = path.to_str().unwrap_or("");
-                            let custom_name = database::get_conversion_by_folder_path(folder_path)
+                            let folder_path = path.to_str().unwrap_or("").to_string();
+                            let conversion = database::get_conversion_by_folder_path(&folder_path)
                                 .ok()
-                                .flatten()
-                                .and_then(|conversion| conversion.custom_name);
+                                .flatten();
+                            let (frame_files, has_text_frames, has_color_frames) =
+                                inspect_frame_directory(&path)?;
+                            let metadata = resolve_frame_metadata(
+                                &path,
+                                conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.settings.output_mode.as_str()),
+                                conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.settings.color)
+                                    .unwrap_or(false),
+                                conversion.as_ref().and_then(|conversion| {
+                                    conversion.settings.foreground_color.as_deref()
+                                }),
+                                conversion.as_ref().and_then(|conversion| {
+                                    conversion.settings.background_color.as_deref()
+                                }),
+                            );
+                            let custom_name = conversion
+                                .as_ref()
+                                .and_then(|conversion| conversion.custom_name.clone());
 
                             // Create display name: use custom_name if available, otherwise "{Source Name} - Frames"
                             let display_name = custom_name
                                 .clone()
                                 .unwrap_or_else(|| format!("{} - Frames", source_name));
                             frames.push(FrameDirectory {
+                                conversion_id: conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.id.clone())
+                                    .unwrap_or_else(|| format!("path:{}", folder_path)),
                                 name: display_name,
-                                directory_path: folder_path.to_string(),
+                                directory_path: folder_path,
                                 source_file_name: source_name.to_string(),
                                 custom_name,
+                                frame_count: conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.frame_count)
+                                    .unwrap_or(frame_files.len() as i32),
+                                fps: conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.settings.fps)
+                                    .unwrap_or(24),
+                                frame_speed: conversion
+                                    .as_ref()
+                                    .map(|conversion| conversion.settings.frame_speed)
+                                    .unwrap_or_else(|| {
+                                        conversion
+                                            .as_ref()
+                                            .map(|conversion| conversion.settings.fps)
+                                            .unwrap_or(24)
+                                    }),
+                                output_mode: metadata.output_mode,
+                                foreground_color: Some(metadata.foreground_color),
+                                background_color: Some(metadata.background_color),
+                                has_text_frames,
+                                has_color_frames,
                             });
                         }
                     }
@@ -835,12 +961,30 @@ pub struct FrameFile {
     pub index: u32,
 }
 
-fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
+impl FrameFile {
+    fn extract_index(stem: &str, fallback: u32) -> u32 {
+        if let Some(suffix) = stem.strip_prefix("frame_") {
+            suffix.parse::<u32>().unwrap_or(0)
+        } else {
+            let digits = stem
+                .chars()
+                .filter(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            digits.parse::<u32>().unwrap_or(fallback)
+        }
+    }
+}
+
+fn inspect_frame_directory(dir: &PathBuf) -> Result<(Vec<FrameFile>, bool, bool), String> {
     if !dir.exists() {
         return Err("Directory does not exist".to_string());
     }
 
-    let mut frames = Vec::new();
+    let mut frame_variants: BTreeMap<(u32, String), (Option<PathBuf>, Option<PathBuf>)> =
+        BTreeMap::new();
+    let mut has_text_frames = false;
+    let mut has_color_frames = false;
+    let mut fallback_index = 0u32;
 
     match fs::read_dir(dir) {
         Ok(entries) => {
@@ -848,30 +992,21 @@ fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext == "txt" {
-                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                                // Extract frame index from filename (e.g., "frame_0001.txt" -> 1)
-                                let index = if file_name.starts_with("frame_") {
-                                    file_name
-                                        .strip_prefix("frame_")
-                                        .and_then(|s| s.strip_suffix(".txt"))
-                                        .and_then(|s| s.parse::<u32>().ok())
-                                        .unwrap_or(0)
+                        let normalized_ext = ext.to_ascii_lowercase();
+                        if normalized_ext == "txt" || normalized_ext == "cframe" {
+                            if let Some(stem) = path.file_stem().and_then(|n| n.to_str()) {
+                                let index = FrameFile::extract_index(stem, fallback_index);
+                                fallback_index = fallback_index.saturating_add(1);
+                                let entry = frame_variants
+                                    .entry((index, stem.to_string()))
+                                    .or_insert((None, None));
+                                if normalized_ext == "txt" {
+                                    has_text_frames = true;
+                                    entry.0 = Some(path.clone());
                                 } else {
-                                    // Try to extract number from filename
-                                    file_name
-                                        .chars()
-                                        .filter(|c| c.is_ascii_digit())
-                                        .collect::<String>()
-                                        .parse::<u32>()
-                                        .unwrap_or(0)
-                                };
-
-                                frames.push(FrameFile {
-                                    path: path.to_str().unwrap_or("").to_string(),
-                                    name: file_name.to_string(),
-                                    index,
-                                });
+                                    has_color_frames = true;
+                                    entry.1 = Some(path.clone());
+                                }
                             }
                         }
                     }
@@ -883,10 +1018,28 @@ fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
         }
     }
 
-    // Sort by index
-    frames.sort_by(|a, b| a.index.cmp(&b.index));
+    let frames = frame_variants
+        .into_iter()
+        .filter_map(|((index, stem), (txt_path, cframe_path))| {
+            let chosen_path = txt_path.or(cframe_path)?;
+            let name = chosen_path
+                .file_name()
+                .and_then(|file_name| file_name.to_str())
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| stem.clone());
+            Some(FrameFile {
+                path: chosen_path.to_string_lossy().to_string(),
+                name,
+                index,
+            })
+        })
+        .collect::<Vec<_>>();
 
-    Ok(frames)
+    Ok((frames, has_text_frames, has_color_frames))
+}
+
+fn scan_frames_in_dir(dir: &PathBuf) -> Result<Vec<FrameFile>, String> {
+    inspect_frame_directory(dir).map(|(frames, _, _)| frames)
 }
 
 #[tauri::command]
@@ -897,7 +1050,20 @@ fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String> {
 
 #[tauri::command]
 fn read_frame_file(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path).map_err(|e| format!("Failed to read frame file: {}", e))
+    let path = PathBuf::from(&file_path);
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if extension == "cframe" {
+        let bytes = fs::read(&path).map_err(|e| format!("Failed to read cframe file: {}", e))?;
+        cascii_core_view::parse_cframe_text(&bytes)
+            .map_err(|e| format!("Failed to decode cframe text: {}", e))
+    } else {
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read frame file: {}", e))
+    }
 }
 
 /// Read a .cframe file (color frame) that corresponds to a .txt frame file.
@@ -905,8 +1071,17 @@ fn read_frame_file(file_path: String) -> Result<String, String> {
 /// Parsing happens on the WASM side via cascii-core-view's parse_cframe().
 #[tauri::command]
 fn read_cframe_file(txt_file_path: String) -> Result<Option<Vec<u8>>, String> {
-    let txt_path = PathBuf::from(&txt_file_path);
-    let cframe_path = txt_path.with_extension("cframe");
+    let source_path = PathBuf::from(&txt_file_path);
+    let cframe_path = if source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("cframe"))
+        .unwrap_or(false)
+    {
+        source_path
+    } else {
+        source_path.with_extension("cframe")
+    };
 
     if !cframe_path.exists() {
         return Ok(None);
@@ -1427,6 +1602,9 @@ async fn convert_to_ascii(
                                 fps,
                                 frame_speed: fps,
                                 color: color_for_db,
+                                output_mode: output_mode_from_color_flag(color_for_db),
+                                foreground_color: Some(default_foreground_color()),
+                                background_color: Some(default_background_color()),
                             },
                             creation_date: Utc::now(),
                             total_size,
@@ -1587,17 +1765,26 @@ fn generate_random_suffix() -> String {
 }
 
 fn count_frames_and_size(dir: &PathBuf) -> Result<(i32, i64), String> {
-    let mut frame_count = 0i32;
     let mut total_size = 0i64;
-
+    let (frames, _, _) = inspect_frame_directory(dir)?;
+    let frame_count = frames.len() as i32;
     let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if ext == "txt" {
-                    frame_count += 1;
+                let ext = ext.to_ascii_lowercase();
+                if ext == "txt" || ext == "cframe" {
+                    if let Ok(metadata) = fs::metadata(&path) {
+                        total_size += metadata.len() as i64;
+                    }
+                } else if path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name == "details.toml")
+                    .unwrap_or(false)
+                {
                     if let Ok(metadata) = fs::metadata(&path) {
                         total_size += metadata.len() as i64;
                     }
@@ -2441,6 +2628,37 @@ async fn create_preview(
         .convert_image(&temp_frame_path, &output_txt_path, &conv_opts)
         .map_err(|e| format!("Failed to convert frame to ASCII: {}", e))?;
 
+    #[derive(serde::Serialize)]
+    struct PreviewDetailsFile {
+        version: String,
+        frames: usize,
+        luminance: u8,
+        font_ratio: f32,
+        columns: u32,
+        fps: u32,
+        output: String,
+        audio: bool,
+        background_color: String,
+        color: String,
+    }
+
+    let details = PreviewDetailsFile {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        frames: 1,
+        luminance: request.luminance,
+        font_ratio: request.font_ratio,
+        columns: request.columns,
+        fps: request.fps,
+        output: output_mode_from_color_flag(request.color),
+        audio: false,
+        background_color: default_background_color(),
+        color: default_foreground_color(),
+    };
+    let details_toml = toml::to_string_pretty(&details)
+        .map_err(|e| format!("Failed to serialize preview details: {}", e))?;
+    fs::write(output_dir.join("details.toml"), details_toml)
+        .map_err(|e| format!("Failed to write preview details: {}", e))?;
+
     // Remove temp frame
     let _ = fs::remove_file(&temp_frame_path);
 
@@ -2468,6 +2686,9 @@ async fn create_preview(
             columns: request.columns,
             fps: request.fps,
             color: request.color,
+            output_mode: output_mode_from_color_flag(request.color),
+            foreground_color: Some(default_foreground_color()),
+            background_color: Some(default_background_color()),
         },
         creation_date: Utc::now(),
         total_size,
@@ -2485,6 +2706,30 @@ async fn create_preview(
 #[tauri::command]
 fn get_project_previews(project_id: String) -> Result<Vec<database::Preview>, String> {
     database::get_project_previews(&project_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_active_project_timeline(project_id: String) -> Result<database::ProjectTimeline, String> {
+    database::get_active_project_timeline(&project_id).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct SaveProjectTimelineRequest {
+    project_id: String,
+    timeline_id: Option<String>,
+    clips: Vec<database::TimelineClipDraft>,
+}
+
+#[tauri::command]
+fn save_project_timeline(
+    request: SaveProjectTimelineRequest,
+) -> Result<database::ProjectTimeline, String> {
+    database::save_project_timeline(
+        &request.project_id,
+        request.timeline_id.as_deref(),
+        &request.clips,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[derive(serde::Deserialize)]
@@ -2518,24 +2763,24 @@ fn rename_preview(request: RenamePreviewRequest) -> Result<(), String> {
         .map_err(|e| format!("Failed to rename preview: {}", e))
 }
 
-// ============== Explorer Layout ==============
+// ============== Project Content ==============
 
 #[tauri::command]
-fn get_explorer_layout(project_id: String) -> Result<Option<String>, String> {
-    database::get_explorer_layout(&project_id)
-        .map_err(|e| format!("Failed to get explorer layout: {}", e))
+fn get_project_content(project_id: String) -> Result<Vec<database::ProjectContentEntry>, String> {
+    database::get_project_content(&project_id)
+        .map_err(|e| format!("Failed to get project content: {}", e))
 }
 
 #[derive(serde::Deserialize)]
-struct SaveExplorerLayoutRequest {
+struct SaveProjectContentRequest {
     project_id: String,
-    layout_json: String,
+    entries: Vec<database::ProjectContentDraft>,
 }
 
 #[tauri::command]
-fn save_explorer_layout(request: SaveExplorerLayoutRequest) -> Result<(), String> {
-    database::save_explorer_layout(&request.project_id, &request.layout_json)
-        .map_err(|e| format!("Failed to save explorer layout: {}", e))
+fn save_project_content(request: SaveProjectContentRequest) -> Result<(), String> {
+    database::save_project_content(&request.project_id, &request.entries)
+        .map_err(|e| format!("Failed to save project content: {}", e))
 }
 
 #[derive(Default)]
@@ -2900,10 +3145,12 @@ pub fn run() {
             check_sidecar_ffmpeg,
             create_preview,
             get_project_previews,
+            get_active_project_timeline,
+            save_project_timeline,
             delete_preview,
             rename_preview,
-            get_explorer_layout,
-            save_explorer_layout,
+            get_project_content,
+            save_project_content,
             show_resources_context_menu,
             show_explorer_context_menu,
             show_open_projects_context_menu

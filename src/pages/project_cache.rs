@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use super::open::Project;
 use super::project::{FrameDirectory, Preview, SourceContent};
-use crate::components::explorer::SidebarState;
+use crate::components::explorer::{ExplorerLayout, SidebarState};
 use crate::components::settings::available_cuts::VideoCut;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +14,7 @@ pub struct ProjectSidebarCache {
     pub video_cuts: Vec<VideoCut>,
     pub previews: Vec<Preview>,
     pub sidebar_state: SidebarState,
+    pub explorer_layout: ExplorerLayout,
 }
 
 impl Default for ProjectSidebarCache {
@@ -25,6 +26,7 @@ impl Default for ProjectSidebarCache {
             video_cuts: Vec::new(),
             previews: Vec::new(),
             sidebar_state: SidebarState::default(),
+            explorer_layout: ExplorerLayout::default(),
         }
     }
 }

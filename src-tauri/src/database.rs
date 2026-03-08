@@ -1,7 +1,9 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProjectType {
@@ -80,6 +82,12 @@ pub struct ConversionSettings {
     pub frame_speed: u32,
     #[serde(default)]
     pub color: bool,
+    #[serde(default = "default_output_mode")]
+    pub output_mode: String,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub background_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +139,12 @@ pub struct PreviewSettings {
     pub columns: u32,
     pub fps: u32,
     pub color: bool,
+    #[serde(default = "default_output_mode")]
+    pub output_mode: String,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub background_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +159,651 @@ pub struct Preview {
     pub creation_date: DateTime<Utc>,
     pub total_size: i64,             // Total size of all files in bytes
     pub custom_name: Option<String>, // Custom display name
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineMediaType {
+    Video,
+    Frames,
+    Frame,
+}
+
+impl TimelineMediaType {
+    fn to_string(&self) -> &str {
+        match self {
+            TimelineMediaType::Video => "video",
+            TimelineMediaType::Frames => "frames",
+            TimelineMediaType::Frame => "frame",
+        }
+    }
+
+    fn from_string(s: &str) -> Self {
+        match s {
+            "frames" => TimelineMediaType::Frames,
+            "frame" => TimelineMediaType::Frame,
+            _ => TimelineMediaType::Video,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineResourceKind {
+    Source,
+    Cut,
+    AsciiConversion,
+    Preview,
+}
+
+impl TimelineResourceKind {
+    fn to_string(&self) -> &str {
+        match self {
+            TimelineResourceKind::Source => "source",
+            TimelineResourceKind::Cut => "cut",
+            TimelineResourceKind::AsciiConversion => "ascii_conversion",
+            TimelineResourceKind::Preview => "preview",
+        }
+    }
+
+    fn from_string(s: &str) -> Self {
+        match s {
+            "cut" => TimelineResourceKind::Cut,
+            "ascii_conversion" => TimelineResourceKind::AsciiConversion,
+            "preview" => TimelineResourceKind::Preview,
+            _ => TimelineResourceKind::Source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameRenderMode {
+    BwText,
+    StyledText,
+    ColorFrames,
+}
+
+impl FrameRenderMode {
+    fn to_string(&self) -> &str {
+        match self {
+            FrameRenderMode::BwText => "bw_text",
+            FrameRenderMode::StyledText => "styled_text",
+            FrameRenderMode::ColorFrames => "color_frames",
+        }
+    }
+
+    fn from_string(s: &str) -> Self {
+        match s {
+            "styled_text" => FrameRenderMode::StyledText,
+            "color_frames" => FrameRenderMode::ColorFrames,
+            _ => FrameRenderMode::BwText,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Timeline {
+    pub timeline_id: String,
+    pub project_id: String,
+    pub creation_date: DateTime<Utc>,
+    pub last_updated: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineClip {
+    pub clip_id: String,
+    pub project_id: String,
+    pub timeline_id: String,
+    pub order_index: i32,
+    pub media_type: TimelineMediaType,
+    pub resource_kind: TimelineResourceKind,
+    pub actual_resource_id: String,
+    pub frame_render_mode: Option<FrameRenderMode>,
+    pub length_seconds: f64,
+    pub creation_date: DateTime<Utc>,
+    pub last_updated: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineClipDraft {
+    pub clip_id: String,
+    pub media_type: TimelineMediaType,
+    pub resource_kind: TimelineResourceKind,
+    pub actual_resource_id: String,
+    pub frame_render_mode: Option<FrameRenderMode>,
+    pub length_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTimeline {
+    pub timeline: Option<Timeline>,
+    pub clips: Vec<TimelineClip>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectContentType {
+    Preview,
+    Image,
+    Frame,
+    Cut,
+    Source,
+    Frames,
+}
+
+impl ProjectContentType {
+    fn to_string(&self) -> &str {
+        match self {
+            ProjectContentType::Preview => "preview",
+            ProjectContentType::Image => "image",
+            ProjectContentType::Frame => "frame",
+            ProjectContentType::Cut => "cut",
+            ProjectContentType::Source => "source",
+            ProjectContentType::Frames => "frames",
+        }
+    }
+
+    fn from_string(s: &str) -> Self {
+        match s {
+            "preview" => ProjectContentType::Preview,
+            "image" => ProjectContentType::Image,
+            "frame" => ProjectContentType::Frame,
+            "cut" => ProjectContentType::Cut,
+            "frames" => ProjectContentType::Frames,
+            _ => ProjectContentType::Source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContentEntry {
+    pub id: String,
+    pub project_id: String,
+    pub item_id: String,
+    pub item_name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub item_type: ProjectContentType,
+    pub creation_date: DateTime<Utc>,
+    pub last_modified: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContentDraft {
+    pub item_id: String,
+    pub item_name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub item_type: ProjectContentType,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyExplorerLayout {
+    #[serde(default)]
+    root_items: Vec<LegacyExplorerItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+enum LegacyExplorerItem {
+    Folder {
+        name: String,
+        #[serde(default)]
+        children: Vec<LegacyExplorerItem>,
+    },
+    ResourceRef(LegacyResourceRef),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+enum LegacyResourceRef {
+    SourceFile { source_id: String },
+    VideoCut { cut_id: String },
+    FrameDirectory { directory_path: String },
+    Preview { preview_id: String },
+}
+
+fn default_output_mode() -> String {
+    "text-only".to_string()
+}
+
+fn file_name_from_path(path: &str) -> String {
+    PathBuf::from(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn cut_display_name(custom_name: Option<String>, start_time: f64, end_time: f64) -> String {
+    custom_name.unwrap_or_else(|| {
+        let sm = (start_time / 60.0) as u32;
+        let ss = (start_time % 60.0) as u32;
+        let em = (end_time / 60.0) as u32;
+        let es = (end_time % 60.0) as u32;
+        format!("Cut {:02}:{:02} - {:02}:{:02}", sm, ss, em, es)
+    })
+}
+
+fn source_display_name(custom_name: Option<String>, file_path: &str) -> String {
+    custom_name.unwrap_or_else(|| file_name_from_path(file_path))
+}
+
+fn preview_display_name(custom_name: Option<String>, folder_name: &str) -> String {
+    custom_name.unwrap_or_else(|| folder_name.to_string())
+}
+
+fn frame_source_name_from_folder_name(folder_name: &str) -> String {
+    if let Some(bracket_start) = folder_name.find("_ascii[") {
+        folder_name[..bracket_start].to_string()
+    } else if let Some(stripped) = folder_name.strip_suffix("_ascii") {
+        stripped.to_string()
+    } else {
+        folder_name.to_string()
+    }
+}
+
+fn frame_display_name(custom_name: Option<String>, folder_name: &str) -> String {
+    custom_name.unwrap_or_else(|| {
+        format!(
+            "{} - Frames",
+            frame_source_name_from_folder_name(folder_name)
+        )
+    })
+}
+
+fn project_content_row_id(
+    project_id: &str,
+    item_type: &ProjectContentType,
+    item_id: &str,
+    path: &str,
+) -> String {
+    format!(
+        "project_content|{}|{}|{}|{}",
+        project_id,
+        item_type.to_string(),
+        item_id,
+        path
+    )
+}
+
+fn table_exists(conn: &Connection, table_name: &str) -> SqlResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [table_name],
+        |row| row.get(0),
+    )
+}
+
+fn get_project_content_entries_internal(
+    conn: &Connection,
+    project_id: &str,
+) -> SqlResult<Vec<ProjectContentEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, item_id, item_name, path, type, creation_date, last_modified
+         FROM project_content
+         WHERE project_id = ?1
+         ORDER BY path COLLATE NOCASE ASC, item_name COLLATE NOCASE ASC",
+    )?;
+
+    let rows = stmt
+        .query_map([project_id], |row| {
+            let creation_date: String = row.get(6)?;
+            let last_modified: String = row.get(7)?;
+            Ok(ProjectContentEntry {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                item_id: row.get(2)?,
+                item_name: row.get(3)?,
+                path: row.get(4)?,
+                item_type: ProjectContentType::from_string(&row.get::<_, String>(5)?),
+                creation_date: DateTime::parse_from_rfc3339(&creation_date)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                last_modified: DateTime::parse_from_rfc3339(&last_modified)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
+
+    Ok(rows)
+}
+
+fn replace_project_content_entries(
+    conn: &Connection,
+    project_id: &str,
+    entries: &[ProjectContentDraft],
+    default_timestamp: Option<&str>,
+) -> SqlResult<()> {
+    let existing_entries = get_project_content_entries_internal(conn, project_id)?;
+    let existing_by_id = existing_entries
+        .into_iter()
+        .map(|entry| (entry.id.clone(), entry))
+        .collect::<HashMap<_, _>>();
+
+    let now = Utc::now().to_rfc3339();
+    let fallback_timestamp = default_timestamp.unwrap_or(now.as_str()).to_string();
+    let mut retained_ids = HashSet::new();
+
+    for entry in entries {
+        if entry.item_id.trim().is_empty()
+            || entry.item_name.trim().is_empty()
+            || entry.path.trim().is_empty()
+        {
+            continue;
+        }
+
+        let row_id =
+            project_content_row_id(project_id, &entry.item_type, &entry.item_id, &entry.path);
+        if !retained_ids.insert(row_id.clone()) {
+            continue;
+        }
+
+        let (creation_date, last_modified) = if let Some(existing) = existing_by_id.get(&row_id) {
+            let unchanged = existing.item_id == entry.item_id
+                && existing.item_name == entry.item_name
+                && existing.path == entry.path
+                && existing.item_type == entry.item_type;
+            (
+                existing.creation_date.to_rfc3339(),
+                if unchanged {
+                    existing.last_modified.to_rfc3339()
+                } else {
+                    now.clone()
+                },
+            )
+        } else {
+            (fallback_timestamp.clone(), fallback_timestamp.clone())
+        };
+
+        conn.execute(
+            "INSERT INTO project_content (id, project_id, item_id, item_name, path, type, creation_date, last_modified)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+                project_id = excluded.project_id,
+                item_id = excluded.item_id,
+                item_name = excluded.item_name,
+                path = excluded.path,
+                type = excluded.type,
+                creation_date = excluded.creation_date,
+                last_modified = excluded.last_modified",
+            params![
+                row_id,
+                project_id,
+                entry.item_id,
+                entry.item_name,
+                entry.path,
+                entry.item_type.to_string(),
+                creation_date,
+                last_modified,
+            ],
+        )?;
+    }
+
+    let obsolete_ids = existing_by_id
+        .keys()
+        .filter(|id| !retained_ids.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    for row_id in obsolete_ids {
+        conn.execute("DELETE FROM project_content WHERE id = ?1", [row_id])?;
+    }
+
+    Ok(())
+}
+
+fn legacy_resource_to_project_content_draft(
+    conn: &Connection,
+    resource: &LegacyResourceRef,
+    folder_segments: &[String],
+) -> SqlResult<Option<ProjectContentDraft>> {
+    let resolved = match resource {
+        LegacyResourceRef::SourceFile { source_id } => {
+            let mut stmt = conn.prepare(
+                "SELECT content_type, file_path, custom_name
+                 FROM source_content
+                 WHERE id = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query([source_id])?;
+            rows.next()?.map(|row| {
+                let content_type = row.get::<_, String>(0)?;
+                let file_path = row.get::<_, String>(1)?;
+                let custom_name = row.get::<_, Option<String>>(2)?;
+                Ok::<ProjectContentDraft, rusqlite::Error>(ProjectContentDraft {
+                    item_id: source_id.clone(),
+                    item_name: source_display_name(custom_name, &file_path),
+                    path: String::new(),
+                    item_type: if content_type == "image" {
+                        ProjectContentType::Image
+                    } else {
+                        ProjectContentType::Source
+                    },
+                })
+            })
+        }
+        LegacyResourceRef::VideoCut { cut_id } => {
+            let mut stmt = conn.prepare(
+                "SELECT custom_name, start_time, end_time
+                 FROM cuts
+                 WHERE id = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query([cut_id])?;
+            rows.next()?.map(|row| {
+                let custom_name = row.get::<_, Option<String>>(0)?;
+                let start_time = row.get::<_, f64>(1)?;
+                let end_time = row.get::<_, f64>(2)?;
+                Ok::<ProjectContentDraft, rusqlite::Error>(ProjectContentDraft {
+                    item_id: cut_id.clone(),
+                    item_name: cut_display_name(custom_name, start_time, end_time),
+                    path: String::new(),
+                    item_type: ProjectContentType::Cut,
+                })
+            })
+        }
+        LegacyResourceRef::FrameDirectory { directory_path } => {
+            let mut stmt = conn.prepare(
+                "SELECT id, folder_name, custom_name
+                 FROM ascii_conversions
+                 WHERE folder_path = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query([directory_path])?;
+            rows.next()?.map(|row| {
+                let conversion_id = row.get::<_, String>(0)?;
+                let folder_name = row.get::<_, String>(1)?;
+                let custom_name = row.get::<_, Option<String>>(2)?;
+                Ok::<ProjectContentDraft, rusqlite::Error>(ProjectContentDraft {
+                    item_id: conversion_id,
+                    item_name: frame_display_name(custom_name, &folder_name),
+                    path: String::new(),
+                    item_type: ProjectContentType::Frames,
+                })
+            })
+        }
+        LegacyResourceRef::Preview { preview_id } => {
+            let mut stmt = conn.prepare(
+                "SELECT folder_name, custom_name
+                 FROM previews
+                 WHERE id = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query([preview_id])?;
+            rows.next()?.map(|row| {
+                let folder_name = row.get::<_, String>(0)?;
+                let custom_name = row.get::<_, Option<String>>(1)?;
+                Ok::<ProjectContentDraft, rusqlite::Error>(ProjectContentDraft {
+                    item_id: preview_id.clone(),
+                    item_name: preview_display_name(custom_name, &folder_name),
+                    path: String::new(),
+                    item_type: ProjectContentType::Preview,
+                })
+            })
+        }
+    };
+
+    let Some(mut draft) = resolved.transpose()? else {
+        return Ok(None);
+    };
+
+    draft.path = if folder_segments.is_empty() {
+        draft.item_name.clone()
+    } else {
+        format!("{}/{}", folder_segments.join("/"), draft.item_name)
+    };
+
+    Ok(Some(draft))
+}
+
+fn flatten_legacy_explorer_items(
+    conn: &Connection,
+    items: &[LegacyExplorerItem],
+    folder_segments: &[String],
+    drafts: &mut Vec<ProjectContentDraft>,
+) -> SqlResult<()> {
+    for item in items {
+        match item {
+            LegacyExplorerItem::Folder { name, children } => {
+                let mut next_segments = folder_segments.to_vec();
+                next_segments.push(name.clone());
+                flatten_legacy_explorer_items(conn, children, &next_segments, drafts)?;
+            }
+            LegacyExplorerItem::ResourceRef(resource) => {
+                if let Some(draft) =
+                    legacy_resource_to_project_content_draft(conn, resource, folder_segments)?
+                {
+                    drafts.push(draft);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn migrate_explorer_layout_to_project_content(conn: &Connection) -> SqlResult<()> {
+    if !table_exists(conn, "explorer_layout")? {
+        return Ok(());
+    }
+
+    let layouts = {
+        let mut stmt = conn.prepare(
+            "SELECT project_id, layout_json, last_modified
+             FROM explorer_layout",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        rows
+    };
+
+    for (project_id, layout_json, last_modified) in layouts {
+        if project_id.trim().is_empty() {
+            continue;
+        }
+
+        if !get_project_content_entries_internal(conn, &project_id)?.is_empty() {
+            continue;
+        }
+
+        if let Ok(layout) = serde_json::from_str::<LegacyExplorerLayout>(&layout_json) {
+            let mut drafts = Vec::new();
+            flatten_legacy_explorer_items(conn, &layout.root_items, &[], &mut drafts)?;
+            replace_project_content_entries(conn, &project_id, &drafts, Some(&last_modified))?;
+        }
+    }
+
+    conn.execute("DROP TABLE IF EXISTS explorer_layout", [])?;
+    conn.execute("VACUUM", [])?;
+    Ok(())
+}
+
+fn delete_project_content_rows_for_item(
+    conn: &Connection,
+    item_id: &str,
+    item_types: &[ProjectContentType],
+) -> SqlResult<()> {
+    for item_type in item_types {
+        conn.execute(
+            "DELETE FROM project_content WHERE item_id = ?1 AND type = ?2",
+            params![item_id, item_type.to_string()],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn rename_project_content_rows_for_item(
+    conn: &Connection,
+    item_id: &str,
+    item_types: &[ProjectContentType],
+    next_item_name: &str,
+) -> SqlResult<()> {
+    let target_types = item_types
+        .iter()
+        .map(ProjectContentType::to_string)
+        .collect::<HashSet<_>>();
+    let rows = {
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, path, item_name, type
+             FROM project_content
+             WHERE item_id = ?1",
+        )?;
+        let rows = stmt
+            .query_map([item_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        rows
+    };
+
+    let now = Utc::now().to_rfc3339();
+    for (row_id, project_id, path, current_item_name, item_type) in rows {
+        if !target_types.contains(item_type.as_str()) {
+            continue;
+        }
+
+        let folder_prefix = if path == current_item_name {
+            String::new()
+        } else if let Some(stripped) = path.strip_suffix(&current_item_name) {
+            stripped.trim_end_matches('/').to_string()
+        } else if let Some((prefix, _)) = path.rsplit_once('/') {
+            prefix.to_string()
+        } else {
+            String::new()
+        };
+
+        let next_path = if folder_prefix.is_empty() {
+            next_item_name.to_string()
+        } else {
+            format!("{}/{}", folder_prefix, next_item_name)
+        };
+        let next_type = ProjectContentType::from_string(&item_type);
+        let next_row_id = project_content_row_id(&project_id, &next_type, item_id, &next_path);
+
+        conn.execute(
+            "UPDATE project_content
+             SET id = ?1, item_name = ?2, path = ?3, last_modified = ?4
+             WHERE id = ?5",
+            params![next_row_id, next_item_name, next_path, now, row_id],
+        )?;
+    }
+
+    Ok(())
 }
 
 fn app_support_dir() -> PathBuf {
@@ -296,6 +955,69 @@ pub fn init_database() -> SqlResult<Connection> {
         )?;
     }
 
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='output_mode'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute(
+            "ALTER TABLE ascii_conversions ADD COLUMN output_mode TEXT NOT NULL DEFAULT 'text-only'",
+            [],
+        )?;
+    }
+
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='foreground_color'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute(
+            "ALTER TABLE ascii_conversions ADD COLUMN foreground_color TEXT",
+            [],
+        )?;
+    }
+
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('ascii_conversions') WHERE name='background_color'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute(
+            "ALTER TABLE ascii_conversions ADD COLUMN background_color TEXT",
+            [],
+        )?;
+    }
+
+    conn.execute(
+        "UPDATE ascii_conversions
+         SET output_mode = CASE
+             WHEN output_mode IS NULL OR TRIM(output_mode) = '' THEN CASE WHEN color != 0 THEN 'text+color' ELSE 'text-only' END
+             ELSE output_mode
+         END",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE ascii_conversions
+         SET foreground_color = COALESCE(NULLIF(TRIM(foreground_color), ''), 'white'),
+             background_color = COALESCE(NULLIF(TRIM(background_color), ''), 'black')",
+        [],
+    )?;
+
     // Create indexes for ascii_conversions
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_conversion_project_id ON ascii_conversions(project_id)",
@@ -381,6 +1103,9 @@ pub fn init_database() -> SqlResult<Connection> {
             creation_date TEXT NOT NULL,
             total_size INTEGER NOT NULL DEFAULT 0,
             custom_name TEXT,
+            output_mode TEXT NOT NULL DEFAULT 'text-only',
+            foreground_color TEXT,
+            background_color TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
             FOREIGN KEY (source_file_id) REFERENCES source_content(id) ON DELETE CASCADE
         )",
@@ -397,12 +1122,72 @@ pub fn init_database() -> SqlResult<Connection> {
         [],
     )?;
 
-    // Create explorer_layout table (stores user's custom file explorer tree as JSON)
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('previews') WHERE name='output_mode'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute(
+            "ALTER TABLE previews ADD COLUMN output_mode TEXT NOT NULL DEFAULT 'text-only'",
+            [],
+        )?;
+    }
+
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('previews') WHERE name='foreground_color'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute("ALTER TABLE previews ADD COLUMN foreground_color TEXT", [])?;
+    }
+
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('previews') WHERE name='background_color'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute("ALTER TABLE previews ADD COLUMN background_color TEXT", [])?;
+    }
+
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS explorer_layout (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT NOT NULL UNIQUE,
-            layout_json TEXT NOT NULL DEFAULT '{}',
+        "UPDATE previews
+         SET output_mode = CASE
+             WHEN output_mode IS NULL OR TRIM(output_mode) = '' THEN CASE WHEN color != 0 THEN 'text+color' ELSE 'text-only' END
+             ELSE output_mode
+         END",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE previews
+         SET foreground_color = COALESCE(NULLIF(TRIM(foreground_color), ''), 'white'),
+             background_color = COALESCE(NULLIF(TRIM(background_color), ''), 'black')",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS project_content (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            type TEXT NOT NULL,
+            creation_date TEXT NOT NULL,
             last_modified TEXT NOT NULL,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )",
@@ -410,9 +1195,75 @@ pub fn init_database() -> SqlResult<Connection> {
     )?;
 
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_explorer_project_id ON explorer_layout(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_project_content_project_id ON project_content(project_id)",
         [],
     )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_content_item_lookup ON project_content(project_id, type, item_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_content_path ON project_content(project_id, path)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS timelines (
+            timeline_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            creation_date TEXT NOT NULL,
+            last_updated TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_timelines_project_id ON timelines(project_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_timelines_project_updated ON timelines(project_id, last_updated DESC)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS clips (
+            clip_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            timeline_id TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            resource_kind TEXT NOT NULL,
+            actual_resource_id TEXT NOT NULL,
+            frame_render_mode TEXT,
+            length_seconds REAL NOT NULL,
+            creation_date TEXT NOT NULL,
+            last_updated TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (timeline_id) REFERENCES timelines(timeline_id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clips_project_id ON clips(project_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clips_timeline_id ON clips(timeline_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_clips_timeline_order ON clips(timeline_id, order_index)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_clips_resource ON clips(resource_kind, actual_resource_id)",
+        [],
+    )?;
+
+    migrate_explorer_layout_to_project_content(&conn)?;
 
     Ok(conn)
 }
@@ -558,12 +1409,85 @@ pub fn update_source_custom_name(source_id: &str, custom_name: Option<String>) -
         params![custom_name, source_id],
     )?;
 
+    let mut stmt = conn.prepare(
+        "SELECT content_type, file_path, custom_name
+         FROM source_content
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([source_id])?;
+    if let Some(row) = rows.next()? {
+        let content_type = row.get::<_, String>(0)?;
+        let file_path = row.get::<_, String>(1)?;
+        let custom_name = row.get::<_, Option<String>>(2)?;
+        let item_type = if content_type == "image" {
+            ProjectContentType::Image
+        } else {
+            ProjectContentType::Source
+        };
+        rename_project_content_rows_for_item(
+            &conn,
+            source_id,
+            &[item_type],
+            &source_display_name(custom_name, &file_path),
+        )?;
+    }
+
     Ok(())
 }
 
 pub fn delete_source_content(source_id: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting source content: {}", source_id);
     let conn = init_database()?;
+    let source_type = conn
+        .query_row(
+            "SELECT content_type FROM source_content WHERE id = ?1 LIMIT 1",
+            [source_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
+    let source_item_type = if source_type.as_deref() == Some("image") {
+        ProjectContentType::Image
+    } else {
+        ProjectContentType::Source
+    };
+    let conversion_ids = {
+        let mut stmt =
+            conn.prepare("SELECT id FROM ascii_conversions WHERE source_file_id = ?1")?;
+        let rows = stmt
+            .query_map([source_id], |row| row.get::<_, String>(0))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        rows
+    };
+    let cut_ids = {
+        let mut stmt = conn.prepare("SELECT id FROM cuts WHERE source_file_id = ?1")?;
+        let rows = stmt
+            .query_map([source_id], |row| row.get::<_, String>(0))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        rows
+    };
+    let preview_ids = {
+        let mut stmt = conn.prepare("SELECT id FROM previews WHERE source_file_id = ?1")?;
+        let rows = stmt
+            .query_map([source_id], |row| row.get::<_, String>(0))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        rows
+    };
+
+    delete_project_content_rows_for_item(&conn, source_id, &[source_item_type])?;
+    for conversion_id in conversion_ids {
+        delete_project_content_rows_for_item(&conn, &conversion_id, &[ProjectContentType::Frames])?;
+    }
+    for cut_id in cut_ids {
+        delete_project_content_rows_for_item(&conn, &cut_id, &[ProjectContentType::Cut])?;
+    }
+    for preview_id in preview_ids {
+        delete_project_content_rows_for_item(
+            &conn,
+            &preview_id,
+            &[ProjectContentType::Preview, ProjectContentType::Frame],
+        )?;
+    }
 
     // Delete associated ascii conversions first (foreign key constraint)
     let result = conn.execute(
@@ -643,6 +1567,13 @@ pub fn update_project_name(project_id: &str, project_name: &str) -> SqlResult<()
 pub fn delete_project(project_id: &str) -> SqlResult<()> {
     let conn = init_database()?;
 
+    conn.execute(
+        "DELETE FROM project_content WHERE project_id = ?1",
+        [project_id],
+    )?;
+    conn.execute("DELETE FROM clips WHERE project_id = ?1", [project_id])?;
+    conn.execute("DELETE FROM timelines WHERE project_id = ?1", [project_id])?;
+
     // Delete all ascii conversions first
     conn.execute(
         "DELETE FROM ascii_conversions WHERE project_id = ?1",
@@ -678,8 +1609,8 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
     let font_ratio_rounded = (conversion.settings.font_ratio as f64 * 100.0).round() / 100.0;
 
     conn.execute(
-        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        "INSERT INTO ascii_conversions (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color, output_mode, foreground_color, background_color)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             conversion.id,
             conversion.folder_name,
@@ -696,6 +1627,9 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
             conversion.total_size,
             conversion.custom_name,
             conversion.settings.color,
+            conversion.settings.output_mode,
+            conversion.settings.foreground_color,
+            conversion.settings.background_color,
         ],
     )?;
 
@@ -705,7 +1639,7 @@ pub fn add_ascii_conversion(conversion: &AsciiConversion) -> SqlResult<()> {
 pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color, output_mode, foreground_color, background_color
          FROM ascii_conversions
          WHERE project_id = ?1
          ORDER BY creation_date DESC"
@@ -729,6 +1663,11 @@ pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversio
                     fps: row.get(9)?,
                     frame_speed: row.get(10)?,
                     color: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                    output_mode: row
+                        .get::<_, Option<String>>(15)?
+                        .unwrap_or_else(default_output_mode),
+                    foreground_color: row.get(16)?,
+                    background_color: row.get(17)?,
                 },
                 creation_date: DateTime::parse_from_rfc3339(&date_str)
                     .unwrap_or_else(|_| Utc::now().into())
@@ -766,7 +1705,7 @@ pub fn update_conversion_frame_speed(conversion_id: &str, frame_speed: u32) -> S
 pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<AsciiConversion>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color, output_mode, foreground_color, background_color
          FROM ascii_conversions
          WHERE folder_path = ?1
          LIMIT 1"
@@ -791,6 +1730,11 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
                 fps: row.get(9)?,
                 frame_speed: row.get(10)?,
                 color: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                output_mode: row
+                    .get::<_, Option<String>>(15)?
+                    .unwrap_or_else(default_output_mode),
+                foreground_color: row.get(16)?,
+                background_color: row.get(17)?,
             },
             creation_date: DateTime::parse_from_rfc3339(&date_str)
                 .unwrap_or_else(|_| Utc::now().into())
@@ -806,6 +1750,16 @@ pub fn get_conversion_by_folder_path(folder_path: &str) -> SqlResult<Option<Asci
 pub fn delete_conversion_by_folder_path(folder_path: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting conversion by folder path: {}", folder_path);
     let conn = init_database()?;
+    if let Some(conversion_id) = conn
+        .query_row(
+            "SELECT id FROM ascii_conversions WHERE folder_path = ?1 LIMIT 1",
+            [folder_path],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    {
+        delete_project_content_rows_for_item(&conn, &conversion_id, &[ProjectContentType::Frames])?;
+    }
     let result = conn.execute(
         "DELETE FROM ascii_conversions WHERE folder_path = ?1",
         [folder_path],
@@ -840,6 +1794,24 @@ pub fn update_conversion_custom_name(
     }
 
     result?;
+    let mut stmt = conn.prepare(
+        "SELECT folder_name, custom_name
+         FROM ascii_conversions
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([conversion_id])?;
+    if let Some(row) = rows.next()? {
+        let folder_name = row.get::<_, String>(0)?;
+        let custom_name = row.get::<_, Option<String>>(1)?;
+        rename_project_content_rows_for_item(
+            &conn,
+            conversion_id,
+            &[ProjectContentType::Frames],
+            &frame_display_name(custom_name, &folder_name),
+        )?;
+    }
+
     Ok(())
 }
 
@@ -913,6 +1885,7 @@ pub fn get_project_cuts(project_id: &str) -> SqlResult<Vec<VideoCut>> {
 pub fn delete_cut(cut_id: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting cut: {}", cut_id);
     let conn = init_database()?;
+    delete_project_content_rows_for_item(&conn, cut_id, &[ProjectContentType::Cut])?;
     let result = conn.execute("DELETE FROM cuts WHERE id = ?1", [cut_id]);
 
     match &result {
@@ -941,6 +1914,25 @@ pub fn update_cut_custom_name(cut_id: &str, custom_name: Option<String>) -> SqlR
     }
 
     result?;
+    let mut stmt = conn.prepare(
+        "SELECT custom_name, start_time, end_time
+         FROM cuts
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([cut_id])?;
+    if let Some(row) = rows.next()? {
+        let custom_name = row.get::<_, Option<String>>(0)?;
+        let start_time = row.get::<_, f64>(1)?;
+        let end_time = row.get::<_, f64>(2)?;
+        rename_project_content_rows_for_item(
+            &conn,
+            cut_id,
+            &[ProjectContentType::Cut],
+            &cut_display_name(custom_name, start_time, end_time),
+        )?;
+    }
+
     Ok(())
 }
 
@@ -1055,8 +2047,8 @@ pub fn add_preview(preview: &Preview) -> SqlResult<()> {
     let font_ratio_rounded = (preview.settings.font_ratio as f64 * 100.0).round() / 100.0;
 
     conn.execute(
-        "INSERT INTO previews (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO previews (id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name, output_mode, foreground_color, background_color)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             preview.id,
             preview.folder_name,
@@ -1072,6 +2064,9 @@ pub fn add_preview(preview: &Preview) -> SqlResult<()> {
             preview.creation_date.to_rfc3339(),
             preview.total_size,
             preview.custom_name,
+            preview.settings.output_mode,
+            preview.settings.foreground_color,
+            preview.settings.background_color,
         ],
     )?;
 
@@ -1081,7 +2076,7 @@ pub fn add_preview(preview: &Preview) -> SqlResult<()> {
 pub fn get_project_previews(project_id: &str) -> SqlResult<Vec<Preview>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name, output_mode, foreground_color, background_color
          FROM previews
          WHERE project_id = ?1
          ORDER BY creation_date DESC"
@@ -1103,6 +2098,11 @@ pub fn get_project_previews(project_id: &str) -> SqlResult<Vec<Preview>> {
                     columns: row.get(8)?,
                     fps: row.get(9)?,
                     color: row.get::<_, i32>(10)? != 0,
+                    output_mode: row
+                        .get::<_, Option<String>>(14)?
+                        .unwrap_or_else(default_output_mode),
+                    foreground_color: row.get(15)?,
+                    background_color: row.get(16)?,
                 },
                 creation_date: DateTime::parse_from_rfc3339(&date_str)
                     .unwrap_or_else(|_| Utc::now().into())
@@ -1118,7 +2118,7 @@ pub fn get_project_previews(project_id: &str) -> SqlResult<Vec<Preview>> {
 pub fn get_preview(preview_id: &str) -> SqlResult<Option<Preview>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name, output_mode, foreground_color, background_color
          FROM previews
          WHERE id = ?1
          LIMIT 1"
@@ -1141,6 +2141,11 @@ pub fn get_preview(preview_id: &str) -> SqlResult<Option<Preview>> {
                 columns: row.get(8)?,
                 fps: row.get(9)?,
                 color: row.get::<_, i32>(10)? != 0,
+                output_mode: row
+                    .get::<_, Option<String>>(14)?
+                    .unwrap_or_else(default_output_mode),
+                foreground_color: row.get(15)?,
+                background_color: row.get(16)?,
             },
             creation_date: DateTime::parse_from_rfc3339(&date_str)
                 .unwrap_or_else(|_| Utc::now().into())
@@ -1156,6 +2161,11 @@ pub fn get_preview(preview_id: &str) -> SqlResult<Option<Preview>> {
 pub fn delete_preview(preview_id: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting preview: {}", preview_id);
     let conn = init_database()?;
+    delete_project_content_rows_for_item(
+        &conn,
+        preview_id,
+        &[ProjectContentType::Preview, ProjectContentType::Frame],
+    )?;
     let result = conn.execute("DELETE FROM previews WHERE id = ?1", [preview_id]);
 
     match &result {
@@ -1170,6 +2180,20 @@ pub fn delete_preview(preview_id: &str) -> SqlResult<()> {
 pub fn delete_preview_by_folder_path(folder_path: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting preview by folder path: {}", folder_path);
     let conn = init_database()?;
+    if let Some(preview_id) = conn
+        .query_row(
+            "SELECT id FROM previews WHERE folder_path = ?1 LIMIT 1",
+            [folder_path],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    {
+        delete_project_content_rows_for_item(
+            &conn,
+            &preview_id,
+            &[ProjectContentType::Preview, ProjectContentType::Frame],
+        )?;
+    }
     let result = conn.execute("DELETE FROM previews WHERE folder_path = ?1", [folder_path]);
 
     match &result {
@@ -1198,40 +2222,52 @@ pub fn update_preview_custom_name(preview_id: &str, custom_name: Option<String>)
     }
 
     result?;
-    Ok(())
-}
-
-// ============== Explorer Layout CRUD ==============
-
-pub fn get_explorer_layout(project_id: &str) -> SqlResult<Option<String>> {
-    let conn = init_database()?;
-    let mut stmt =
-        conn.prepare("SELECT layout_json FROM explorer_layout WHERE project_id = ?1 LIMIT 1")?;
-
-    let mut rows = stmt.query([project_id])?;
-    if let Some(row) = rows.next()? {
-        let json: String = row.get(0)?;
-        Ok(Some(json))
-    } else {
-        Ok(None)
-    }
-}
-
-pub fn save_explorer_layout(project_id: &str, layout_json: &str) -> SqlResult<()> {
-    let conn = init_database()?;
-    conn.execute(
-        "INSERT INTO explorer_layout (project_id, layout_json, last_modified)
-         VALUES (?1, ?2, ?3)
-         ON CONFLICT(project_id) DO UPDATE SET layout_json = excluded.layout_json, last_modified = excluded.last_modified",
-        params![project_id, layout_json, Utc::now().to_rfc3339()],
+    let mut stmt = conn.prepare(
+        "SELECT folder_name, custom_name
+         FROM previews
+         WHERE id = ?1
+         LIMIT 1",
     )?;
+    let mut rows = stmt.query([preview_id])?;
+    if let Some(row) = rows.next()? {
+        let folder_name = row.get::<_, String>(0)?;
+        let custom_name = row.get::<_, Option<String>>(1)?;
+        rename_project_content_rows_for_item(
+            &conn,
+            preview_id,
+            &[ProjectContentType::Preview, ProjectContentType::Frame],
+            &preview_display_name(custom_name, &folder_name),
+        )?;
+    }
+
     Ok(())
+}
+
+// ============== Project Content CRUD ==============
+
+pub fn get_project_content(project_id: &str) -> SqlResult<Vec<ProjectContentEntry>> {
+    let conn = init_database()?;
+    get_project_content_entries_internal(&conn, project_id)
+}
+
+pub fn save_project_content(project_id: &str, entries: &[ProjectContentDraft]) -> SqlResult<()> {
+    let conn = init_database()?;
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", [])?;
+
+    let result = replace_project_content_entries(&conn, project_id, entries, None);
+    if result.is_ok() {
+        conn.execute("COMMIT", [])?;
+    } else {
+        let _ = conn.execute("ROLLBACK", []);
+    }
+
+    result
 }
 
 pub fn get_preview_by_folder_path(folder_path: &str) -> SqlResult<Option<Preview>> {
     let conn = init_database()?;
     let mut stmt = conn.prepare(
-        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, color, creation_date, total_size, custom_name, output_mode, foreground_color, background_color
          FROM previews
          WHERE folder_path = ?1
          LIMIT 1"
@@ -1254,6 +2290,11 @@ pub fn get_preview_by_folder_path(folder_path: &str) -> SqlResult<Option<Preview
                 columns: row.get(8)?,
                 fps: row.get(9)?,
                 color: row.get::<_, i32>(10)? != 0,
+                output_mode: row
+                    .get::<_, Option<String>>(14)?
+                    .unwrap_or_else(default_output_mode),
+                foreground_color: row.get(15)?,
+                background_color: row.get(16)?,
             },
             creation_date: DateTime::parse_from_rfc3339(&date_str)
                 .unwrap_or_else(|_| Utc::now().into())
@@ -1264,4 +2305,184 @@ pub fn get_preview_by_folder_path(folder_path: &str) -> SqlResult<Option<Preview
     } else {
         Ok(None)
     }
+}
+
+fn parse_rfc3339_or_now(value: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(value)
+        .unwrap_or_else(|_| Utc::now().into())
+        .with_timezone(&Utc)
+}
+
+fn get_timeline_by_id_with_conn(
+    conn: &Connection,
+    timeline_id: &str,
+) -> SqlResult<Option<Timeline>> {
+    let mut stmt = conn.prepare(
+        "SELECT timeline_id, project_id, creation_date, last_updated
+         FROM timelines
+         WHERE timeline_id = ?1
+         LIMIT 1",
+    )?;
+
+    let mut rows = stmt.query([timeline_id])?;
+    if let Some(row) = rows.next()? {
+        let creation_date: String = row.get(2)?;
+        let last_updated: String = row.get(3)?;
+        Ok(Some(Timeline {
+            timeline_id: row.get(0)?,
+            project_id: row.get(1)?,
+            creation_date: parse_rfc3339_or_now(&creation_date),
+            last_updated: parse_rfc3339_or_now(&last_updated),
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn get_timeline_clips_with_conn(
+    conn: &Connection,
+    timeline_id: &str,
+) -> SqlResult<Vec<TimelineClip>> {
+    let mut stmt = conn.prepare(
+        "SELECT clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated
+         FROM clips
+         WHERE timeline_id = ?1
+         ORDER BY order_index ASC, creation_date ASC",
+    )?;
+
+    let clips = stmt
+        .query_map([timeline_id], |row| {
+            let creation_date: String = row.get(9)?;
+            let last_updated: String = row.get(10)?;
+            let frame_render_mode = row
+                .get::<_, Option<String>>(7)?
+                .map(|value| FrameRenderMode::from_string(&value));
+
+            Ok(TimelineClip {
+                clip_id: row.get(0)?,
+                project_id: row.get(1)?,
+                timeline_id: row.get(2)?,
+                order_index: row.get(3)?,
+                media_type: TimelineMediaType::from_string(&row.get::<_, String>(4)?),
+                resource_kind: TimelineResourceKind::from_string(&row.get::<_, String>(5)?),
+                actual_resource_id: row.get(6)?,
+                frame_render_mode,
+                length_seconds: row.get(8)?,
+                creation_date: parse_rfc3339_or_now(&creation_date),
+                last_updated: parse_rfc3339_or_now(&last_updated),
+            })
+        })?
+        .collect::<SqlResult<Vec<_>>>()?;
+
+    Ok(clips)
+}
+
+pub fn get_active_project_timeline(project_id: &str) -> SqlResult<ProjectTimeline> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT timeline_id, project_id, creation_date, last_updated
+         FROM timelines
+         WHERE project_id = ?1
+         ORDER BY last_updated DESC, creation_date DESC
+         LIMIT 1",
+    )?;
+
+    let mut rows = stmt.query([project_id])?;
+    let timeline = if let Some(row) = rows.next()? {
+        let creation_date: String = row.get(2)?;
+        let last_updated: String = row.get(3)?;
+        Some(Timeline {
+            timeline_id: row.get(0)?,
+            project_id: row.get(1)?,
+            creation_date: parse_rfc3339_or_now(&creation_date),
+            last_updated: parse_rfc3339_or_now(&last_updated),
+        })
+    } else {
+        None
+    };
+
+    let clips = if let Some(timeline) = &timeline {
+        get_timeline_clips_with_conn(&conn, &timeline.timeline_id)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(ProjectTimeline { timeline, clips })
+}
+
+pub fn save_project_timeline(
+    project_id: &str,
+    timeline_id: Option<&str>,
+    clip_drafts: &[TimelineClipDraft],
+) -> SqlResult<ProjectTimeline> {
+    let mut conn = init_database()?;
+    let tx = conn.transaction()?;
+    let now = Utc::now();
+    let timeline_id = timeline_id
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let existing_timeline = get_timeline_by_id_with_conn(&tx, &timeline_id)?;
+    let creation_date = existing_timeline
+        .as_ref()
+        .map(|timeline| timeline.creation_date.clone())
+        .unwrap_or(now);
+
+    tx.execute(
+        "INSERT INTO timelines (timeline_id, project_id, creation_date, last_updated)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(timeline_id) DO UPDATE
+         SET project_id = excluded.project_id,
+             last_updated = excluded.last_updated",
+        params![
+            timeline_id,
+            project_id,
+            creation_date.to_rfc3339(),
+            now.to_rfc3339(),
+        ],
+    )?;
+
+    let mut existing_dates = std::collections::HashMap::<String, String>::new();
+    {
+        let mut stmt =
+            tx.prepare("SELECT clip_id, creation_date FROM clips WHERE timeline_id = ?1")?;
+        let mut rows = stmt.query([timeline_id.as_str()])?;
+        while let Some(row) = rows.next()? {
+            existing_dates.insert(row.get(0)?, row.get(1)?);
+        }
+    }
+
+    tx.execute(
+        "DELETE FROM clips WHERE timeline_id = ?1",
+        [timeline_id.as_str()],
+    )?;
+
+    for (index, clip) in clip_drafts.iter().enumerate() {
+        let clip_creation_date = existing_dates
+            .get(&clip.clip_id)
+            .cloned()
+            .unwrap_or_else(|| now.to_rfc3339());
+
+        tx.execute(
+            "INSERT INTO clips (clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                clip.clip_id,
+                project_id,
+                timeline_id,
+                index as i32,
+                clip.media_type.to_string(),
+                clip.resource_kind.to_string(),
+                clip.actual_resource_id,
+                clip.frame_render_mode.as_ref().map(FrameRenderMode::to_string),
+                clip.length_seconds,
+                clip_creation_date,
+                now.to_rfc3339(),
+            ],
+        )?;
+    }
+
+    tx.commit()?;
+    get_active_project_timeline(project_id)
 }

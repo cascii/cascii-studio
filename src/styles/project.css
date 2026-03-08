@@ -23,10 +23,14 @@
 /* Main content first, explorer sidebar on the right */
 .project-layout > .main-content {
     order: 0;
+    position: relative;
+    z-index: 1;
 }
 
 .project-layout > .explorer-sidebar {
     order: 1;
+    position: relative;
+    z-index: 0;
 }
 
 .project-layout--explorer-left > .main-content {
@@ -397,15 +401,65 @@
     flex-direction: column;
     gap: 0.5rem;
     min-height: 0;
+    min-width: 0;
     flex: 1 1 50%;
 }
 
 .preview-label {
+    display: block;
+    position: relative;
     font-size: 0.9rem;
     font-weight: 500;
     color: #aaa;
     text-transform: uppercase;
     padding: 0.5rem 0;
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+}
+
+.preview-label::after {
+    content: attr(data-full-label);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    width: fit-content;
+    max-width: min(70vw, 720px);
+    box-sizing: border-box;
+    padding: 4px 8px;
+    background-color: #1c1c1c;
+    color: #f6f6f6;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25;
+    text-transform: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 1001;
+}
+
+.preview-label:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+.preview-label:hover {
+    z-index: 1002;
+}
+
+.preview-label-text {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .square {
@@ -694,6 +748,9 @@
 }
 
 .reset-icon {
+    display: inline-block;
+    position: relative;
+    top: -2px;
     transform: rotate(-90deg) translateX(-2px) translateY(-2px);
 }
 

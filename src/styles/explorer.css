@@ -301,6 +301,11 @@
     color: #fff;
 }
 
+.tools-section__content .ctrl-btn svg {
+    fill: none;
+    stroke: currentColor;
+}
+
 /* Controls section — integrated into explorer sidebar */
 
 .controls-section {

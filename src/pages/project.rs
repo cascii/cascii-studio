@@ -13,7 +13,8 @@ use super::project_cache::{
 };
 use crate::components::ascii_frames_viewer::{AsciiFramesViewer, ConversionSettings};
 use crate::components::explorer::{
-    ExplorerLayout, ExplorerTree, ResourceRef, ResourcesTree, TreeNodeId,
+    hydrate_layout_from_project_content, project_content_from_layout, ExplorerLayout, ExplorerTree,
+    ResourceRef, ResourcesTree, TreeNodeId,
 };
 use crate::components::settings::available_cuts::VideoCut;
 use crate::components::settings::{Controls, ToolsSection};
@@ -230,9 +231,31 @@ pub struct SourceContent {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct FrameDirectory {
+    #[serde(default)]
+    pub conversion_id: String,
     pub name: String,
     pub directory_path: String,
     pub source_file_name: String,
+    #[serde(default)]
+    pub custom_name: Option<String>,
+    #[serde(default)]
+    pub frame_count: i32,
+    #[serde(default)]
+    pub fps: u32,
+    #[serde(default)]
+    pub frame_speed: u32,
+    #[serde(default)]
+    pub color: bool,
+    #[serde(default = "default_frame_output_mode")]
+    pub output_mode: String,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub background_color: Option<String>,
+    #[serde(default)]
+    pub has_text_frames: bool,
+    #[serde(default)]
+    pub has_color_frames: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -242,6 +265,12 @@ pub struct PreviewSettings {
     pub columns: u32,
     pub fps: u32,
     pub color: bool,
+    #[serde(default = "default_frame_output_mode")]
+    pub output_mode: String,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub background_color: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -256,6 +285,10 @@ pub struct Preview {
     pub creation_date: String,
     pub total_size: i64,
     pub custom_name: Option<String>,
+}
+
+fn default_frame_output_mode() -> String {
+    "text-only".to_string()
 }
 
 const UI_PROGRESS_MIN_INTERVAL_MS: f64 = 50.0;
@@ -360,7 +393,8 @@ pub struct ProjectPageProps {
 
 #[function_component(ProjectPage)]
 pub fn project_page(props: &ProjectPageProps) -> Html {
-    let cached_sidebar_data = get_project_sidebar_cache(&props.project_id);
+    let cached_sidebar_data =
+        get_project_sidebar_cache(&props.project_id).filter(|data| data.project.is_some());
     let cached_project = cached_sidebar_data
         .as_ref()
         .and_then(|data| data.project.clone());
@@ -384,6 +418,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         .as_ref()
         .map(|data| data.sidebar_state.clone())
         .unwrap_or_default();
+    let cached_explorer_layout = cached_sidebar_data
+        .as_ref()
+        .map(|data| data.explorer_layout.clone())
+        .unwrap_or_else(|| ExplorerLayout {
+            project_id: props.project_id.clone(),
+            root_items: Vec::new(),
+        });
 
     let project_id = use_state(|| props.project_id.clone());
     let project = use_state(move || cached_project.clone());
@@ -457,7 +498,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     // Explorer sidebar state
     let sidebar_state = use_state(move || cached_sidebar_state.clone());
-    let explorer_layout = use_state(ExplorerLayout::default);
+    let explorer_layout = use_state(move || cached_explorer_layout.clone());
     let selected_node_id = use_state(|| None::<TreeNodeId>);
     let open_tabs = use_state(|| Vec::<OpenTab>::new());
     let active_tab_id = use_state(|| None::<String>);
@@ -526,9 +567,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let previews = previews.clone();
         let error_message = error_message.clone();
         let sidebar_state = sidebar_state.clone();
+        let explorer_layout = explorer_layout.clone();
 
         use_effect_with((*project_id).clone(), move |id| {
-            if let Some(cached_data) = get_project_sidebar_cache(id) {
+            if let Some(cached_data) =
+                get_project_sidebar_cache(id).filter(|data| data.project.is_some())
+            {
                 let cached_project = cached_data.project.clone();
                 if *project != cached_project {
                     project.set(cached_project.clone());
@@ -547,6 +591,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 }
                 if *sidebar_state != cached_data.sidebar_state {
                     sidebar_state.set(cached_data.sidebar_state.clone());
+                }
+                if *explorer_layout != cached_data.explorer_layout {
+                    explorer_layout.set(cached_data.explorer_layout.clone());
                 }
                 if let Some(cached_project) = cached_project {
                     on_project_name_change.emit(cached_project.project_name);
@@ -570,37 +617,67 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     // Fetch source files
                     let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                    if let Ok(sources) = serde_wasm_bindgen::from_value(
-                        tauri_invoke("get_project_sources", args).await,
-                    ) {
-                        source_files.set(sources);
+                    let fetched_sources = if let Ok(sources) =
+                        serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                            tauri_invoke("get_project_sources", args).await,
+                        ) {
+                        source_files.set(sources.clone());
+                        sources
                     } else {
                         error_message.set(Some("Failed to fetch source files.".to_string()));
-                    }
+                        Vec::new()
+                    };
 
                     // Fetch frame directories
                     let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                    if let Ok(frames) = serde_wasm_bindgen::from_value(
-                        tauri_invoke("get_project_frames", args).await,
-                    ) {
-                        frame_directories.set(frames);
-                    }
+                    let fetched_frames = if let Ok(frames) =
+                        serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
+                            tauri_invoke("get_project_frames", args).await,
+                        ) {
+                        frame_directories.set(frames.clone());
+                        frames
+                    } else {
+                        Vec::new()
+                    };
 
                     // Fetch video cuts
                     let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                    if let Ok(cuts) =
-                        serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                    {
-                        video_cuts.set(cuts);
-                    }
+                    let fetched_cuts = if let Ok(cuts) =
+                        serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
+                            tauri_invoke("get_project_cuts", args).await,
+                        ) {
+                        video_cuts.set(cuts.clone());
+                        cuts
+                    } else {
+                        Vec::new()
+                    };
 
                     // Fetch previews
                     let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
-                    if let Ok(previews_list) = serde_wasm_bindgen::from_value(
-                        tauri_invoke("get_project_previews", args).await,
-                    ) {
-                        previews.set(previews_list);
-                    }
+                    let fetched_previews = if let Ok(previews_list) =
+                        serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                            tauri_invoke("get_project_previews", args).await,
+                        ) {
+                        previews.set(previews_list.clone());
+                        previews_list
+                    } else {
+                        Vec::new()
+                    };
+
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": id })).unwrap();
+                    let fetched_project_content =
+                        serde_wasm_bindgen::from_value::<
+                            Vec<crate::components::explorer::ProjectContentEntry>,
+                        >(tauri_invoke("get_project_content", args).await)
+                        .unwrap_or_else(|_| Vec::new());
+                    explorer_layout.set(hydrate_layout_from_project_content(
+                        &id,
+                        &fetched_project_content,
+                        &fetched_sources,
+                        &fetched_cuts,
+                        &fetched_frames,
+                        &fetched_previews,
+                    ));
                 });
             }
 
@@ -616,6 +693,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let video_cuts = (*video_cuts).clone();
         let previews = (*previews).clone();
         let sidebar_state = (*sidebar_state).clone();
+        let explorer_layout = (*explorer_layout).clone();
         use_effect_with(
             (
                 project_id,
@@ -625,6 +703,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 video_cuts,
                 previews,
                 sidebar_state,
+                explorer_layout,
             ),
             move |(
                 project_id,
@@ -634,6 +713,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 video_cuts,
                 previews,
                 sidebar_state,
+                explorer_layout,
             )| {
                 set_project_sidebar_cache(
                     project_id,
@@ -644,6 +724,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         video_cuts: video_cuts.clone(),
                         previews: previews.clone(),
                         sidebar_state: sidebar_state.clone(),
+                        explorer_layout: explorer_layout.clone(),
                     },
                 );
                 || ()
@@ -2033,19 +2114,29 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let on_explorer_layout_change = {
         let explorer_layout = explorer_layout.clone();
         let project_id = project_id.clone();
+        let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
         Callback::from(move |new_layout: ExplorerLayout| {
             explorer_layout.set(new_layout.clone());
             let project_id = (*project_id).clone();
+            let entries = project_content_from_layout(
+                &new_layout,
+                &source_files,
+                &video_cuts,
+                &frame_directories,
+                &previews,
+            );
             wasm_bindgen_futures::spawn_local(async move {
-                let layout_json = serde_json::to_string(&new_layout).unwrap_or_default();
                 let args = serde_wasm_bindgen::to_value(&json!({
                     "request": {
                         "project_id": project_id,
-                        "layout_json": layout_json
+                        "entries": entries
                     }
                 }))
                 .unwrap();
-                let _ = tauri_invoke("save_explorer_layout", args).await;
+                let _ = tauri_invoke("save_project_content", args).await;
             });
         })
     };
@@ -2509,10 +2600,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         />
                     }
 
-                    <div id="project-preview-container" class="preview-container" ref={preview_container_ref.clone()}>
+                        <div id="project-preview-container" class="preview-container" ref={preview_container_ref.clone()}>
                         <div id="project-source-column" class="preview-column">
                             if let Some(label) = &source_preview_label {
-                                <div id="project-source-label" class="preview-label">{label.clone()}</div>
+                                <div id="project-source-label" class="preview-label" data-full-label={label.clone()}>
+                                    <span id="project-source-label-text" class="preview-label-text">{label.clone()}</span>
+                                </div>
                             }
                             <div id="project-source-square" class="square">
                                 {
@@ -2730,7 +2823,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                         <div id="project-frames-column" class="preview-column">
                             if let Some(label) = &frames_preview_label {
-                                <div id="project-frames-label" class="preview-label">{label.clone()}</div>
+                                <div id="project-frames-label" class="preview-label" data-full-label={label.clone()}>
+                                    <span id="project-frames-label-text" class="preview-label-text">{label.clone()}</span>
+                                </div>
                             }
                             <div id="project-frames-square" class="square">
                                 {

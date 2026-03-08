@@ -1,6 +1,5 @@
 use gloo_timers::callback::Interval;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -12,17 +11,12 @@ use yew_icons::{Icon, IconId};
 use cascii_core_view::{
     draw_cached_canvas, draw_frame_from_cache, load_color_frames, load_text_frames,
     render_to_offscreen_canvas, yield_to_event_loop, FontSizing, Frame, FrameCanvasCache,
-    FrameDataProvider, FrameFile, LoadResult, LoadingPhase, RenderConfig,
+    FrameColors, LoadingPhase, RenderConfig,
 };
 
-#[wasm_bindgen(inline_js = r#"
-export async function tauriInvoke(cmd, args) {
-  const g = globalThis.__TAURI__;
-  if (g?.core?.invoke) return g.core.invoke(cmd, args);
-  if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args);
-  throw new Error('Tauri invoke is not available');
-}
+use crate::components::frame_media::{FrameRenderMode, PreloadedFrameBundle, TauriFrameProvider};
 
+#[wasm_bindgen(inline_js = r#"
 export function observeResize(element, callback) {
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
@@ -47,9 +41,6 @@ export function clearIntervalById(id) {
 }
 "#)]
 extern "C" {
-    #[wasm_bindgen(js_name = tauriInvoke)]
-    async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
-
     #[wasm_bindgen(js_name = observeResize)]
     fn observe_resize(element: &web_sys::Element, callback: &Closure<dyn Fn(f64, f64)>) -> JsValue;
 
@@ -76,47 +67,6 @@ async fn sleep_ms(ms: i32) {
 
 const BW_PLAYBACK_BACKGROUND_SLEEP_MS: i32 = 12;
 const COLOR_LOADING_PROGRESS_TICK_MS: u32 = 500;
-
-struct TauriFrameProvider;
-
-impl FrameDataProvider for TauriFrameProvider {
-    fn get_frame_files(
-        &self,
-        directory: &str,
-    ) -> impl std::future::Future<Output = LoadResult<Vec<FrameFile>>> {
-        let dir = directory.to_string();
-        async move {
-            let args = serde_wasm_bindgen::to_value(&json!({ "directoryPath": dir })).unwrap();
-            serde_wasm_bindgen::from_value::<Vec<FrameFile>>(
-                tauri_invoke("get_frame_files", args).await,
-            )
-            .map_err(|e| format!("Failed to list frames: {:?}", e))
-        }
-    }
-
-    fn read_frame_text(&self, path: &str) -> impl std::future::Future<Output = LoadResult<String>> {
-        let path = path.to_string();
-        async move {
-            let args = serde_wasm_bindgen::to_value(&json!({ "filePath": path })).unwrap();
-            serde_wasm_bindgen::from_value::<String>(tauri_invoke("read_frame_file", args).await)
-                .map_err(|e| format!("Failed to read frame: {:?}", e))
-        }
-    }
-
-    fn read_cframe_bytes(
-        &self,
-        txt_path: &str,
-    ) -> impl std::future::Future<Output = LoadResult<Option<Vec<u8>>>> {
-        let path = txt_path.to_string();
-        async move {
-            let args = serde_wasm_bindgen::to_value(&json!({ "txtFilePath": path })).unwrap();
-            serde_wasm_bindgen::from_value::<Option<Vec<u8>>>(
-                tauri_invoke("read_cframe_file", args).await,
-            )
-            .map_err(|e| format!("Failed to read cframe file: {:?}", e))
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConversionSettings {
@@ -188,6 +138,15 @@ pub struct AsciiFramesViewerProps {
     /// Callback to report the current frame content aspect ratio (width / height)
     #[prop_or_default]
     pub on_aspect_ratio_change: Option<Callback<Option<f64>>>,
+    /// External montage render mode. When set, the internal color toggle is ignored.
+    #[prop_or_default]
+    pub frame_render_mode: Option<FrameRenderMode>,
+    /// Explicit frame colors for styled text rendering.
+    #[prop_or_default]
+    pub frame_colors: Option<FrameColors>,
+    /// Preloaded frame bundle supplied by montage.
+    #[prop_or_default]
+    pub preloaded_bundle: Option<Rc<PreloadedFrameBundle>>,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -262,8 +221,26 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Keep color toggle state in a ref for background workers.
     {
         let color_enabled_ref = color_enabled_ref.clone();
-        use_effect_with(*color_enabled, move |enabled| {
-            *color_enabled_ref.borrow_mut() = *enabled;
+        let external_render_mode = props.frame_render_mode.clone();
+        use_effect_with(
+            (*color_enabled, external_render_mode),
+            move |(enabled, external_render_mode)| {
+                *color_enabled_ref.borrow_mut() =
+                    matches!(external_render_mode, Some(FrameRenderMode::ColorFrames)) || *enabled;
+                || ()
+            },
+        );
+    }
+
+    // When montage drives the render mode, keep the legacy color toggle state in sync
+    // so the rest of the viewer logic can continue to use the same internal flag.
+    {
+        let color_enabled = color_enabled.clone();
+        let external_render_mode = props.frame_render_mode.clone();
+        use_effect_with(external_render_mode, move |render_mode| {
+            if let Some(render_mode) = render_mode {
+                color_enabled.set(matches!(render_mode, FrameRenderMode::ColorFrames));
+            }
             || ()
         });
     }
@@ -303,6 +280,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Two-phase loading: text frames first (fast), then color data in background
     {
         let directory_path = props.directory_path.clone();
+        let preloaded_bundle = props.preloaded_bundle.clone();
         let frames_ref = frames_ref.clone();
         let frame_count = frame_count.clone();
         let loading_phase = loading_phase.clone();
@@ -325,118 +303,144 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let color_cache_worker_id = color_cache_worker_id.clone();
         let is_playing_ref = is_playing_ref.clone();
         let color_enabled_ref = color_enabled_ref.clone();
+        use_effect_with(
+            (directory_path.clone(), preloaded_bundle.clone()),
+            move |_| {
+                // Reset state
+                frames_ref.borrow_mut().clear();
+                frame_count.set(0);
+                loading_phase.set(LoadingPhase::Idle);
+                error_message.set(None);
+                *color_progress.borrow_mut() = (0, 0);
+                frame_canvas_cache.borrow_mut().clear();
+                color_cache_queue.borrow_mut().clear();
+                color_loaded_flags.borrow_mut().clear();
+                has_any_color.set(false);
+                *has_any_color_flag.borrow_mut() = false;
+                let next_worker_id = color_cache_worker_id.borrow().wrapping_add(1);
+                *color_cache_worker_id.borrow_mut() = next_worker_id;
+                current_index.set(0);
+                is_playing.set(false);
+                left_value.set(0.0);
+                right_value.set(1.0);
+                interval_handle.borrow_mut().take();
 
-        use_effect_with(directory_path.clone(), move |_| {
-            // Reset state
-            frames_ref.borrow_mut().clear();
-            frame_count.set(0);
-            loading_phase.set(LoadingPhase::Idle);
-            error_message.set(None);
-            *color_progress.borrow_mut() = (0, 0);
-            frame_canvas_cache.borrow_mut().clear();
-            color_cache_queue.borrow_mut().clear();
-            color_loaded_flags.borrow_mut().clear();
-            has_any_color.set(false);
-            *has_any_color_flag.borrow_mut() = false;
-            let next_worker_id = color_cache_worker_id.borrow().wrapping_add(1);
-            *color_cache_worker_id.borrow_mut() = next_worker_id;
-            current_index.set(0);
-            is_playing.set(false);
-            left_value.set(0.0);
-            right_value.set(1.0);
-            interval_handle.borrow_mut().take();
+                if let Some(callback) = &on_loading_changed {
+                    callback.emit(true);
+                }
 
-            if let Some(callback) = &on_loading_changed {
-                callback.emit(true);
-            }
+                if let Some(preloaded_bundle) = preloaded_bundle.clone() {
+                    let total = preloaded_bundle.frames.len();
+                    *frames_ref.borrow_mut() = preloaded_bundle.frames.clone();
+                    *color_loaded_flags.borrow_mut() = preloaded_bundle
+                        .frames
+                        .iter()
+                        .map(Frame::has_color)
+                        .collect();
+                    frame_count.set(total);
+                    *color_progress.borrow_mut() = (total, total);
+                    frame_canvas_cache.borrow_mut().resize(total);
+                    has_any_color.set(
+                        preloaded_bundle.has_any_color
+                            || preloaded_bundle.frames.iter().any(Frame::has_color),
+                    );
+                    *has_any_color_flag.borrow_mut() = preloaded_bundle.has_any_color
+                        || preloaded_bundle.frames.iter().any(Frame::has_color);
+                    loading_phase.set(LoadingPhase::Complete);
+                    if let Some(callback) = &on_loading_changed {
+                        callback.emit(false);
+                    }
+                } else if !directory_path.is_empty() {
+                    loading_phase.set(LoadingPhase::LoadingText);
 
-            if !directory_path.is_empty() {
-                loading_phase.set(LoadingPhase::LoadingText);
+                    let on_loading_changed_async = on_loading_changed.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let provider = TauriFrameProvider;
 
-                let on_loading_changed_async = on_loading_changed.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    let provider = TauriFrameProvider;
+                        // Phase 1: Load text frames (fast)
+                        match load_text_frames(&provider, &directory_path).await {
+                            Ok((loaded_frames, frame_files)) => {
+                                let total = loaded_frames.len();
+                                *frames_ref.borrow_mut() = loaded_frames;
+                                *color_loaded_flags.borrow_mut() = vec![false; total];
+                                frame_count.set(total);
+                                *color_progress.borrow_mut() = (0, total);
+                                frame_canvas_cache.borrow_mut().resize(total);
+                                loading_phase.set(LoadingPhase::LoadingColors);
 
-                    // Phase 1: Load text frames (fast)
-                    match load_text_frames(&provider, &directory_path).await {
-                        Ok((loaded_frames, frame_files)) => {
-                            let total = loaded_frames.len();
-                            *frames_ref.borrow_mut() = loaded_frames;
-                            *color_loaded_flags.borrow_mut() = vec![false; total];
-                            frame_count.set(total);
-                            *color_progress.borrow_mut() = (0, total);
-                            frame_canvas_cache.borrow_mut().resize(total);
-                            loading_phase.set(LoadingPhase::LoadingColors);
+                                // Notify parent that loading is done (playback can start)
+                                if let Some(callback) = &on_loading_changed_async {
+                                    callback.emit(false);
+                                }
 
-                            // Notify parent that loading is done (playback can start)
-                            if let Some(callback) = &on_loading_changed_async {
-                                callback.emit(false);
-                            }
-
-                            // Phase 2: Load color data in background (no re-renders)
-                            let frames_for_color = frames_ref.clone();
-                            let progress_for_color = color_progress.clone();
-                            let _ = load_color_frames(
-                                &provider,
-                                &frame_files,
-                                |i, _total, cf| {
-                                    if let Some(cframe) = cf {
-                                        let mut frames = frames_for_color.borrow_mut();
-                                        if i < frames.len() {
-                                            frames[i].cframe = Some(cframe);
-                                        }
-                                        {
-                                            let mut loaded_flags = color_loaded_flags.borrow_mut();
-                                            if i < loaded_flags.len() {
-                                                loaded_flags[i] = true;
+                                // Phase 2: Load color data in background (no re-renders)
+                                let frames_for_color = frames_ref.clone();
+                                let progress_for_color = color_progress.clone();
+                                let _ = load_color_frames(
+                                    &provider,
+                                    &frame_files,
+                                    |i, _total, cf| {
+                                        if let Some(cframe) = cf {
+                                            let mut frames = frames_for_color.borrow_mut();
+                                            if i < frames.len() {
+                                                frames[i].cframe = Some(cframe);
+                                            }
+                                            {
+                                                let mut loaded_flags =
+                                                    color_loaded_flags.borrow_mut();
+                                                if i < loaded_flags.len() {
+                                                    loaded_flags[i] = true;
+                                                }
+                                            }
+                                            color_cache_queue.borrow_mut().push_back(i);
+                                            if !*has_any_color_flag.borrow() {
+                                                *has_any_color_flag.borrow_mut() = true;
+                                                has_any_color.set(true);
+                                            }
+                                            if *color_enabled_for_color
+                                                && i == *current_index_ref_for_color.borrow()
+                                            {
+                                                color_cache_refresh_for_color.set(
+                                                    (*color_cache_refresh_for_color)
+                                                        .wrapping_add(1),
+                                                );
                                             }
                                         }
-                                        color_cache_queue.borrow_mut().push_back(i);
-                                        if !*has_any_color_flag.borrow() {
-                                            *has_any_color_flag.borrow_mut() = true;
-                                            has_any_color.set(true);
+                                        *progress_for_color.borrow_mut() = (i + 1, total);
+                                    },
+                                    || {
+                                        let is_playing_ref = is_playing_ref.clone();
+                                        let color_enabled_ref = color_enabled_ref.clone();
+                                        async move {
+                                            // While B/W is actively playing, back off color loading cadence
+                                            // to preserve animation smoothness.
+                                            if *is_playing_ref.borrow()
+                                                && !*color_enabled_ref.borrow()
+                                            {
+                                                sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
+                                            } else {
+                                                yield_to_event_loop().await;
+                                            }
                                         }
-                                        if *color_enabled_for_color
-                                            && i == *current_index_ref_for_color.borrow()
-                                        {
-                                            color_cache_refresh_for_color.set(
-                                                (*color_cache_refresh_for_color).wrapping_add(1),
-                                            );
-                                        }
-                                    }
-                                    *progress_for_color.borrow_mut() = (i + 1, total);
-                                },
-                                || {
-                                    let is_playing_ref = is_playing_ref.clone();
-                                    let color_enabled_ref = color_enabled_ref.clone();
-                                    async move {
-                                        // While B/W is actively playing, back off color loading cadence
-                                        // to preserve animation smoothness.
-                                        if *is_playing_ref.borrow() && !*color_enabled_ref.borrow()
-                                        {
-                                            sleep_ms(BW_PLAYBACK_BACKGROUND_SLEEP_MS).await;
-                                        } else {
-                                            yield_to_event_loop().await;
-                                        }
-                                    }
-                                },
-                            )
-                            .await;
-                            loading_phase.set(LoadingPhase::Complete);
-                        }
-                        Err(e) => {
-                            error_message.set(Some(e));
-                            loading_phase.set(LoadingPhase::Idle);
-                            if let Some(callback) = &on_loading_changed_async {
-                                callback.emit(false);
+                                    },
+                                )
+                                .await;
+                                loading_phase.set(LoadingPhase::Complete);
+                            }
+                            Err(e) => {
+                                error_message.set(Some(e));
+                                loading_phase.set(LoadingPhase::Idle);
+                                if let Some(callback) = &on_loading_changed_async {
+                                    callback.emit(false);
+                                }
                             }
                         }
-                    }
-                });
-            }
+                    });
+                }
 
-            || ()
-        });
+                || ()
+            },
+        );
     }
 
     // Calculate current FPS from props (used for both animation and display)
@@ -514,7 +518,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
 
                     // Emit progress relative to trim window
                     if let Some(cb) = &on_progress_clone {
-                        let progress = (current.saturating_sub(effective_start)) as f64 / range_len as f64;
+                        let progress =
+                            (current.saturating_sub(effective_start)) as f64 / range_len as f64;
                         cb.emit(progress.clamp(0.0, 1.0));
                     }
                 });
@@ -1020,8 +1025,26 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Track whether any color data has been loaded.
     let color_available = *has_any_color;
 
+    let effective_render_mode = props.frame_render_mode.clone().unwrap_or_else(|| {
+        if *color_enabled {
+            FrameRenderMode::ColorFrames
+        } else {
+            FrameRenderMode::BwText
+        }
+    });
+    let effective_frame_colors = props
+        .frame_colors
+        .clone()
+        .or_else(|| {
+            props
+                .preloaded_bundle
+                .as_ref()
+                .map(|bundle| bundle.frame_colors.clone())
+        })
+        .unwrap_or_else(|| FrameColors::from_strings("white", "black"));
+
     let has_colors = {
-        if !*color_enabled || !color_available {
+        if !matches!(effective_render_mode, FrameRenderMode::ColorFrames) || !color_available {
             false
         } else {
             let frame_has_color = {
@@ -1037,6 +1060,16 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
             };
             frame_has_color && frame_cached
         }
+    };
+
+    let frame_text_style = match effective_render_mode {
+        FrameRenderMode::StyledText => format!(
+            "{} color: {}; background-color: {};",
+            font_size_style,
+            effective_frame_colors.foreground_css(),
+            effective_frame_colors.background_css()
+        ),
+        _ => font_size_style.clone(),
     };
 
     // Frame dimensions for crop halo overlay
@@ -1093,7 +1126,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     if has_colors {
                         <canvas id="frames-canvas" ref={canvas_ref.clone()} class="ascii-frame-canvas"></canvas>
                     } else {
-                        <pre id="frames-text-content" class="ascii-frame-content" style={font_size_style.clone()} ref={content_ref.clone()}></pre>
+                        <pre id="frames-text-content" class="ascii-frame-content" style={frame_text_style.clone()} ref={content_ref.clone()}></pre>
                     }
                     if show_halo {
                         // Overlay layer: mirrors the <pre>'s centering and line-height.
@@ -1166,8 +1199,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                         {Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#))}
                     </button>
                     <button id="frames-color-btn" type="button" class={if *color_enabled && color_available {"ctrl-btn color-btn active"} else if !color_available {"ctrl-btn color-btn disabled"} else {"ctrl-btn color-btn"}}
-                        title={if colors_loading {"Loading colors..."} else if !color_available {"No color data available"} else if *color_enabled {"Color enabled"} else {"Color disabled"}}
-                        disabled={!color_available}
+                        title={if colors_loading {"Loading colors..."} else if !color_available {"No color data available"} else if matches!(effective_render_mode, FrameRenderMode::ColorFrames) {"Color enabled"} else {"Color disabled"}}
+                        disabled={!color_available || props.frame_render_mode.is_some()}
                         onclick={{
                             let color_enabled = color_enabled.clone();
                             Callback::from(move |_| {

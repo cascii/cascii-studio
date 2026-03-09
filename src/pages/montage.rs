@@ -431,6 +431,65 @@ pub enum PlayableItem {
     },
 }
 
+#[derive(Properties, PartialEq)]
+struct MontageVideoStillProps {
+    pub src: String,
+}
+
+#[function_component(MontageVideoStill)]
+fn montage_video_still(props: &MontageVideoStillProps) -> Html {
+    let video_ref = use_node_ref();
+
+    {
+        let video_ref = video_ref.clone();
+        let src = props.src.clone();
+        use_effect_with(src, move |_| {
+            if let Some(video) = video_ref.cast::<web_sys::HtmlVideoElement>() {
+                video.set_muted(true);
+                let _ = video.pause();
+                let _ = video.set_current_time(0.0);
+            }
+
+            || ()
+        });
+    }
+
+    let on_loaded_metadata = {
+        let video_ref = video_ref.clone();
+        Callback::from(move |_| {
+            if let Some(video) = video_ref.cast::<web_sys::HtmlVideoElement>() {
+                video.set_muted(true);
+                let _ = video.pause();
+                if video.current_time() <= 0.0 {
+                    let _ = video.set_current_time(0.001);
+                }
+            }
+        })
+    };
+
+    let on_seeked = {
+        let video_ref = video_ref.clone();
+        Callback::from(move |_| {
+            if let Some(video) = video_ref.cast::<web_sys::HtmlVideoElement>() {
+                let _ = video.pause();
+            }
+        })
+    };
+
+    html! {
+        <video
+            ref={video_ref}
+            class="montage-overview-video"
+            src={props.src.clone()}
+            muted=true
+            playsinline=true
+            preload="auto"
+            onloadedmetadata={on_loaded_metadata}
+            onseeked={on_seeked}
+        />
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TimelineMediaType {
@@ -1044,7 +1103,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let active_timeline_index = active_timeline_index.clone();
         let timeline_items = timeline_items.clone();
         let synced_progress = synced_progress.clone();
+        let is_playing = is_playing.clone();
         Callback::from(move |local_progress: f64| {
+            if !*is_playing {
+                return;
+            }
             let total = timeline_items.len();
             if total == 0 {
                 return;
@@ -2726,53 +2789,137 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         class="montage-workspace"
                     >
                         {
-                            match &*active_playable {
-                                Some(PlayableItem::Video {clip_id, asset_url}) => html! {
-                                    <div id="montage-workspace-video-pane" class="montage-workspace-pane">
-                                        <VideoPlayer
-                                            key={format!("video-{}", clip_id)}
-                                            src={asset_url.clone()}
-                                            should_play={if *is_playing {Some(true)} else {Some(false)}}
-                                            should_reset={*should_reset}
-                                            loop_enabled={false}
-                                            volume={*video_volume}
-                                            is_muted={*video_is_muted}
-                                            on_progress={on_item_progress.clone()}
-                                            on_ended={on_item_ended.clone()}
-                                        />
+                            if !*is_playing && !timeline_items.is_empty() {
+                                let overview_count = timeline_items.len().min(4);
+                                let overview_class = classes!(
+                                    "montage-workspace-overview",
+                                    match overview_count {
+                                        1 => Some("montage-workspace-overview--1"),
+                                        2 => Some("montage-workspace-overview--2"),
+                                        _ => Some("montage-workspace-overview--4"),
+                                    }
+                                );
+                                html! {
+                                    <div id="montage-workspace-overview" class={overview_class}>
+                                        {timeline_items.iter().take(4).map(|item| {
+                                            let tile_id = format!(
+                                                "montage-workspace-overview-tile-{}",
+                                                dom_id_fragment(&item.clip_id)
+                                            );
+                                            let tile_preview_id = format!("{}-preview", tile_id);
+                                            let preload_state = clip_preloads.get(&item.clip_id).cloned();
+
+                                            html! {
+                                                <div
+                                                    id={tile_id.clone()}
+                                                    class="montage-overview-tile"
+                                                    key={item.clip_id.clone()}
+                                                    title={item.name.clone()}
+                                                >
+                                                    <div id={tile_preview_id} class="montage-overview-tile-preview">
+                                                        {
+                                                            match preload_state {
+                                                                Some(preload) if preload.status == PreloadStatus::Ready => {
+                                                                    match item.media_type {
+                                                                        TimelineMediaType::Video => {
+                                                                            if let Some(asset_url) = preload.video_asset_url.clone() {
+                                                                                html! {
+                                                                                    <MontageVideoStill
+                                                                                        key={format!("overview-video-{}", item.clip_id)}
+                                                                                        src={asset_url}
+                                                                                    />
+                                                                                }
+                                                                            } else {
+                                                                                html! { <span class="montage-overview-placeholder">{"Video unavailable"}</span> }
+                                                                            }
+                                                                        }
+                                                                        TimelineMediaType::Frames | TimelineMediaType::Frame => {
+                                                                            if let Some(preloaded_bundle) = preload.frame_bundle.clone() {
+                                                                                html! {
+                                                                                    <AsciiFramesViewer
+                                                                                        key={format!("overview-frames-{}", item.clip_id)}
+                                                                                        directory_path={preloaded_bundle.directory_path.clone()}
+                                                                                        fps={preload.playback_fps.unwrap_or(24)}
+                                                                                        settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
+                                                                                        should_play={Some(false)}
+                                                                                        should_reset={false}
+                                                                                        loop_enabled={false}
+                                                                                        frame_render_mode={Some(item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText))}
+                                                                                        frame_colors={Some(preloaded_bundle.frame_colors.clone())}
+                                                                                        preloaded_bundle={Some(preloaded_bundle)}
+                                                                                    />
+                                                                                }
+                                                                            } else {
+                                                                                html! { <span class="montage-overview-placeholder">{"Frames unavailable"}</span> }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Some(preload) if preload.status == PreloadStatus::Error => html! {
+                                                                    <span class="montage-overview-placeholder">
+                                                                        {preload.error.unwrap_or_else(|| "Preview unavailable".to_string())}
+                                                                    </span>
+                                                                },
+                                                                _ => html! {
+                                                                    <span class="montage-overview-placeholder">{"Loading preview..."}</span>
+                                                                },
+                                                            }
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect::<Html>()}
                                     </div>
-                                },
-                                Some(PlayableItem::Frames {clip_id, directory_path, fps, frame_render_mode, preloaded_bundle}) => html! {
-                                    <div id="montage-workspace-frames-pane" class="montage-workspace-pane">
-                                        <AsciiFramesViewer
-                                            key={format!("frames-{}", clip_id)}
-                                            directory_path={directory_path.clone()}
-                                            fps={*fps}
-                                            settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
-                                            should_play={if *is_playing {Some(true)} else {Some(false)}}
-                                            should_reset={*should_reset}
-                                            loop_enabled={false}
-                                            on_ended={on_item_ended.clone()}
-                                            on_progress={on_item_progress.clone()}
-                                            on_loading_changed={{
-                                                let viewer_loading = viewer_loading.clone();
-                                                Callback::from(move |loading: bool| {
-                                                    viewer_loading.set(loading);
-                                                })
-                                            }}
-                                            frame_render_mode={Some(frame_render_mode.clone())}
-                                            frame_colors={Some(preloaded_bundle.frame_colors.clone())}
-                                            preloaded_bundle={Some(preloaded_bundle.clone())}
-                                        />
-                                    </div>
-                                },
-                                None => html! {
-                                    <p id="montage-workspace-empty-state">{
-                                        first_preload_error
-                                            .clone()
-                                            .unwrap_or_else(|| "Preview area".to_string())
-                                    }</p>
-                                },
+                                }
+                            } else {
+                                match &*active_playable {
+                                    Some(PlayableItem::Video {clip_id, asset_url}) => html! {
+                                        <div id="montage-workspace-video-pane" class="montage-workspace-pane">
+                                            <VideoPlayer
+                                                key={format!("video-{}", clip_id)}
+                                                src={asset_url.clone()}
+                                                should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                should_reset={*should_reset}
+                                                loop_enabled={false}
+                                                volume={*video_volume}
+                                                is_muted={*video_is_muted}
+                                                on_progress={on_item_progress.clone()}
+                                                on_ended={on_item_ended.clone()}
+                                            />
+                                        </div>
+                                    },
+                                    Some(PlayableItem::Frames {clip_id, directory_path, fps, frame_render_mode, preloaded_bundle}) => html! {
+                                        <div id="montage-workspace-frames-pane" class="montage-workspace-pane">
+                                            <AsciiFramesViewer
+                                                key={format!("frames-{}", clip_id)}
+                                                directory_path={directory_path.clone()}
+                                                fps={*fps}
+                                                settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
+                                                should_play={if *is_playing {Some(true)} else {Some(false)}}
+                                                should_reset={*should_reset}
+                                                loop_enabled={false}
+                                                on_ended={on_item_ended.clone()}
+                                                on_progress={on_item_progress.clone()}
+                                                on_loading_changed={{
+                                                    let viewer_loading = viewer_loading.clone();
+                                                    Callback::from(move |loading: bool| {
+                                                        viewer_loading.set(loading);
+                                                    })
+                                                }}
+                                                frame_render_mode={Some(frame_render_mode.clone())}
+                                                frame_colors={Some(preloaded_bundle.frame_colors.clone())}
+                                                preloaded_bundle={Some(preloaded_bundle.clone())}
+                                            />
+                                        </div>
+                                    },
+                                    None => html! {
+                                        <p id="montage-workspace-empty-state">{
+                                            first_preload_error
+                                                .clone()
+                                                .unwrap_or_else(|| "Preview area".to_string())
+                                        }</p>
+                                    },
+                                }
                             }
                         }
                     </div>

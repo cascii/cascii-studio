@@ -76,6 +76,110 @@
     flex: 1 1 auto;
 }
 
+.montage-workspace-overview {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    gap: 0;
+    padding: 0;
+    box-sizing: border-box;
+    align-items: stretch;
+    background: #000;
+    overflow: hidden;
+}
+
+.montage-workspace-overview--1 {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+}
+
+.montage-workspace-overview--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+}
+
+.montage-workspace-overview--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.montage-overview-tile {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+    overflow: hidden;
+    background: #000;
+}
+
+.montage-overview-tile-preview {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    overflow: hidden;
+}
+
+.montage-overview-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    pointer-events: none;
+}
+
+.montage-overview-placeholder {
+    padding: 0 10px;
+    text-align: center;
+    color: #777;
+    font-size: 0.82rem;
+}
+
+.montage-workspace-overview .video-player,
+.montage-workspace-overview .ascii-frames-viewer,
+.montage-workspace-overview video,
+.montage-workspace-overview canvas,
+.montage-workspace-overview pre {
+    pointer-events: none;
+}
+
+.montage-workspace-overview .video-player,
+.montage-workspace-overview .ascii-frames-viewer {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    border-radius: 0;
+}
+
+.montage-workspace-overview .video-wrap,
+.montage-workspace-overview .frames-display,
+.montage-workspace-overview .ascii-frame-content {
+    border: 0;
+    border-radius: 0;
+}
+
+.montage-workspace-overview .video-wrap,
+.montage-workspace-overview .frames-display {
+    background: #000;
+}
+
+.montage-workspace-overview .controls,
+.montage-workspace-overview .timestamp-row,
+.montage-workspace-overview .settings-info,
+.montage-workspace-overview .frame-info-overlay {
+    display: none !important;
+}
+
+.montage-overview-video::-webkit-media-controls,
+.montage-overview-video::-webkit-media-controls-enclosure,
+.montage-overview-video::-webkit-media-controls-panel,
+.montage-overview-video::-webkit-media-controls-start-playback-button {
+    display: none !important;
+    -webkit-appearance: none;
+}
+
 /* Fill workspace but never exceed it */
 .montage-workspace-pane {
     width: 100%;
@@ -340,20 +444,20 @@
 }
 
 .timeline-item-mode:hover:not(:disabled) {
-    background: rgba(74, 158, 255, 0.2);
-    border-color: rgba(74, 158, 255, 0.5);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
     color: #fff;
 }
 
 .timeline-item-mode.active {
-    background: #4a6a9a;
-    border-color: #6a8aba;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.14);
     color: #fff;
 }
 
 .timeline-item-mode.active:hover:not(:disabled) {
-    background: #5a7aaa;
-    border-color: #7a9aca;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .timeline-item-mode svg {

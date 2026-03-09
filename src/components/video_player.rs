@@ -195,6 +195,22 @@ pub struct VideoPlayerProps {
     pub on_preview_created: Option<Callback<serde_json::Value>>,
 }
 
+fn preferred_visible_time(trim_start: f64, trim_end: f64) -> f64 {
+    let max_target = if trim_end.is_finite() {
+        (trim_end - 0.000_1).max(0.0)
+    } else {
+        f64::INFINITY
+    };
+
+    if trim_start > 0.0 {
+        trim_start.min(max_target)
+    } else if max_target.is_finite() {
+        0.1_f64.min(max_target)
+    } else {
+        0.1
+    }
+}
+
 #[function_component(VideoPlayer)]
 pub fn video_player(props: &VideoPlayerProps) -> Html {
     let video_ref = use_node_ref();
@@ -226,6 +242,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     // Preview creation state
     let is_creating_preview = use_state(|| false);
+    let pending_autoplay = use_mut_ref(|| false);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;
@@ -352,6 +369,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let duration = duration.clone();
         let current_time = current_time.clone();
         let left_value = left_value.clone();
+        let right_value = right_value.clone();
+        let is_playing = is_playing.clone();
+        let pending_autoplay = pending_autoplay.clone();
         let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
 
         Callback::from(move |_| {
@@ -366,17 +386,41 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     }
                 }
 
-                // Show something other than black:
-                // - if trim starts > 0 -> go there
-                // - else -> 0.1s
-                if v.current_time() == 0.0 {
-                    let t = if dur.is_finite() && dur > 0.0 && *left_value > 0.0 {
-                        (*left_value) * dur
-                    } else {
-                        0.1
-                    };
-                    v.set_current_time(t);
-                    current_time.set(t);
+                if dur.is_finite() && dur > 0.0 {
+                    let trim_start = (*left_value) * dur;
+                    let trim_end = (*right_value) * dur;
+                    let target = preferred_visible_time(trim_start, trim_end);
+
+                    if *pending_autoplay.borrow() {
+                        *pending_autoplay.borrow_mut() = false;
+                        if target > 0.0 {
+                            v.pause().ok();
+                            v.set_current_time(target);
+                            current_time.set(target);
+
+                            let v_clone = v.clone();
+                            let is_playing = is_playing.clone();
+                            let closure = Closure::once(move || {
+                                let _ = v_clone.play();
+                                is_playing.set(true);
+                            });
+                            let opts = web_sys::AddEventListenerOptions::new();
+                            opts.set_once(true);
+                            let _ = v
+                                .add_event_listener_with_callback_and_add_event_listener_options(
+                                    "seeked",
+                                    closure.as_ref().unchecked_ref(),
+                                    &opts,
+                                );
+                            closure.forget();
+                        } else {
+                            let _ = v.play();
+                            is_playing.set(true);
+                        }
+                    } else if v.current_time() == 0.0 && target > 0.0 {
+                        v.set_current_time(target);
+                        current_time.set(target);
+                    }
                 }
             }
         })
@@ -468,6 +512,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let left_value = left_value.clone();
         let right_value = right_value.clone();
         let ended_fired = ended_fired.clone();
+        let pending_autoplay = pending_autoplay.clone();
 
         use_effect_with(should_play, move |should_play| {
             let current = *should_play;
@@ -485,16 +530,47 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     match current {
                         Some(true) => {
                             *ended_fired.borrow_mut() = false;
-                            // Ensure we're in trim window
-                            let t = v.current_time();
-                            if t < trim_start || t >= trim_end {
-                                v.set_current_time(trim_start);
-                                current_time.set(trim_start);
+                            if dur.is_finite() && dur > 0.0 {
+                                let t = v.current_time();
+                                let target = if t < trim_start || t >= trim_end {
+                                    trim_start
+                                } else if t <= 0.0 {
+                                    preferred_visible_time(trim_start, trim_end)
+                                } else {
+                                    t
+                                };
+
+                                if (target - t).abs() > 0.000_1 {
+                                    v.pause().ok();
+                                    v.set_current_time(target);
+                                    current_time.set(target);
+
+                                    let v_clone = v.clone();
+                                    let is_playing = is_playing.clone();
+                                    let closure = Closure::once(move || {
+                                        let _ = v_clone.play();
+                                        is_playing.set(true);
+                                    });
+                                    let opts = web_sys::AddEventListenerOptions::new();
+                                    opts.set_once(true);
+                                    let _ =
+                                        v.add_event_listener_with_callback_and_add_event_listener_options(
+                                            "seeked",
+                                            closure.as_ref().unchecked_ref(),
+                                            &opts,
+                                        );
+                                    closure.forget();
+                                } else {
+                                    let _ = v.play();
+                                    is_playing.set(true);
+                                }
+                                *pending_autoplay.borrow_mut() = false;
+                            } else {
+                                *pending_autoplay.borrow_mut() = true;
                             }
-                            let _ = v.play();
-                            is_playing.set(true);
                         }
                         Some(false) => {
+                            *pending_autoplay.borrow_mut() = false;
                             v.pause().ok();
                             is_playing.set(false);
                         }

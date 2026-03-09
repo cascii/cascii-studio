@@ -1,5 +1,5 @@
 use cascii_core_view::{
-    load_color_frames, load_text_frames, yield_to_event_loop, Frame, FrameColors,
+    load_color_frames, load_text_frames, parse_cframe, yield_to_event_loop, Frame, FrameColors,
     FrameDataProvider, FrameFile,
 };
 use serde::{Deserialize, Serialize};
@@ -250,6 +250,40 @@ pub async fn preload_frame_bundle(
         render_mode,
         frames,
         frame_files,
+        frame_colors: resolve_frame_colors(metadata),
+        has_any_color,
+    })
+}
+
+pub async fn preload_first_frame_bundle(
+    metadata: &FrameAssetMetadata,
+    render_mode: FrameRenderMode,
+) -> Result<PreloadedFrameBundle, String> {
+    let provider = TauriFrameProvider;
+    let frame_files = provider.get_frame_files(&metadata.directory_path).await?;
+    let first_frame_file = frame_files
+        .first()
+        .cloned()
+        .ok_or_else(|| "No frames found in directory".to_string())?;
+
+    let first_frame_text = provider.read_frame_text(&first_frame_file.path).await?;
+    let mut first_frame = Frame::text_only(first_frame_text);
+    let mut has_any_color = false;
+
+    if matches!(render_mode, FrameRenderMode::ColorFrames) {
+        if let Some(bytes) = provider.read_cframe_bytes(&first_frame_file.path).await? {
+            if let Ok(cframe) = parse_cframe(&bytes) {
+                first_frame.cframe = Some(cframe);
+                has_any_color = true;
+            }
+        }
+    }
+
+    Ok(PreloadedFrameBundle {
+        directory_path: metadata.directory_path.clone(),
+        render_mode,
+        frames: vec![first_frame],
+        frame_files: vec![first_frame_file],
         frame_colors: resolve_frame_colors(metadata),
         has_any_color,
     })

@@ -1047,18 +1047,11 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         if !matches!(effective_render_mode, FrameRenderMode::ColorFrames) || !color_available {
             false
         } else {
-            let frame_has_color = {
-                let frames = frames_ref.borrow();
-                frames
-                    .get(current_frame)
-                    .map(|f| f.has_color())
-                    .unwrap_or(false)
-            };
-            let frame_cached = {
-                let cache = frame_canvas_cache.borrow();
-                cache.has(current_frame)
-            };
-            frame_has_color && frame_cached
+            let frames = frames_ref.borrow();
+            frames
+                .get(current_frame)
+                .map(|f| f.has_color())
+                .unwrap_or(false)
         }
     };
 

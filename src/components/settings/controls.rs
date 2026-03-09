@@ -144,11 +144,11 @@ pub fn controls(props: &ControlsProps) -> Html {
                             <Icon icon_id={volume_icon} width={"16"} height={"16"} />
                         </button>
                     </div>
-                    <div id="controls-volume-slider" class="controls-section__slider">
-                        <input id="controls-volume-input" class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
-                    </div>
                     <div id="controls-progress-slider" class="controls-section__slider">
                         <input id="controls-progress-input" class="synced-progress" type="range" min="0" max="100" value={props.synced_progress.to_string()} oninput={on_progress_input} title="Synced progress control" disabled={if props.montage_mode {!props.has_timeline_items || props.frames_loading} else {props.selected_source.is_none() || props.selected_frame_dir.is_none() || props.frames_loading}} />
+                    </div>
+                    <div id="controls-volume-slider" class="controls-section__slider">
+                        <input id="controls-volume-input" class="volume-bar" type="range" min="0" max="1" step="0.01" value={props.volume.to_string()} oninput={on_volume_input} title="Volume" />
                     </div>
                 </div>
             }

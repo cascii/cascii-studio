@@ -117,6 +117,12 @@ pub struct VideoPlayerProps {
     /// Callback emitted once when playback reaches the end (trim end) and loop is disabled
     #[prop_or_default]
     pub on_ended: Option<Callback<()>>,
+    /// Callback emitted when the video has decoded enough data to display a frame
+    #[prop_or_default]
+    pub on_ready: Option<Callback<()>>,
+    /// Whether the player should seek to a visible frame while paused after metadata loads
+    #[prop_or(true)]
+    pub preview_seek_enabled: bool,
     /// Callback to report the intrinsic media aspect ratio (width / height)
     #[prop_or_default]
     pub on_aspect_ratio_change: Option<Callback<Option<f64>>>,
@@ -195,22 +201,6 @@ pub struct VideoPlayerProps {
     pub on_preview_created: Option<Callback<serde_json::Value>>,
 }
 
-fn preferred_visible_time(trim_start: f64, trim_end: f64) -> f64 {
-    let max_target = if trim_end.is_finite() {
-        (trim_end - 0.000_1).max(0.0)
-    } else {
-        f64::INFINITY
-    };
-
-    if trim_start > 0.0 {
-        trim_start.min(max_target)
-    } else if max_target.is_finite() {
-        0.1_f64.min(max_target)
-    } else {
-        0.1
-    }
-}
-
 #[function_component(VideoPlayer)]
 pub fn video_player(props: &VideoPlayerProps) -> Html {
     let video_ref = use_node_ref();
@@ -242,7 +232,6 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     // Preview creation state
     let is_creating_preview = use_state(|| false);
-    let pending_autoplay = use_mut_ref(|| false);
 
     // --- Derived trim window (seconds) for rendering + inputs ---
     let dur = *duration;
@@ -363,15 +352,15 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         })
     };
 
-    // Metadata (duration) - also seek to a visible frame (trim-aware)
+    // Metadata (duration)
     let on_loaded_metadata = {
         let video_ref = video_ref.clone();
         let duration = duration.clone();
         let current_time = current_time.clone();
         let left_value = left_value.clone();
         let right_value = right_value.clone();
-        let is_playing = is_playing.clone();
-        let pending_autoplay = pending_autoplay.clone();
+        let should_play = props.should_play;
+        let preview_seek_enabled = props.preview_seek_enabled;
         let on_aspect_ratio_change = props.on_aspect_ratio_change.clone();
 
         Callback::from(move |_| {
@@ -389,37 +378,25 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 if dur.is_finite() && dur > 0.0 {
                     let trim_start = (*left_value) * dur;
                     let trim_end = (*right_value) * dur;
-                    let target = preferred_visible_time(trim_start, trim_end);
+                    if preview_seek_enabled && should_play != Some(true) && v.current_time() == 0.0
+                    {
+                        let max_target = (trim_end - 0.000_1).max(0.0);
+                        let target = if trim_start > 0.0 {
+                            trim_start.min(max_target)
+                        } else {
+                            0.001_f64.min(max_target)
+                        };
 
-                    if *pending_autoplay.borrow() {
-                        *pending_autoplay.borrow_mut() = false;
                         if target > 0.0 {
-                            v.pause().ok();
                             v.set_current_time(target);
                             current_time.set(target);
-
-                            let v_clone = v.clone();
-                            let is_playing = is_playing.clone();
-                            let closure = Closure::once(move || {
-                                let _ = v_clone.play();
-                                is_playing.set(true);
-                            });
-                            let opts = web_sys::AddEventListenerOptions::new();
-                            opts.set_once(true);
-                            let _ = v
-                                .add_event_listener_with_callback_and_add_event_listener_options(
-                                    "seeked",
-                                    closure.as_ref().unchecked_ref(),
-                                    &opts,
-                                );
-                            closure.forget();
-                        } else {
-                            let _ = v.play();
-                            is_playing.set(true);
                         }
-                    } else if v.current_time() == 0.0 && target > 0.0 {
-                        v.set_current_time(target);
-                        current_time.set(target);
+                    } else if v.current_time() < trim_start {
+                        v.set_current_time(trim_start);
+                        current_time.set(trim_start);
+                    } else if v.current_time() >= trim_end {
+                        v.set_current_time(trim_start);
+                        current_time.set(trim_start);
                     }
                 }
             }
@@ -434,6 +411,49 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let on_pause = {
         let is_playing = is_playing.clone();
         Callback::from(move |_| is_playing.set(false))
+    };
+
+    let ready_emitted = use_mut_ref(|| false);
+    let pending_play = use_mut_ref(|| false);
+    {
+        let ready_emitted = ready_emitted.clone();
+        let pending_play = pending_play.clone();
+        let src = props.src.clone();
+        use_effect_with(src, move |_| {
+            *ready_emitted.borrow_mut() = false;
+            *pending_play.borrow_mut() = false;
+            || ()
+        });
+    }
+
+    let on_loaded_data = {
+        let on_ready = props.on_ready.clone();
+        let ready_emitted = ready_emitted.clone();
+        let video_ref = video_ref.clone();
+        let is_playing = is_playing.clone();
+        let pending_play = pending_play.clone();
+        let should_play = props.should_play;
+        Callback::from(move |_| {
+            web_sys::console::log_1(&"[video_player] on_loaded_data fired".into());
+            if !*ready_emitted.borrow() {
+                *ready_emitted.borrow_mut() = true;
+                web_sys::console::log_1(&"[video_player] emitting on_ready".into());
+                if let Some(callback) = &on_ready {
+                    callback.emit(());
+                }
+            }
+
+            if should_play == Some(true) {
+                if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
+                    if v.paused() || *pending_play.borrow() {
+                        web_sys::console::log_1(&"[video_player] on_loaded_data: calling v.play()".into());
+                        let _ = v.play();
+                        is_playing.set(true);
+                        *pending_play.borrow_mut() = false;
+                    }
+                }
+            }
+        })
     };
 
     // Error overlay
@@ -512,7 +532,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         let left_value = left_value.clone();
         let right_value = right_value.clone();
         let ended_fired = ended_fired.clone();
-        let pending_autoplay = pending_autoplay.clone();
+        let pending_play = pending_play.clone();
+        let ready_emitted = ready_emitted.clone();
+        let on_ready = props.on_ready.clone();
 
         use_effect_with(should_play, move |should_play| {
             let current = *should_play;
@@ -530,47 +552,36 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     match current {
                         Some(true) => {
                             *ended_fired.borrow_mut() = false;
+                            web_sys::console::log_1(&format!(
+                                "[video_player] should_play=true, dur={}, readyState={}, networkState={}",
+                                dur,
+                                v.ready_state(),
+                                v.network_state()
+                            ).into());
                             if dur.is_finite() && dur > 0.0 {
                                 let t = v.current_time();
-                                let target = if t < trim_start || t >= trim_end {
-                                    trim_start
-                                } else if t <= 0.0 {
-                                    preferred_visible_time(trim_start, trim_end)
-                                } else {
-                                    t
-                                };
-
-                                if (target - t).abs() > 0.000_1 {
-                                    v.pause().ok();
-                                    v.set_current_time(target);
-                                    current_time.set(target);
-
-                                    let v_clone = v.clone();
-                                    let is_playing = is_playing.clone();
-                                    let closure = Closure::once(move || {
-                                        let _ = v_clone.play();
-                                        is_playing.set(true);
-                                    });
-                                    let opts = web_sys::AddEventListenerOptions::new();
-                                    opts.set_once(true);
-                                    let _ =
-                                        v.add_event_listener_with_callback_and_add_event_listener_options(
-                                            "seeked",
-                                            closure.as_ref().unchecked_ref(),
-                                            &opts,
-                                        );
-                                    closure.forget();
-                                } else {
-                                    let _ = v.play();
-                                    is_playing.set(true);
+                                if t < trim_start || t >= trim_end {
+                                    v.set_current_time(trim_start);
+                                    current_time.set(trim_start);
                                 }
-                                *pending_autoplay.borrow_mut() = false;
-                            } else {
-                                *pending_autoplay.borrow_mut() = true;
+                            }
+
+                            *pending_play.borrow_mut() = true;
+                            let _ = v.play();
+                            is_playing.set(true);
+
+                            // If video data is already cached (from overview's <video preload="auto">),
+                            // loadeddata won't fire again so on_ready would never be emitted.
+                            if v.ready_state() >= 2 && !*ready_emitted.borrow() {
+                                *ready_emitted.borrow_mut() = true;
+                                web_sys::console::log_1(&format!("[video_player] already loaded (readyState={}), emitting on_ready from should_play", v.ready_state()).into());
+                                if let Some(callback) = &on_ready {
+                                    callback.emit(());
+                                }
                             }
                         }
                         Some(false) => {
-                            *pending_autoplay.borrow_mut() = false;
+                            *pending_play.borrow_mut() = false;
                             v.pause().ok();
                             is_playing.set(false);
                         }
@@ -585,16 +596,15 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         });
     }
 
-    // Handle reset (go to trim start)
-    // When the video is actively playing, a bare set_current_time() causes a
-    // seek-while-playing stall (visual freezes while the decoder hunts for the
-    // nearest keyframe).  To avoid this we pause first, seek, wait for the
-    // browser's `seeked` event, and only then resume playback.
+    // Handle reset (go to trim start). Reset is intentionally one-way: the
+    // parent transport owns whether playback resumes.
     {
         let video_ref = video_ref.clone();
         let current_time = current_time.clone();
+        let is_playing = is_playing.clone();
         let should_reset = props.should_reset;
         let left_value = left_value.clone();
+        let pending_play = pending_play.clone();
 
         use_effect_with(should_reset, move |should_reset| {
             if *should_reset {
@@ -605,31 +615,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     } else {
                         0.0
                     };
-
-                    let was_playing = !v.paused();
-
-                    if was_playing {
-                        v.pause().ok();
-                        v.set_current_time(target);
-                        current_time.set(target);
-
-                        // Resume after the seek completes
-                        let v_clone = v.clone();
-                        let closure = Closure::once(move || {
-                            let _ = v_clone.play();
-                        });
-                        let opts = web_sys::AddEventListenerOptions::new();
-                        opts.set_once(true);
-                        let _ = v.add_event_listener_with_callback_and_add_event_listener_options(
-                            "seeked",
-                            closure.as_ref().unchecked_ref(),
-                            &opts,
-                        );
-                        closure.forget();
-                    } else {
-                        v.set_current_time(target);
-                        current_time.set(target);
-                    }
+                    *pending_play.borrow_mut() = false;
+                    v.pause().ok();
+                    v.set_current_time(target);
+                    current_time.set(target);
+                    is_playing.set(false);
                 }
             }
         });
@@ -1086,7 +1076,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     html! {
         <div id="video-player" class={classes!("video-player", props.class.clone())}>
             <div id="video-wrap" class="video-wrap">
-                <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="metadata" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
+                <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="auto" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onloadeddata={on_loaded_data} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
                 if let Some(msg) = &*error_text {
                     <div id="video-error-overlay" class="error-overlay">{msg}</div>
                 }

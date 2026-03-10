@@ -7,7 +7,6 @@ use web_sys::DragEvent;
 use yew::prelude::*;
 use yew_icons::IconId;
 
-use super::context_menu::{ContextMenu, ContextMenuItem};
 use super::drag_state::{get_active_resource_drag, set_active_resource_drag};
 use super::explorer_types::*;
 use super::tree_node::TreeNodeView;
@@ -60,11 +59,19 @@ pub struct ExplorerTreeProps {
     pub on_select_frame_dir: Callback<FrameDirectory>,
     pub on_select_cut: Callback<VideoCut>,
     pub on_select_preview: Callback<Preview>,
+    pub on_rename_source: Callback<(SourceContent, Option<String>)>,
+    pub on_rename_frame: Callback<(FrameDirectory, Option<String>)>,
+    pub on_rename_cut: Callback<(VideoCut, Option<String>)>,
+    pub on_rename_preview: Callback<(Preview, Option<String>)>,
 }
 
 #[derive(Clone)]
 struct ExplorerMenuHandlers {
     explorer_layout: ExplorerLayout,
+    source_files: Vec<SourceContent>,
+    video_cuts: Vec<VideoCut>,
+    frame_directories: Vec<FrameDirectory>,
+    previews: Vec<Preview>,
     on_layout_change: Callback<ExplorerLayout>,
 }
 
@@ -378,7 +385,10 @@ fn items_to_nodes(
                         .as_ref()
                         .map(|s| s.0 == node_id)
                         .unwrap_or(false),
-                    is_rename_active: false,
+                    is_rename_active: rename_id
+                        .as_ref()
+                        .map(|rid| rid.0 == node_id)
+                        .unwrap_or(false),
                     children: vec![],
                 }
             }
@@ -579,13 +589,16 @@ fn toggle_folder(items: &mut Vec<ExplorerItem>, folder_id: &str) -> bool {
 
 #[function_component(ExplorerTree)]
 pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
-    let context_menu_state = use_state(|| None::<(TreeNodeId, i32, i32)>);
     let rename_target_id = use_state(|| None::<TreeNodeId>);
     let rename_value = use_state(String::new);
     let drop_target_id = use_state(|| None::<TreeNodeId>);
     let root_drop_active = use_state(|| false);
     let menu_handlers_ref = use_mut_ref(|| ExplorerMenuHandlers {
         explorer_layout: props.explorer_layout.clone(),
+        source_files: props.source_files.clone(),
+        video_cuts: props.video_cuts.clone(),
+        frame_directories: props.frame_directories.clone(),
+        previews: props.previews.clone(),
         on_layout_change: props.on_layout_change.clone(),
     });
     let last_hover_log_target = use_mut_ref(|| None::<String>);
@@ -594,6 +607,10 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
         let mut handlers = menu_handlers_ref.borrow_mut();
         *handlers = ExplorerMenuHandlers {
             explorer_layout: props.explorer_layout.clone(),
+            source_files: props.source_files.clone(),
+            video_cuts: props.video_cuts.clone(),
+            frame_directories: props.frame_directories.clone(),
+            previews: props.previews.clone(),
             on_layout_change: props.on_layout_change.clone(),
         };
     }
@@ -1128,22 +1145,52 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
                         NativeExplorerMenuActionPayload,
                     >(payload_js)
                     {
-                        if !is_explorer_folder_node(&payload.node_id) {
-                            return;
-                        }
-
                         let handlers = menu_handlers_ref.borrow().clone();
                         match payload.action.as_str() {
                             "rename" => {
-                                let current_name = find_folder_name(
-                                    &handlers.explorer_layout.root_items,
-                                    &payload.node_id,
-                                )
-                                .unwrap_or_else(|| "Folder".to_string());
+                                let current_name = if is_explorer_folder_node(&payload.node_id) {
+                                    find_folder_name(
+                                        &handlers.explorer_layout.root_items,
+                                        &payload.node_id,
+                                    )
+                                    .unwrap_or_else(|| "Folder".to_string())
+                                } else if let Some(resource) =
+                                    resource_ref_from_any_node_id(&payload.node_id)
+                                {
+                                    resolve_label(
+                                        &resource,
+                                        &handlers.source_files,
+                                        &handlers.video_cuts,
+                                        &handlers.frame_directories,
+                                        &handlers.previews,
+                                    )
+                                } else {
+                                    return;
+                                };
                                 rename_value.set(current_name);
                                 rename_target_id.set(Some(TreeNodeId(payload.node_id.clone())));
                             }
                             "delete" => {
+                                if !is_explorer_folder_node(&payload.node_id) {
+                                    return;
+                                }
+                                let mut new_layout = handlers.explorer_layout.clone();
+                                if remove_item(&mut new_layout.root_items, &payload.node_id) {
+                                    handlers.on_layout_change.emit(new_layout);
+                                }
+                                if rename_target_id
+                                    .as_ref()
+                                    .map(|id| id.0 == payload.node_id)
+                                    .unwrap_or(false)
+                                {
+                                    rename_target_id.set(None);
+                                    rename_value.set(String::new());
+                                }
+                            }
+                            "remove" => {
+                                if is_explorer_folder_node(&payload.node_id) {
+                                    return;
+                                }
                                 let mut new_layout = handlers.explorer_layout.clone();
                                 if remove_item(&mut new_layout.root_items, &payload.node_id) {
                                     handlers.on_layout_change.emit(new_layout);
@@ -1257,22 +1304,66 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
         let on_layout_change = props.on_layout_change.clone();
         let rename_target_id = rename_target_id.clone();
         let rename_value = rename_value.clone();
+        let source_files = props.source_files.clone();
+        let video_cuts = props.video_cuts.clone();
+        let frame_directories = props.frame_directories.clone();
+        let previews = props.previews.clone();
+        let on_rename_source = props.on_rename_source.clone();
+        let on_rename_frame = props.on_rename_frame.clone();
+        let on_rename_cut = props.on_rename_cut.clone();
+        let on_rename_preview = props.on_rename_preview.clone();
         Callback::from(move |(id, new_name): (TreeNodeId, String)| {
             let trimmed = new_name.trim().to_string();
-            if !is_explorer_folder_node(&id.0) {
-                rename_target_id.set(None);
-                rename_value.set(String::new());
-                return;
-            }
-            if trimmed.is_empty() {
+            if trimmed.is_empty() && is_explorer_folder_node(&id.0) {
                 rename_target_id.set(None);
                 rename_value.set(String::new());
                 return;
             }
 
-            let mut new_layout = layout.clone();
-            if rename_folder(&mut new_layout.root_items, &id.0, &trimmed) {
-                on_layout_change.emit(new_layout);
+            if is_explorer_folder_node(&id.0) {
+                let mut new_layout = layout.clone();
+                if rename_folder(&mut new_layout.root_items, &id.0, &trimmed) {
+                    on_layout_change.emit(new_layout);
+                }
+            } else {
+                let custom_name = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                };
+                if let Some(resource) = resource_ref_from_any_node_id(&id.0) {
+                    match resource {
+                        ResourceRef::SourceFile { source_id } => {
+                            if let Some(file) =
+                                source_files.iter().find(|f| f.id == source_id).cloned()
+                            {
+                                on_rename_source.emit((file, custom_name));
+                            }
+                        }
+                        ResourceRef::VideoCut { cut_id } => {
+                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned()
+                            {
+                                on_rename_cut.emit((cut, custom_name));
+                            }
+                        }
+                        ResourceRef::FrameDirectory { directory_path } => {
+                            if let Some(frame_dir) = frame_directories
+                                .iter()
+                                .find(|d| d.directory_path == directory_path)
+                                .cloned()
+                            {
+                                on_rename_frame.emit((frame_dir, custom_name));
+                            }
+                        }
+                        ResourceRef::Preview { preview_id } => {
+                            if let Some(preview) =
+                                previews.iter().find(|p| p.id == preview_id).cloned()
+                            {
+                                on_rename_preview.emit((preview, custom_name));
+                            }
+                        }
+                    }
+                }
             }
             rename_target_id.set(None);
             rename_value.set(String::new());
@@ -1303,27 +1394,20 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
     };
 
     let on_context_menu = {
-        let ctx_state = context_menu_state.clone();
         Callback::from(move |(id, e): (TreeNodeId, MouseEvent)| {
-            if is_explorer_folder_node(&id.0) {
-                ctx_state.set(None);
+            let request = ShowExplorerContextMenuRequest {
+                node_id: id.0.clone(),
+                x: e.client_x() as f64,
+                y: e.client_y() as f64,
+            };
 
-                let request = ShowExplorerContextMenuRequest {
-                    node_id: id.0.clone(),
-                    x: e.client_x() as f64,
-                    y: e.client_y() as f64,
-                };
-
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(args) = serde_wasm_bindgen::to_value(&serde_json::json!({
-                        "request": request
-                    })) {
-                        let _ = explorer_tauri_invoke("show_explorer_context_menu", args).await;
-                    }
-                });
-            } else {
-                ctx_state.set(Some((id, e.client_x(), e.client_y())));
-            }
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(args) = serde_wasm_bindgen::to_value(&serde_json::json!({
+                    "request": request
+                })) {
+                    let _ = explorer_tauri_invoke("show_explorer_context_menu", args).await;
+                }
+            });
         })
     };
 
@@ -1518,45 +1602,6 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
         })
     };
 
-    let on_close_menu = {
-        let ctx_state = context_menu_state.clone();
-        Callback::from(move |_| {
-            ctx_state.set(None);
-        })
-    };
-
-    // Context menu
-    let context_menu_html = if let Some((ref ctx_id, x, y)) = *context_menu_state {
-        let mut items = Vec::new();
-
-        if !ctx_id.0.starts_with("exp:folder:") {
-            // Resource ref: remove from explorer
-            let layout = props.explorer_layout.clone();
-            let on_layout_change = props.on_layout_change.clone();
-            let target_id = ctx_id.0.clone();
-            let close = on_close_menu.clone();
-            items.push(ContextMenuItem {
-                label: "Remove from Explorer".to_string(),
-                icon: IconId::LucideMinus,
-                on_click: Callback::from(move |_| {
-                    let mut new_layout = layout.clone();
-                    remove_item(&mut new_layout.root_items, &target_id);
-                    on_layout_change.emit(new_layout);
-                    close.emit(());
-                }),
-                is_destructive: false,
-            });
-        }
-
-        if items.is_empty() {
-            html! {}
-        } else {
-            html! { <ContextMenu x={x} y={y} items={items} on_close={on_close_menu.clone()} /> }
-        }
-    } else {
-        html! {}
-    };
-
     // Add folder button
     let on_add_folder = {
         let layout = props.explorer_layout.clone();
@@ -1585,43 +1630,40 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
     );
 
     html! {
-        <>
-            <TreeSection title="PROJECT" is_expanded={props.is_expanded} on_toggle={on_toggle} action_buttons={Some(add_folder_btn)}>
-                <div
-                    id="project-drop-zone"
-                    class={project_drop_zone_class}
-                    ondragenter={on_root_drag_over.clone()}
-                    ondragover={on_root_drag_over}
-                    ondragleave={on_root_drag_leave}
-                    ondrop={on_root_drop}
-                >
-                    {if tree.is_empty() {
-                        html! { <div id="explorer-empty-state" class="tree-section__empty">{"Drag items here to organize"}</div> }
-                    } else {
-                        html! {
-                            { for tree.into_iter().map(|node| {
-                                html! {
-                                    <TreeNodeView
-                                        node={node}
-                                        on_toggle_expand={on_toggle_expand.clone()}
-                                        on_select={on_select.clone()}
-                                        on_context_menu={on_context_menu.clone()}
-                                        on_rename_submit={Some(on_rename_submit.clone())}
-                                        on_rename_cancel={Some(on_rename_cancel.clone())}
-                                        on_rename_input={Some(on_rename_input.clone())}
-                                        rename_value={if rename_target_id.is_some() { Some((*rename_value).clone()) } else { None }}
-                                        on_drag_over={Some(on_folder_drag_over.clone())}
-                                        on_drag_leave={Some(on_folder_drag_leave.clone())}
-                                        on_drop={Some(on_folder_drop.clone())}
-                                        drop_target_id={(*drop_target_id).clone()}
-                                    />
-                                }
-                            })}
-                        }
-                    }}
-                </div>
-            </TreeSection>
-            {context_menu_html}
-        </>
+        <TreeSection title="PROJECT" is_expanded={props.is_expanded} on_toggle={on_toggle} action_buttons={Some(add_folder_btn)}>
+            <div
+                id="project-drop-zone"
+                class={project_drop_zone_class}
+                ondragenter={on_root_drag_over.clone()}
+                ondragover={on_root_drag_over}
+                ondragleave={on_root_drag_leave}
+                ondrop={on_root_drop}
+            >
+                {if tree.is_empty() {
+                    html! { <div id="explorer-empty-state" class="tree-section__empty">{"Drag items here to organize"}</div> }
+                } else {
+                    html! {
+                        { for tree.into_iter().map(|node| {
+                            html! {
+                                <TreeNodeView
+                                    node={node}
+                                    on_toggle_expand={on_toggle_expand.clone()}
+                                    on_select={on_select.clone()}
+                                    on_context_menu={on_context_menu.clone()}
+                                    on_rename_submit={Some(on_rename_submit.clone())}
+                                    on_rename_cancel={Some(on_rename_cancel.clone())}
+                                    on_rename_input={Some(on_rename_input.clone())}
+                                    rename_value={if rename_target_id.is_some() { Some((*rename_value).clone()) } else { None }}
+                                    on_drag_over={Some(on_folder_drag_over.clone())}
+                                    on_drag_leave={Some(on_folder_drag_leave.clone())}
+                                    on_drop={Some(on_folder_drop.clone())}
+                                    drop_target_id={(*drop_target_id).clone()}
+                                />
+                            }
+                        })}
+                    }
+                }}
+            </div>
+        </TreeSection>
     }
 }

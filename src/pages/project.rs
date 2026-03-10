@@ -2421,6 +2421,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_select_frame_dir={on_select_frame_dir_explorer.clone()}
                             on_select_cut={on_select_cut_explorer.clone()}
                             on_select_preview={on_select_preview_explorer.clone()}
+                            on_rename_source={on_rename_source_explorer.clone()}
+                            on_rename_frame={on_rename_frame_explorer.clone()}
+                            on_rename_cut={on_rename_cut_explorer.clone()}
+                            on_rename_preview={on_rename_preview_explorer.clone()}
                         />
                         // Conversion progress indicators
                         {conversions_html}

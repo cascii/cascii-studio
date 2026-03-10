@@ -85,6 +85,7 @@ const RESOURCES_MENU_ITEM_OPEN: &str = "resources-context-menu:open";
 const RESOURCES_MENU_ITEM_DELETE: &str = "resources-context-menu:delete";
 const EXPLORER_MENU_ITEM_RENAME: &str = "explorer-context-menu:rename";
 const EXPLORER_MENU_ITEM_DELETE: &str = "explorer-context-menu:delete";
+const EXPLORER_MENU_ITEM_REMOVE: &str = "explorer-context-menu:remove";
 const OPEN_PROJECTS_MENU_ITEM_RENAME: &str = "open-projects-context-menu:rename";
 const OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER: &str = "open-projects-context-menu:open-folder";
 const OPEN_PROJECTS_MENU_ITEM_DELETE: &str = "open-projects-context-menu:delete";
@@ -102,6 +103,7 @@ fn explorer_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         EXPLORER_MENU_ITEM_RENAME => Some("rename"),
         EXPLORER_MENU_ITEM_DELETE => Some("delete"),
+        EXPLORER_MENU_ITEM_REMOVE => Some("remove"),
         _ => None,
     }
 }
@@ -160,16 +162,35 @@ pub fn show_explorer_context_menu(
     state: tauri::State<ExplorerContextMenuState>,
     request: ShowExplorerContextMenuRequest,
 ) -> Result<(), String> {
-    if !request.node_id.starts_with("exp:folder:") {
+    let is_folder = request.node_id.starts_with("exp:folder:");
+    let is_resource = request.node_id.starts_with("exp:source:")
+        || request.node_id.starts_with("exp:cut:")
+        || request.node_id.starts_with("exp:framedir:")
+        || request.node_id.starts_with("exp:preview:")
+        || request.node_id.starts_with("res:source:")
+        || request.node_id.starts_with("res:cut:")
+        || request.node_id.starts_with("res:framedir:")
+        || request.node_id.starts_with("res:preview:");
+
+    if !is_folder && !is_resource {
         return Ok(());
     }
 
-    let menu = MenuBuilder::new(&window)
-        .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
-        .separator()
-        .text(EXPLORER_MENU_ITEM_DELETE, "Delete Folder")
-        .build()
-        .map_err(|e| format!("Failed to build explorer context menu: {}", e))?;
+    let menu = if is_folder {
+        MenuBuilder::new(&window)
+            .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
+            .separator()
+            .text(EXPLORER_MENU_ITEM_DELETE, "Delete Folder")
+            .build()
+            .map_err(|e| format!("Failed to build explorer context menu: {}", e))?
+    } else {
+        MenuBuilder::new(&window)
+            .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
+            .separator()
+            .text(EXPLORER_MENU_ITEM_REMOVE, "Remove from Project")
+            .build()
+            .map_err(|e| format!("Failed to build explorer context menu: {}", e))?
+    };
 
     if let Ok(mut pending) = state.pending.lock() {
         *pending = Some(PendingExplorerContextMenu {

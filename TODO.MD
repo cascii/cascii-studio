@@ -5,7 +5,6 @@
 - player
 - type
 
-
 don't create project if not all files are saved/converted
 - converting progress bar
 
@@ -26,9 +25,6 @@ bugs:
 - should not auto switch to other frames that just finished loading
 - post treatment for frames: select background color and font color as an alternative to black and white
 
-Read toml
-crop sides
-preprocessing --> Create new file instead of frames. Button to add.
+in the sidebar, like controls & tools, add "current computation" with current loading/computing etc in progress)
 
-UI --> file system like vs code & tabs, also like vs code
-
+right click on "projects" in open, to duplicate

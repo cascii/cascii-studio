@@ -1,5 +1,7 @@
 use crate::util::is_video_file;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -54,16 +56,26 @@ fn determine_media_kind(path: &Path) -> MediaKind {
     }
 }
 
+/// Build a URL-safe cache filename from a source path.
+/// Characters like # (fragment delimiter), ?, [, ] etc. in filenames break
+/// asset:// URLs, so we replace anything that isn't alphanumeric, `-`, `_`, or `.`
+/// and append a path hash to avoid collisions.
+fn safe_cache_filename(source_path: &Path) -> String {
+    let ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+    let stem = source_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let safe_stem: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let mut hasher = DefaultHasher::new();
+    source_path.hash(&mut hasher);
+    format!("{}_{:08x}.{}", safe_stem, hasher.finish() as u32, ext)
+}
+
 #[tauri::command]
 pub fn prepare_media(path: String) -> Result<PreparedMedia, String> {
     let source_path = PathBuf::from(&path)
         .canonicalize()
         .map_err(|e| format!("Invalid source path: {}", e))?;
     let cache_dir = get_media_cache_dir()?;
-    let file_name = source_path
-        .file_name()
-        .ok_or_else(|| "Invalid file name".to_string())?;
-    let cached_path = cache_dir.join(file_name);
+    let cached_path = cache_dir.join(safe_cache_filename(&source_path));
     if !cached_path.exists() {
         match fs::hard_link(&source_path, &cached_path) {
             Ok(_) => {}

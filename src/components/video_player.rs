@@ -446,7 +446,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
             if should_play == Some(true) {
                 if let Some(v) = video_ref.cast::<HtmlVideoElement>() {
                     if v.paused() || *pending_play.borrow() {
-                        web_sys::console::log_1(&"[video_player] on_loaded_data: calling v.play()".into());
+                        web_sys::console::log_1(
+                            &"[video_player] on_loaded_data: calling v.play()".into(),
+                        );
                         let _ = v.play();
                         is_playing.set(true);
                         *pending_play.borrow_mut() = false;

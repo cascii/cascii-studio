@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use gloo_timers::callback::Timeout;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -323,6 +324,13 @@ fn without_extension(name: &str) -> String {
         .to_string()
 }
 
+fn saved_folder_path_from_message(message: &str) -> Option<String> {
+    let start = message.find("saved to: ")?;
+    let after_prefix = &message[start + 10..];
+    let end = after_prefix.find(" (")?;
+    Some(after_prefix[..end].to_string())
+}
+
 fn source_tab_label(source: &SourceContent) -> String {
     source_display_name(source)
 }
@@ -479,7 +487,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let active_conversions_ref = use_mut_ref(|| HashMap::<String, u8>::new());
     let conversions_update_trigger = use_state(|| 0u32); // Trigger re-renders when conversions change
     let conversion_message = use_state(|| Option::<String>::None);
-    let conversion_success_folder = use_state(|| Option::<String>::None);
+    let highlighted_resource_id = use_state(|| None::<TreeNodeId>);
+    let highlight_resource_token = use_mut_ref(|| 0u64);
     let is_playing = use_state(|| false);
     let should_reset = use_state(|| false);
     let synced_progress = use_state(|| 0.0f64); // 0-100 percentage
@@ -546,6 +555,27 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let previews = use_state(move || cached_previews.clone());
     let selected_preview = use_state(|| None::<Preview>);
     let preview_container_ref = use_node_ref();
+    let highlight_new_resource = {
+        let highlighted_resource_id = highlighted_resource_id.clone();
+        let highlight_resource_token = highlight_resource_token.clone();
+        Callback::from(move |node_id: TreeNodeId| {
+            highlighted_resource_id.set(Some(node_id.clone()));
+            let token = {
+                let mut next_token = highlight_resource_token.borrow_mut();
+                *next_token = next_token.wrapping_add(1);
+                *next_token
+            };
+
+            let highlighted_resource_id = highlighted_resource_id.clone();
+            let highlight_resource_token = highlight_resource_token.clone();
+            Timeout::new(2500, move || {
+                if *highlight_resource_token.borrow() == token {
+                    highlighted_resource_id.set(None);
+                }
+            })
+            .forget();
+        })
+    };
 
     {
         let preview_container_ref = preview_container_ref.clone();
@@ -979,9 +1009,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let active_conversions_ref = active_conversions_ref.clone();
         let conversions_update_trigger = conversions_update_trigger.clone();
         let conversion_message = conversion_message.clone();
-        let conversion_success_folder = conversion_success_folder.clone();
         let error_message = error_message.clone();
         let frame_directories = frame_directories.clone();
+        let highlight_new_resource = highlight_new_resource.clone();
         let project_id = project_id.clone();
         let complete_listener_handle = complete_listener_handle.clone();
         let complete_listener_closure = complete_listener_closure.clone();
@@ -990,9 +1020,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let active_conversions_ref = active_conversions_ref.clone();
             let conversions_update_trigger = conversions_update_trigger.clone();
             let conversion_message = conversion_message.clone();
-            let conversion_success_folder = conversion_success_folder.clone();
             let error_message = error_message.clone();
             let frame_directories = frame_directories.clone();
+            let highlight_new_resource = highlight_new_resource.clone();
             let project_id = project_id.clone();
             let complete_listener_handle = complete_listener_handle.clone();
             let complete_listener_closure_storage = complete_listener_closure.clone();
@@ -1025,13 +1055,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                         if success {
                             if let Some(msg) = message {
-                                // Parse folder path from "ASCII frames saved to: {path} ({frames} frames, {bytes} bytes)"
-                                if let Some(start) = msg.find("saved to: ") {
-                                    let after_prefix = &msg[start + 10..];
-                                    if let Some(end) = after_prefix.find(" (") {
-                                        let folder_path = after_prefix[..end].to_string();
-                                        conversion_success_folder.set(Some(folder_path));
-                                    }
+                                if let Some(folder_path) = saved_folder_path_from_message(&msg) {
+                                    highlight_new_resource
+                                        .emit(TreeNodeId(format!("res:framedir:{}", folder_path)));
                                 }
                                 conversion_message.set(Some(msg));
                             }
@@ -1170,6 +1196,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let video_cuts = video_cuts.clone();
         let is_cutting = is_cutting.clone();
         let error_message = error_message.clone();
+        let highlight_new_resource = highlight_new_resource.clone();
 
         Callback::from(move |(start_time, end_time): (f64, f64)| {
             if let Some(source) = &*selected_source {
@@ -1179,6 +1206,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let video_cuts = video_cuts.clone();
                 let is_cutting = is_cutting.clone();
                 let error_message = error_message.clone();
+                let highlight_new_resource = highlight_new_resource.clone();
 
                 is_cutting.set(true);
 
@@ -1199,7 +1227,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     match tauri_invoke("cut_video", args).await {
                         result => {
                             is_cutting.set(false);
-                            if serde_wasm_bindgen::from_value::<VideoCut>(result.clone()).is_ok() {
+                            if let Ok(new_cut) =
+                                serde_wasm_bindgen::from_value::<VideoCut>(result.clone())
+                            {
+                                highlight_new_resource
+                                    .emit(TreeNodeId(format!("res:cut:{}", new_cut.id)));
                                 // Refresh cuts list
                                 let args = serde_wasm_bindgen::to_value(
                                     &json!({ "projectId": project_id }),
@@ -1227,6 +1259,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let video_cuts = video_cuts.clone();
         let is_preprocessing = is_preprocessing.clone();
         let error_message = error_message.clone();
+        let highlight_new_resource = highlight_new_resource.clone();
 
         Callback::from(move |(preset, custom_filter): (String, Option<String>)| {
             if let Some(source) = &*selected_source {
@@ -1236,6 +1269,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let video_cuts = video_cuts.clone();
                 let is_preprocessing = is_preprocessing.clone();
                 let error_message = error_message.clone();
+                let highlight_new_resource = highlight_new_resource.clone();
 
                 is_preprocessing.set(true);
 
@@ -1256,7 +1290,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     match tauri_invoke("preprocess_video", args).await {
                         result => {
                             is_preprocessing.set(false);
-                            if serde_wasm_bindgen::from_value::<VideoCut>(result.clone()).is_ok() {
+                            if let Ok(new_cut) =
+                                serde_wasm_bindgen::from_value::<VideoCut>(result.clone())
+                            {
+                                highlight_new_resource
+                                    .emit(TreeNodeId(format!("res:cut:{}", new_cut.id)));
                                 // Refresh cuts list
                                 let args = serde_wasm_bindgen::to_value(
                                     &json!({ "projectId": project_id }),
@@ -1484,8 +1522,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let frame_directories = frame_directories.clone();
         let project_id = project_id.clone();
         let conversion_message = conversion_message.clone();
-        let conversion_success_folder = conversion_success_folder.clone();
         let error_message = error_message.clone();
+        let highlight_new_resource = highlight_new_resource.clone();
 
         Callback::from(move |(start_index, end_index): (usize, usize)| {
             if let Some(frame_dir) = &*selected_frame_dir {
@@ -1493,8 +1531,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let project_id = (*project_id).clone();
                 let frame_directories = frame_directories.clone();
                 let conversion_message = conversion_message.clone();
-                let conversion_success_folder = conversion_success_folder.clone();
                 let error_message = error_message.clone();
+                let highlight_new_resource = highlight_new_resource.clone();
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let args = serde_wasm_bindgen::to_value(&json!({
@@ -1514,13 +1552,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         &format!("✅ Frames cut successfully: {}", msg).into(),
                                     );
 
-                                    // Parse folder path from message
-                                    if let Some(start) = msg.find("saved to: ") {
-                                        let after_prefix = &msg[start + 10..];
-                                        if let Some(end) = after_prefix.find(" (") {
-                                            let folder_path = after_prefix[..end].to_string();
-                                            conversion_success_folder.set(Some(folder_path));
-                                        }
+                                    if let Some(folder_path) = saved_folder_path_from_message(&msg)
+                                    {
+                                        highlight_new_resource.emit(TreeNodeId(format!(
+                                            "res:framedir:{}",
+                                            folder_path
+                                        )));
                                     }
                                     conversion_message.set(Some(msg));
 
@@ -1555,8 +1592,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let frame_directories = frame_directories.clone();
         let project_id = project_id.clone();
         let conversion_message = conversion_message.clone();
-        let conversion_success_folder = conversion_success_folder.clone();
         let error_message = error_message.clone();
+        let highlight_new_resource = highlight_new_resource.clone();
 
         Callback::from(
             move |(top, bottom, left, right): (usize, usize, usize, usize)| {
@@ -1565,8 +1602,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     let project_id = (*project_id).clone();
                     let frame_directories = frame_directories.clone();
                     let conversion_message = conversion_message.clone();
-                    let conversion_success_folder = conversion_success_folder.clone();
                     let error_message = error_message.clone();
+                    let highlight_new_resource = highlight_new_resource.clone();
 
                     wasm_bindgen_futures::spawn_local(async move {
                         let args = serde_wasm_bindgen::to_value(&json!({
@@ -1587,12 +1624,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         &format!("✅ Frames cropped successfully: {}", msg).into(),
                                     );
 
-                                    if let Some(start) = msg.find("saved to: ") {
-                                        let after_prefix = &msg[start + 10..];
-                                        if let Some(end) = after_prefix.find(" (") {
-                                            let folder_path = after_prefix[..end].to_string();
-                                            conversion_success_folder.set(Some(folder_path));
-                                        }
+                                    if let Some(folder_path) = saved_folder_path_from_message(&msg)
+                                    {
+                                        highlight_new_resource.emit(TreeNodeId(format!(
+                                            "res:framedir:{}",
+                                            folder_path
+                                        )));
                                     }
                                     conversion_message.set(Some(msg));
 
@@ -2544,6 +2581,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             previews={(*previews).clone()}
                             sidebar_state={(*sidebar_state).clone()}
                             selected_node_id={(*selected_node_id).clone()}
+                            highlighted_node_id={(*highlighted_resource_id).clone()}
                             on_toggle_section={on_toggle_section.clone()}
                             on_select_source={on_select_source.clone()}
                             on_select_frame_dir={on_select_frame_dir_explorer.clone()}
@@ -2585,51 +2623,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_rename_cut={on_rename_cut_explorer.clone()}
                             on_rename_preview={on_rename_preview_explorer.clone()}
                         />
-
-                        // Conversion success notification
-                        if let Some(folder_path) = &*conversion_success_folder {
-                            <div id="project-conversion-notification" class="conversion-notification" style="z-index: 1000;">
-                                <span class="conversion-notification-text">{"ASCII frames generated"}</span>
-                                <div class="conversion-notification-actions">
-                                    <button
-                                        id="project-conversion-open-btn"
-                                        class="nav-btn"
-                                        type="button"
-                                        title="Open folder"
-                                        style="position: relative; z-index: 1001; margin-right: 5px;"
-                                        onclick={{
-                                            let folder_path = folder_path.clone();
-                                            Callback::from(move |_| {
-                                                let folder_path = folder_path.clone();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    let args = serde_wasm_bindgen::to_value(&json!({ "path": folder_path })).unwrap();
-                                                    let _ = tauri_invoke("open_directory", args).await;
-                                                });
-                                            })
-                                        }}
-                                    >
-                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideFolderOpen} width={"16"} height={"16"} />
-                                    </button>
-                                    <button
-                                        id="project-conversion-dismiss-btn"
-                                        class="nav-btn"
-                                        type="button"
-                                        title="Dismiss"
-                                        style="position: relative; z-index: 1001;"
-                                        onclick={{
-                                            let conversion_success_folder = conversion_success_folder.clone();
-                                            let conversion_message = conversion_message.clone();
-                                            Callback::from(move |_| {
-                                                conversion_success_folder.set(None);
-                                                conversion_message.set(None);
-                                            })
-                                        }}
-                                    >
-                                        <yew_icons::Icon icon_id={yew_icons::IconId::LucideXCircle} width={"16"} height={"16"} />
-                                    </button>
-                                </div>
-                            </div>
-                        }
 
                     </div>
                     <div id="project-sidebar-bottom" class="explorer-sidebar__bottom">
@@ -2931,19 +2924,15 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                 conversion_message={(*conversion_message).clone()}
                                                 on_conversion_message_change={Some({
                                                     let conversion_message = conversion_message.clone();
-                                                    let conversion_success_folder = conversion_success_folder.clone();
+                                                    let highlight_new_resource = highlight_new_resource.clone();
                                                     Callback::from(move |v: Option<String>| {
                                                         if let Some(ref msg) = v {
-                                                            // Parse folder path from "ASCII frames saved to: {path} ({frames} frames, {bytes} bytes)"
-                                                            if let Some(start) = msg.find("saved to: ") {
-                                                                let after_prefix = &msg[start + 10..];
-                                                                if let Some(end) = after_prefix.find(" (") {
-                                                                    let folder_path = after_prefix[..end].to_string();
-                                                                    conversion_success_folder.set(Some(folder_path));
-                                                                }
+                                                            if let Some(folder_path) = saved_folder_path_from_message(msg) {
+                                                                highlight_new_resource.emit(TreeNodeId(format!(
+                                                                    "res:framedir:{}",
+                                                                    folder_path
+                                                                )));
                                                             }
-                                                        } else {
-                                                            conversion_success_folder.set(None);
                                                         }
                                                         conversion_message.set(v);
                                                     })

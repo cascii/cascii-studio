@@ -67,6 +67,8 @@ pub struct ResourcesTreeProps {
     pub on_open_cut: Callback<VideoCut>,
     pub on_open_preview: Callback<Preview>,
     #[prop_or_default]
+    pub highlighted_node_id: Option<TreeNodeId>,
+    #[prop_or_default]
     pub on_add_files: Option<Callback<()>>,
 }
 
@@ -120,10 +122,17 @@ fn build_resources_tree(
     previews: &[Preview],
     sidebar_state: &SidebarState,
     selected_id: &Option<TreeNodeId>,
+    highlighted_id: &Option<TreeNodeId>,
     rename_target_id: &Option<TreeNodeId>,
 ) -> Vec<TreeNode> {
     let is_selected =
         |id: &str| -> bool { selected_id.as_ref().map(|s| s.0 == id).unwrap_or(false) };
+    let is_highlighted = |id: &str| -> bool {
+        highlighted_id
+            .as_ref()
+            .map(|highlighted| highlighted.0 == id)
+            .unwrap_or(false)
+    };
     let is_renaming = |id: &str| -> bool {
         rename_target_id
             .as_ref()
@@ -156,6 +165,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
+                is_highlighted: is_highlighted(&id),
                 is_rename_active: is_renaming(&id),
                 children: vec![],
             }
@@ -186,6 +196,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
+                is_highlighted: is_highlighted(&id),
                 is_rename_active: is_renaming(&id),
                 children: vec![],
             }
@@ -218,6 +229,7 @@ fn build_resources_tree(
             depth: 3,
             is_expanded: false,
             is_selected: is_selected(&id),
+            is_highlighted: is_highlighted(&id),
             is_rename_active: is_renaming(&id),
             children: vec![],
         };
@@ -248,6 +260,7 @@ fn build_resources_tree(
                 depth: 3,
                 is_expanded: false,
                 is_selected: is_selected(&id),
+                is_highlighted: is_highlighted(&id),
                 is_rename_active: is_renaming(&id),
                 children: vec![],
             }
@@ -264,6 +277,7 @@ fn build_resources_tree(
         depth: 1,
         is_expanded: sidebar_state.source_files_expanded,
         is_selected: false,
+        is_highlighted: false,
         is_rename_active: false,
         children: vec![
             TreeNode {
@@ -275,6 +289,7 @@ fn build_resources_tree(
                 depth: 2,
                 is_expanded: sidebar_state.original_files_expanded,
                 is_selected: false,
+                is_highlighted: false,
                 is_rename_active: false,
                 children: original_files,
             },
@@ -287,6 +302,7 @@ fn build_resources_tree(
                 depth: 2,
                 is_expanded: sidebar_state.cuts_expanded,
                 is_selected: false,
+                is_highlighted: false,
                 is_rename_active: false,
                 children: cuts,
             },
@@ -302,6 +318,7 @@ fn build_resources_tree(
         depth: 1,
         is_expanded: sidebar_state.frames_expanded,
         is_selected: false,
+        is_highlighted: false,
         is_rename_active: false,
         children: vec![
             TreeNode {
@@ -313,6 +330,7 @@ fn build_resources_tree(
                 depth: 2,
                 is_expanded: sidebar_state.source_frames_expanded,
                 is_selected: false,
+                is_highlighted: false,
                 is_rename_active: false,
                 children: source_frames_nodes,
             },
@@ -325,6 +343,7 @@ fn build_resources_tree(
                 depth: 2,
                 is_expanded: sidebar_state.frame_cuts_expanded,
                 is_selected: false,
+                is_highlighted: false,
                 is_rename_active: false,
                 children: frame_cuts_nodes,
             },
@@ -337,6 +356,7 @@ fn build_resources_tree(
                 depth: 2,
                 is_expanded: sidebar_state.previews_expanded,
                 is_selected: false,
+                is_highlighted: false,
                 is_rename_active: false,
                 children: preview_nodes,
             },
@@ -358,6 +378,7 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         &props.previews,
         &props.sidebar_state,
         &props.selected_node_id,
+        &props.highlighted_node_id,
         &*rename_target_id,
     );
 

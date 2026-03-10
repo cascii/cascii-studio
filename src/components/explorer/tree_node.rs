@@ -101,6 +101,7 @@ pub fn tree_node_view(props: &TreeNodeProps) -> Html {
     let row_class = classes!(
         "tree-node",
         node.is_selected.then_some("tree-node--selected"),
+        node.is_highlighted.then_some("tree-node--highlighted"),
         props
             .drop_target_id
             .as_ref()

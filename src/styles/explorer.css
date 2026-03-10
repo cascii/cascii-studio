@@ -134,6 +134,14 @@
     background-color: #2a2d2e;
 }
 
+.tree-node--highlighted {
+    background-color: #313436;
+}
+
+.tree-node--highlighted:hover {
+    background-color: #373b3d;
+}
+
 .tree-node--selected {
     background-color: #094771;
     color: #fff;
@@ -246,12 +254,6 @@
 .explorer-context-menu__item--destructive:hover {
     background: #5a1d1d;
     color: #f48771;
-}
-
-/* Conversion progress inside explorer sidebar */
-
-.explorer-sidebar .conversion-progress {
-    margin: 0.5rem 8px;
 }
 
 /* Explorer add-folder button */

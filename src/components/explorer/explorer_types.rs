@@ -22,6 +22,7 @@ pub struct TreeNode {
     pub depth: u32,
     pub is_expanded: bool,
     pub is_selected: bool,
+    pub is_highlighted: bool,
     pub is_rename_active: bool,
     pub children: Vec<TreeNode>,
 }

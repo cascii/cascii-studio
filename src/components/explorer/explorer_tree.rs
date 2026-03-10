@@ -350,6 +350,7 @@ fn items_to_nodes(
                         .as_ref()
                         .map(|s| s.0 == node_id)
                         .unwrap_or(false),
+                    is_highlighted: false,
                     is_rename_active: rename_id
                         .as_ref()
                         .map(|rid| rid.0 == node_id)
@@ -385,6 +386,7 @@ fn items_to_nodes(
                         .as_ref()
                         .map(|s| s.0 == node_id)
                         .unwrap_or(false),
+                    is_highlighted: false,
                     is_rename_active: rename_id
                         .as_ref()
                         .map(|rid| rid.0 == node_id)

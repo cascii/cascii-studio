@@ -312,6 +312,60 @@
     /* No special container styling — matches other sections */
 }
 
+.computing-section {
+    /* No special container styling — matches other sections */
+}
+
+.computing-section__content {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.computing-operation {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.computing-operation__label {
+    font-size: 11px;
+    color: #aaa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.computing-operation__bar {
+    height: 4px;
+    background: #3a3a3a;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.computing-operation__fill {
+    height: 100%;
+    background: linear-gradient(90deg, #5a7a9f 0%, #7ba3cc 100%);
+    transition: width 0.1s ease-out;
+}
+
+.computing-operation__fill--indeterminate {
+    width: 100%;
+    background: linear-gradient(90deg, #3a3a3a 0%, #7ba3cc 50%, #3a3a3a 100%);
+    background-size: 200% 100%;
+    animation: computing-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes computing-indeterminate {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
 .controls-section__content {
     padding: 6px 8px;
     display: flex;

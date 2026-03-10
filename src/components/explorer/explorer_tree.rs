@@ -1341,8 +1341,7 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
                             }
                         }
                         ResourceRef::VideoCut { cut_id } => {
-                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned()
-                            {
+                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
                                 on_rename_cut.emit((cut, custom_name));
                             }
                         }

@@ -67,6 +67,28 @@ async fn sleep_ms(ms: i32) {
 
 const BW_PLAYBACK_BACKGROUND_SLEEP_MS: i32 = 12;
 const COLOR_LOADING_PROGRESS_TICK_MS: u32 = 500;
+const COLOR_PROGRESS_EMIT_INTERVAL_MS: f64 = 500.0;
+const COLOR_PROGRESS_EMIT_FRAME_INTERVAL: usize = 10;
+
+fn set_loading_phase_state(
+    loading_phase: &UseStateHandle<LoadingPhase>,
+    on_loading_phase_changed: &Option<Callback<LoadingPhase>>,
+    phase: LoadingPhase,
+) {
+    loading_phase.set(phase.clone());
+    if let Some(callback) = on_loading_phase_changed {
+        callback.emit(phase);
+    }
+}
+
+fn emit_color_progress_state(
+    on_color_progress_changed: &Option<Callback<(usize, usize)>>,
+    progress: (usize, usize),
+) {
+    if let Some(callback) = on_color_progress_changed {
+        callback.emit(progress);
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConversionSettings {
@@ -102,6 +124,12 @@ pub struct AsciiFramesViewerProps {
     /// Callback to report loading state to parent
     #[prop_or_default]
     pub on_loading_changed: Option<Callback<bool>>,
+    /// Callback to report loading phase changes to parent
+    #[prop_or_default]
+    pub on_loading_phase_changed: Option<Callback<LoadingPhase>>,
+    /// Callback to report color loading progress to parent
+    #[prop_or_default]
+    pub on_color_progress_changed: Option<Callback<(usize, usize)>>,
     /// Current frame speed override
     #[prop_or(None)]
     pub frame_speed: Option<u32>,
@@ -181,6 +209,9 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Store interval handle for animation
     let interval_handle: Rc<RefCell<Option<Interval>>> = use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
+    let on_loading_phase_changed = props.on_loading_phase_changed.clone();
+    let on_color_progress_changed = props.on_color_progress_changed.clone();
+    let color_progress_last_emit_ms: Rc<RefCell<f64>> = use_mut_ref(|| 0.0f64);
 
     // Color display toggle
     let color_enabled = use_state(|| false);
@@ -286,6 +317,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let loading_phase = loading_phase.clone();
         let error_message = error_message.clone();
         let color_progress = color_progress.clone();
+        let color_progress_last_emit_ms = color_progress_last_emit_ms.clone();
         let current_index = current_index.clone();
         let interval_handle = interval_handle.clone();
         let is_playing = is_playing.clone();
@@ -303,15 +335,23 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let color_cache_worker_id = color_cache_worker_id.clone();
         let is_playing_ref = is_playing_ref.clone();
         let color_enabled_ref = color_enabled_ref.clone();
+        let on_loading_phase_changed = on_loading_phase_changed.clone();
+        let on_color_progress_changed = on_color_progress_changed.clone();
         use_effect_with(
             (directory_path.clone(), preloaded_bundle.clone()),
             move |_| {
                 // Reset state
                 frames_ref.borrow_mut().clear();
                 frame_count.set(0);
-                loading_phase.set(LoadingPhase::Idle);
+                set_loading_phase_state(
+                    &loading_phase,
+                    &on_loading_phase_changed,
+                    LoadingPhase::Idle,
+                );
                 error_message.set(None);
                 *color_progress.borrow_mut() = (0, 0);
+                emit_color_progress_state(&on_color_progress_changed, (0, 0));
+                *color_progress_last_emit_ms.borrow_mut() = 0.0;
                 frame_canvas_cache.borrow_mut().clear();
                 color_cache_queue.borrow_mut().clear();
                 color_loaded_flags.borrow_mut().clear();
@@ -346,14 +386,26 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     );
                     *has_any_color_flag.borrow_mut() = preloaded_bundle.has_any_color
                         || preloaded_bundle.frames.iter().any(Frame::has_color);
-                    loading_phase.set(LoadingPhase::Complete);
+                    emit_color_progress_state(&on_color_progress_changed, (total, total));
+                    set_loading_phase_state(
+                        &loading_phase,
+                        &on_loading_phase_changed,
+                        LoadingPhase::Complete,
+                    );
                     if let Some(callback) = &on_loading_changed {
                         callback.emit(false);
                     }
                 } else if !directory_path.is_empty() {
-                    loading_phase.set(LoadingPhase::LoadingText);
+                    set_loading_phase_state(
+                        &loading_phase,
+                        &on_loading_phase_changed,
+                        LoadingPhase::LoadingText,
+                    );
 
                     let on_loading_changed_async = on_loading_changed.clone();
+                    let on_loading_phase_changed_async = on_loading_phase_changed.clone();
+                    let on_color_progress_changed_async = on_color_progress_changed.clone();
+                    let color_progress_last_emit_ms_async = color_progress_last_emit_ms.clone();
                     wasm_bindgen_futures::spawn_local(async move {
                         let provider = TauriFrameProvider;
 
@@ -365,8 +417,18 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                 *color_loaded_flags.borrow_mut() = vec![false; total];
                                 frame_count.set(total);
                                 *color_progress.borrow_mut() = (0, total);
+                                emit_color_progress_state(
+                                    &on_color_progress_changed_async,
+                                    (0, total),
+                                );
                                 frame_canvas_cache.borrow_mut().resize(total);
-                                loading_phase.set(LoadingPhase::LoadingColors);
+                                *color_progress_last_emit_ms_async.borrow_mut() =
+                                    js_sys::Date::now();
+                                set_loading_phase_state(
+                                    &loading_phase,
+                                    &on_loading_phase_changed_async,
+                                    LoadingPhase::LoadingColors,
+                                );
 
                                 // Notify parent that loading is done (playback can start)
                                 if let Some(callback) = &on_loading_changed_async {
@@ -376,6 +438,10 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                 // Phase 2: Load color data in background (no re-renders)
                                 let frames_for_color = frames_ref.clone();
                                 let progress_for_color = color_progress.clone();
+                                let on_color_progress_changed_for_color =
+                                    on_color_progress_changed_async.clone();
+                                let color_progress_last_emit_ms_for_color =
+                                    color_progress_last_emit_ms_async.clone();
                                 let _ = load_color_frames(
                                     &provider,
                                     &frame_files,
@@ -406,7 +472,25 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                                 );
                                             }
                                         }
-                                        *progress_for_color.borrow_mut() = (i + 1, total);
+                                        let progress = (i + 1, total);
+                                        *progress_for_color.borrow_mut() = progress;
+
+                                        let now = js_sys::Date::now();
+                                        let should_emit = progress.0 >= progress.1
+                                            || progress.0 == 1
+                                            || progress.0 % COLOR_PROGRESS_EMIT_FRAME_INTERVAL == 0
+                                            || now
+                                                - *color_progress_last_emit_ms_for_color.borrow()
+                                                >= COLOR_PROGRESS_EMIT_INTERVAL_MS;
+
+                                        if should_emit {
+                                            *color_progress_last_emit_ms_for_color.borrow_mut() =
+                                                now;
+                                            emit_color_progress_state(
+                                                &on_color_progress_changed_for_color,
+                                                progress,
+                                            );
+                                        }
                                     },
                                     || {
                                         let is_playing_ref = is_playing_ref.clone();
@@ -425,11 +509,24 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                                     },
                                 )
                                 .await;
-                                loading_phase.set(LoadingPhase::Complete);
+                                emit_color_progress_state(
+                                    &on_color_progress_changed_async,
+                                    (total, total),
+                                );
+                                set_loading_phase_state(
+                                    &loading_phase,
+                                    &on_loading_phase_changed_async,
+                                    LoadingPhase::Complete,
+                                );
                             }
                             Err(e) => {
                                 error_message.set(Some(e));
-                                loading_phase.set(LoadingPhase::Idle);
+                                set_loading_phase_state(
+                                    &loading_phase,
+                                    &on_loading_phase_changed_async,
+                                    LoadingPhase::Idle,
+                                );
+                                emit_color_progress_state(&on_color_progress_changed_async, (0, 0));
                                 if let Some(callback) = &on_loading_changed_async {
                                     callback.emit(false);
                                 }

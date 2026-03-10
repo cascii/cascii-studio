@@ -17,9 +17,12 @@ use crate::components::explorer::{
     ResourceRef, ResourcesTree, TreeNodeId,
 };
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::{Controls, ToolsSection};
+use crate::components::settings::{
+    Computing, ComputingOperation, Controls, OperationKind, ToolsSection,
+};
 use crate::components::tab_bar::{OpenTab, TabBar};
 use crate::components::video_player::VideoPlayer;
+use cascii_core_view::LoadingPhase;
 
 // Wasm bindings to Tauri API
 #[wasm_bindgen(inline_js = r#"
@@ -170,11 +173,11 @@ struct AddSourceFilesArgs {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-struct FileProgress {
-    file_name: String,
-    status: String,
-    message: String,
-    percentage: Option<f32>,
+pub struct FileProgress {
+    pub file_name: String,
+    pub status: String,
+    pub message: String,
+    pub percentage: Option<f32>,
 }
 
 // Active conversions: source_id -> percentage (u8)
@@ -321,10 +324,7 @@ fn without_extension(name: &str) -> String {
 }
 
 fn source_tab_label(source: &SourceContent) -> String {
-    source
-        .custom_name
-        .clone()
-        .unwrap_or_else(|| file_name_from_path(&source.file_path))
+    source_display_name(source)
 }
 
 fn cut_tab_label(cut: &VideoCut) -> String {
@@ -334,14 +334,43 @@ fn cut_tab_label(cut: &VideoCut) -> String {
 }
 
 fn frame_dir_tab_label(frame_dir: &FrameDirectory) -> String {
-    frame_dir.name.clone()
+    frame_dir_display_name(frame_dir)
 }
 
 fn preview_tab_label(preview: &Preview) -> String {
+    preview_display_name(preview)
+}
+
+fn source_display_name(source: &SourceContent) -> String {
+    source
+        .custom_name
+        .clone()
+        .unwrap_or_else(|| file_name_from_path(&source.file_path))
+}
+
+fn frame_dir_display_name(frame_dir: &FrameDirectory) -> String {
+    frame_dir
+        .custom_name
+        .clone()
+        .unwrap_or_else(|| frame_dir.name.clone())
+}
+
+fn preview_display_name(preview: &Preview) -> String {
     preview
         .custom_name
         .clone()
         .unwrap_or_else(|| preview.folder_name.clone())
+}
+
+fn progress_operation_kind(progress: &FileProgress) -> OperationKind {
+    let message = progress.message.to_ascii_lowercase();
+    if message.contains("preprocess") {
+        OperationKind::Preprocessing
+    } else if message.contains("cut") {
+        OperationKind::CuttingVideo
+    } else {
+        OperationKind::ImportingFile
+    }
 }
 
 fn tab_id_for_resource(resource: &ResourceRef) -> String {
@@ -439,6 +468,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let url_cache = use_state(|| HashMap::<String, String>::new()); // URL cache to avoid recomputing asset URLs
     let is_adding_files = use_state(|| false);
     let file_progress_map = use_state(|| HashMap::<String, FileProgress>::new());
+    let cut_progress_map = use_state(|| HashMap::<String, FileProgress>::new());
 
     // ASCII conversion settings
     let luminance = use_state(|| 1u8);
@@ -457,6 +487,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let frames_sync_seek_percentage = use_state(|| None::<f64>);
     let playback_sync_limiter = use_mut_ref(PlaybackSyncLimiter::default);
     let frames_loading = use_state(|| false);
+    let frame_loading_phase = use_state(|| LoadingPhase::Idle);
+    let frame_color_progress = use_state(|| (0usize, 0usize));
     let frame_speed = use_state(|| None::<u32>);
     let current_conversion_id = use_state(|| None::<String>);
     let selected_speed =
@@ -494,6 +526,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         });
     }
 
+    let computing_collapsed = use_state(|| false);
     let controls_collapsed = use_state(|| false);
 
     // Explorer sidebar state
@@ -554,6 +587,19 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     drop(callback);
                 }
             }
+        });
+    }
+
+    {
+        let frame_loading_phase = frame_loading_phase.clone();
+        let frame_color_progress = frame_color_progress.clone();
+        let has_frames_viewer = selected_preview.is_some() || selected_frame_dir.is_some();
+        use_effect_with(has_frames_viewer, move |has_frames_viewer| {
+            if !*has_frames_viewer {
+                frame_loading_phase.set(LoadingPhase::Idle);
+                frame_color_progress.set((0, 0));
+            }
+            || ()
         });
     }
 
@@ -733,10 +779,116 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     }
 
     // Storage for listener cleanup (prevents memory leaks)
+    let file_progress_listener_handle = use_mut_ref(|| None::<JsValue>);
+    let file_progress_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
     let progress_listener_handle = use_mut_ref(|| None::<JsValue>);
     let progress_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
     let complete_listener_handle = use_mut_ref(|| None::<JsValue>);
     let complete_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
+    let cut_progress_listener_handle = use_mut_ref(|| None::<JsValue>);
+    let cut_progress_listener_closure = use_mut_ref(|| None::<Closure<dyn Fn(JsValue)>>);
+
+    // Global listener for file import progress events
+    {
+        let file_progress_map = file_progress_map.clone();
+        let file_progress_listener_handle = file_progress_listener_handle.clone();
+        let file_progress_listener_closure = file_progress_listener_closure.clone();
+
+        use_effect_with((), move |_| {
+            let file_progress_map = file_progress_map.clone();
+            let file_progress_listener_handle = file_progress_listener_handle.clone();
+            let file_progress_listener_closure_storage = file_progress_listener_closure.clone();
+
+            let progress_callback = Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
+                        let mut next_map = (*file_progress_map).clone();
+                        if progress.status == "processing" {
+                            next_map.insert(progress.file_name.clone(), progress);
+                        } else {
+                            next_map.remove(&progress.file_name);
+                        }
+                        file_progress_map.set(next_map);
+                    }
+                }
+            });
+
+            let js_callback = progress_callback
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .clone();
+
+            *file_progress_listener_closure_storage.borrow_mut() = Some(progress_callback);
+
+            let handle_storage = file_progress_listener_handle.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let unlisten = tauri_listen("file-progress", &js_callback).await;
+                *handle_storage.borrow_mut() = Some(unlisten);
+            });
+
+            let file_progress_listener_handle = file_progress_listener_handle.clone();
+            let file_progress_listener_closure = file_progress_listener_closure.clone();
+            move || {
+                if let Some(unlisten) = file_progress_listener_handle.borrow_mut().take() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        tauri_unlisten(unlisten).await;
+                    });
+                }
+                file_progress_listener_closure.borrow_mut().take();
+            }
+        });
+    }
+
+    // Global listener for cut/preprocess progress events
+    {
+        let cut_progress_map = cut_progress_map.clone();
+        let cut_progress_listener_handle = cut_progress_listener_handle.clone();
+        let cut_progress_listener_closure = cut_progress_listener_closure.clone();
+
+        use_effect_with((), move |_| {
+            let cut_progress_map = cut_progress_map.clone();
+            let cut_progress_listener_handle = cut_progress_listener_handle.clone();
+            let cut_progress_listener_closure_storage = cut_progress_listener_closure.clone();
+
+            let progress_callback = Closure::<dyn Fn(JsValue)>::new(move |event: JsValue| {
+                if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                    if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
+                        let mut next_map = (*cut_progress_map).clone();
+                        if progress.status == "processing" {
+                            next_map.insert(progress.file_name.clone(), progress);
+                        } else {
+                            next_map.remove(&progress.file_name);
+                        }
+                        cut_progress_map.set(next_map);
+                    }
+                }
+            });
+
+            let js_callback = progress_callback
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .clone();
+
+            *cut_progress_listener_closure_storage.borrow_mut() = Some(progress_callback);
+
+            let handle_storage = cut_progress_listener_handle.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let unlisten = tauri_listen("cut-progress", &js_callback).await;
+                *handle_storage.borrow_mut() = Some(unlisten);
+            });
+
+            let cut_progress_listener_handle = cut_progress_listener_handle.clone();
+            let cut_progress_listener_closure = cut_progress_listener_closure.clone();
+            move || {
+                if let Some(unlisten) = cut_progress_listener_handle.borrow_mut().take() {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        tauri_unlisten(unlisten).await;
+                    });
+                }
+                cut_progress_listener_closure.borrow_mut().take();
+            }
+        });
+    }
 
     // Global listener for conversion progress events
     {
@@ -2024,28 +2176,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 }
                                 file_progress_map.set(initial_map);
                                 is_adding_files.set(true);
-                                let file_progress_map_clone = file_progress_map.clone();
-                                let callback: Closure<dyn Fn(JsValue)> =
-                                    Closure::new(move |event: JsValue| {
-                                        if let Ok(payload) =
-                                            js_sys::Reflect::get(&event, &"payload".into())
-                                        {
-                                            if let Ok(progress) =
-                                                serde_wasm_bindgen::from_value::<FileProgress>(
-                                                    payload,
-                                                )
-                                            {
-                                                let mut map = (*file_progress_map_clone).clone();
-                                                map.insert(progress.file_name.clone(), progress);
-                                                file_progress_map_clone.set(map);
-                                            }
-                                        }
-                                    });
-                                let unlisten_handle = tauri_listen(
-                                    "file-progress",
-                                    callback.as_ref().unchecked_ref(),
-                                )
-                                .await;
                                 if !project_id.is_empty() {
                                     let invoke_args = AddSourceFilesArgs {
                                         request: AddSourceFilesRequest {
@@ -2058,8 +2188,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     )
                                     .unwrap();
                                     let _ = tauri_invoke("add_source_files", add_files_args).await;
-                                    tauri_unlisten(unlisten_handle).await;
-                                    drop(callback);
                                     is_adding_files.set(false);
                                     let args = serde_wasm_bindgen::to_value(
                                         &json!({ "projectId": *project_id }),
@@ -2071,8 +2199,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         source_files.set(s);
                                     }
                                 } else {
-                                    tauri_unlisten(unlisten_handle).await;
-                                    drop(callback);
                                     is_adding_files.set(false);
                                 }
                             }
@@ -2306,63 +2432,96 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
-    // Compute conversions HTML before the main html! macro
     // Read conversions_update_trigger to create re-render dependency
-    let _trigger = *conversions_update_trigger;
-    let conversions_html = {
-        let conversions = active_conversions_ref.borrow();
-        if !conversions.is_empty() {
-            // Helper to look up source name by ID
-            let get_source_name = |source_id: &str| -> String {
-                source_files
-                    .iter()
-                    .find(|s| s.id == source_id)
-                    .map(|s| {
-                        s.custom_name.clone().unwrap_or_else(|| {
-                            std::path::Path::new(&s.file_path)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Unknown")
-                                .to_string()
-                        })
-                    })
-                    .unwrap_or_else(|| "Unknown".to_string())
-            };
+    let _conversion_trigger = *conversions_update_trigger;
+    let computing_operations = {
+        let mut operations = Vec::<ComputingOperation>::new();
 
-            html! {
-                <div class="conversions-container">
-                    {conversions.iter().map(|(source_id, percentage)| {
-                        let name = get_source_name(source_id);
-                        html! {
-                            <div class="conversion-progress" key={source_id.clone()}>
-                                <span class="conversion-progress-text">{format!("Converting {}: {}%", name, percentage)}</span>
-                                <div class="conversion-progress-bar"><div class="conversion-progress-fill" style={format!("width: {}%", percentage)} /></div>
-                            </div>
-                        }
-                    }).collect::<Html>()}
-                </div>
+        let mut conversion_operations = active_conversions_ref
+            .borrow()
+            .iter()
+            .map(|(source_id, percentage)| ComputingOperation {
+                id: format!("conversion:{source_id}"),
+                kind: OperationKind::GeneratingFrames,
+                label: source_files
+                    .iter()
+                    .find(|source| source.id == *source_id)
+                    .map(source_display_name)
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                progress: Some(*percentage as f32 / 100.0),
+            })
+            .collect::<Vec<_>>();
+        conversion_operations.sort_by(|left, right| left.label.cmp(&right.label));
+        operations.extend(conversion_operations);
+
+        let mut file_operations = file_progress_map
+            .values()
+            .filter(|progress| progress.status == "processing")
+            .map(|progress| ComputingOperation {
+                id: format!("file:{}", progress.file_name),
+                kind: OperationKind::ImportingFile,
+                label: progress.file_name.clone(),
+                progress: progress.percentage.map(|percentage| percentage / 100.0),
+            })
+            .collect::<Vec<_>>();
+        file_operations.sort_by(|left, right| left.label.cmp(&right.label));
+        operations.extend(file_operations);
+
+        let mut cut_operations = cut_progress_map
+            .values()
+            .filter(|progress| progress.status == "processing")
+            .map(|progress| ComputingOperation {
+                id: format!("cut:{}", progress.file_name),
+                kind: progress_operation_kind(progress),
+                label: progress.file_name.clone(),
+                progress: progress.percentage.map(|percentage| percentage / 100.0),
+            })
+            .collect::<Vec<_>>();
+        cut_operations.sort_by(|left, right| left.label.cmp(&right.label));
+        operations.extend(cut_operations);
+
+        let active_frame_label = selected_preview
+            .as_ref()
+            .map(preview_display_name)
+            .or_else(|| selected_frame_dir.as_ref().map(frame_dir_display_name));
+        match *frame_loading_phase {
+            LoadingPhase::LoadingText => {
+                if let Some(label) = active_frame_label {
+                    operations.push(ComputingOperation {
+                        id: format!("frames:text:{label}"),
+                        kind: OperationKind::LoadingTextFrames,
+                        label,
+                        progress: None,
+                    });
+                }
             }
-        } else {
-            html! {}
+            LoadingPhase::LoadingColors => {
+                if let Some(label) = active_frame_label {
+                    let (loaded, total) = *frame_color_progress;
+                    operations.push(ComputingOperation {
+                        id: format!("frames:color:{label}"),
+                        kind: OperationKind::LoadingColorFrames,
+                        label,
+                        progress: (total > 0).then_some(loaded as f32 / total as f32),
+                    });
+                }
+            }
+            _ => {}
         }
+
+        operations
     };
 
     let source_preview_label = selected_source.as_ref().map(|source| {
-        let source_name = source
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| file_name_from_path(&source.file_path));
+        let source_name = source_display_name(source);
         format!("SOURCE VIDEO: {}", without_extension(&source_name))
     });
 
     let frames_preview_label = if let Some(preview) = &*selected_preview {
-        let name = preview
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| preview.folder_name.clone());
+        let name = preview_display_name(preview);
         Some(format!("FRAMES: {}", name))
     } else if let Some(frame_dir) = &*selected_frame_dir {
-        Some(format!("FRAMES: {}", frame_dir.name))
+        Some(format!("FRAMES: {}", frame_dir_display_name(frame_dir)))
     } else {
         None
     };
@@ -2426,8 +2585,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_rename_cut={on_rename_cut_explorer.clone()}
                             on_rename_preview={on_rename_preview_explorer.clone()}
                         />
-                        // Conversion progress indicators
-                        {conversions_html}
 
                         // Conversion success notification
                         if let Some(folder_path) = &*conversion_success_folder {
@@ -2476,6 +2633,16 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     </div>
                     <div id="project-sidebar-bottom" class="explorer-sidebar__bottom">
+                        <Computing
+                            operations={computing_operations}
+                            collapsed={*computing_collapsed}
+                            on_toggle_collapsed={{
+                                let computing_collapsed = computing_collapsed.clone();
+                                Callback::from(move |_| {
+                                    computing_collapsed.set(!*computing_collapsed);
+                                })
+                            }}
+                        />
                         // Controls as a collapsible section (like Outline in VS Code)
                         <Controls
                             selected_source={(*selected_source).clone()}
@@ -2849,6 +3016,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         frames_loading.set(is_loading);
                                                     })
                                                 }}
+                                                on_loading_phase_changed={Some({
+                                                    let frame_loading_phase = frame_loading_phase.clone();
+                                                    Callback::from(move |phase: LoadingPhase| {
+                                                        frame_loading_phase.set(phase);
+                                                    })
+                                                })}
+                                                on_color_progress_changed={Some({
+                                                    let frame_color_progress = frame_color_progress.clone();
+                                                    Callback::from(move |progress: (usize, usize)| {
+                                                        frame_color_progress.set(progress);
+                                                    })
+                                                })}
                                                 frame_speed={None}
                                                 on_frame_speed_change={{
                                                     Callback::from(move |_speed: u32| {})
@@ -2894,6 +3073,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         frames_loading.set(is_loading);
                                                     })
                                                 }}
+                                                on_loading_phase_changed={Some({
+                                                    let frame_loading_phase = frame_loading_phase.clone();
+                                                    Callback::from(move |phase: LoadingPhase| {
+                                                        frame_loading_phase.set(phase);
+                                                    })
+                                                })}
+                                                on_color_progress_changed={Some({
+                                                    let frame_color_progress = frame_color_progress.clone();
+                                                    Callback::from(move |progress: (usize, usize)| {
+                                                        frame_color_progress.set(progress);
+                                                    })
+                                                })}
                                                 frame_speed={*frame_speed}
                                                 on_frame_speed_change={{
                                                     let frame_speed = frame_speed.clone();

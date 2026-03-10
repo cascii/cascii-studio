@@ -1071,19 +1071,25 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 match next {
                     Some(new_playable) => {
                         if *active_playable != Some(new_playable.clone()) {
-                            web_sys::console::log_1(&format!(
-                                "[montage] active_playable CHANGED: idx={:?}",
-                                active_timeline_index
-                            ).into());
+                            web_sys::console::log_1(
+                                &format!(
+                                    "[montage] active_playable CHANGED: idx={:?}",
+                                    active_timeline_index
+                                )
+                                .into(),
+                            );
                             active_playable.set(Some(new_playable));
                         }
                     }
                     None if should_clear => {
                         if (*active_playable).is_some() {
-                            web_sys::console::log_1(&format!(
-                                "[montage] active_playable CLEARED: idx={:?} should_clear=true",
-                                active_timeline_index
-                            ).into());
+                            web_sys::console::log_1(
+                                &format!(
+                                    "[montage] active_playable CLEARED: idx={:?} should_clear=true",
+                                    active_timeline_index
+                                )
+                                .into(),
+                            );
                             active_playable.set(None);
                         }
                     }
@@ -1127,10 +1133,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         });
         let workspace_ready = workspace_ready.clone();
         use_effect_with(active_clip_key.clone(), move |key| {
-            web_sys::console::log_1(&format!(
-                "[montage] workspace_ready RESET to false (clip_key={:?})",
-                key
-            ).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[montage] workspace_ready RESET to false (clip_key={:?})",
+                    key
+                )
+                .into(),
+            );
             workspace_ready.set(false);
             || ()
         });
@@ -1168,10 +1177,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let current = (*active_timeline_index).unwrap_or(0);
             let next = current + 1;
             let total = timeline_items.len();
-            web_sys::console::log_1(&format!(
-                "[montage] on_item_ended: current={} next={} total={} loop={}",
-                current, next, total, *loop_enabled
-            ).into());
+            web_sys::console::log_1(
+                &format!(
+                    "[montage] on_item_ended: current={} next={} total={} loop={}",
+                    current, next, total, *loop_enabled
+                )
+                .into(),
+            );
             if next < total {
                 resolve_and_activate(next);
             } else if *loop_enabled && total > 0 {
@@ -2935,6 +2947,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             on_select_frame_dir={on_select_frame_dir.clone()}
                             on_select_cut={on_select_cut.clone()}
                             on_select_preview={on_select_preview.clone()}
+                            on_rename_source={on_rename_source.clone()}
+                            on_rename_frame={on_rename_frame.clone()}
+                            on_rename_cut={on_rename_cut.clone()}
+                            on_rename_preview={on_rename_preview.clone()}
                         />
                     </div>
                     <div id="montage-sidebar-bottom" class="explorer-sidebar__bottom">

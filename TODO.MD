@@ -28,3 +28,6 @@ bugs:
 in the sidebar, like controls & tools, add "current computation" with current loading/computing etc in progress)
 
 right click on "projects" in open, to duplicate
+
+- lasso icon on ascii frames: select object & insert it on other frames
+- new blank frame

@@ -168,6 +168,32 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                                     rename_project_id.set(Some(project.id.clone()));
                                 }
                             }
+                            "duplicate" => {
+                                let project_id = payload.project_id.clone();
+                                let error_message = error_message.clone();
+                                let refresh_trigger = refresh_trigger.clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let args = match serde_wasm_bindgen::to_value(&json!({
+                                        "projectId": project_id
+                                    })) {
+                                        Ok(args) => args,
+                                        Err(_) => {
+                                            error_message.set(Some("Failed to duplicate project.".to_string()));
+                                            return;
+                                        }
+                                    };
+
+                                    match open_projects_tauri_invoke("duplicate_project", args).await {
+                                        Ok(_) => {
+                                            error_message.set(None);
+                                            refresh_trigger.set(*refresh_trigger + 1);
+                                        }
+                                        Err(err) => {
+                                            error_message.set(Some(format!("Failed to duplicate project: {}", js_error_to_string(err))));
+                                        }
+                                    }
+                                });
+                            }
                             "open-folder" => {
                                 let project_id = payload.project_id.clone();
                                 let error_message = error_message.clone();

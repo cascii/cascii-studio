@@ -63,6 +63,10 @@ pub struct ExplorerTreeProps {
     pub on_rename_frame: Callback<(FrameDirectory, Option<String>)>,
     pub on_rename_cut: Callback<(VideoCut, Option<String>)>,
     pub on_rename_preview: Callback<(Preview, Option<String>)>,
+    #[prop_or_default]
+    pub project_id: Option<String>,
+    #[prop_or_default]
+    pub on_data_changed: Option<Callback<()>>,
 }
 
 #[derive(Clone)]
@@ -73,6 +77,8 @@ struct ExplorerMenuHandlers {
     frame_directories: Vec<FrameDirectory>,
     previews: Vec<Preview>,
     on_layout_change: Callback<ExplorerLayout>,
+    project_id: Option<String>,
+    on_data_changed: Option<Callback<()>>,
 }
 
 #[derive(Serialize)]
@@ -565,6 +571,45 @@ fn find_folder_name(items: &[ExplorerItem], target_id: &str) -> Option<String> {
     None
 }
 
+fn deep_clone_folder(item: &ExplorerItem) -> ExplorerItem {
+    match item {
+        ExplorerItem::Folder { name, children, is_expanded, .. } => ExplorerItem::Folder {
+            id: format!("{}", js_sys::Math::random().to_bits()),
+            name: name.clone(),
+            children: children.iter().map(deep_clone_folder).collect(),
+            is_expanded: *is_expanded,
+        },
+        ExplorerItem::ResourceRef(r) => ExplorerItem::ResourceRef(r.clone()),
+    }
+}
+
+fn duplicate_item(items: &mut Vec<ExplorerItem>, target_id: &str) -> bool {
+    let pos = items.iter().position(|item| match item {
+        ExplorerItem::Folder { id, .. } => format!("exp:folder:{}", id) == target_id,
+        ExplorerItem::ResourceRef(r) => {
+            let rid = resource_node_id_from_ref(r);
+            let lid = legacy_explorer_resource_node_id_from_ref(r);
+            rid == target_id || lid == target_id
+        }
+    });
+    if let Some(idx) = pos {
+        let mut clone = deep_clone_folder(&items[idx]);
+        if let ExplorerItem::Folder { name, .. } = &mut clone {
+            *name = format!("{} copy", name);
+        }
+        items.insert(idx + 1, clone);
+        return true;
+    }
+    for item in items.iter_mut() {
+        if let ExplorerItem::Folder { children, .. } = item {
+            if duplicate_item(children, target_id) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Toggle the expanded state of a folder by id.
 fn toggle_folder(items: &mut Vec<ExplorerItem>, folder_id: &str) -> bool {
     for item in items.iter_mut() {
@@ -600,6 +645,8 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
         frame_directories: props.frame_directories.clone(),
         previews: props.previews.clone(),
         on_layout_change: props.on_layout_change.clone(),
+        project_id: props.project_id.clone(),
+        on_data_changed: props.on_data_changed.clone(),
     });
     let last_hover_log_target = use_mut_ref(|| None::<String>);
 
@@ -612,6 +659,8 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
             frame_directories: props.frame_directories.clone(),
             previews: props.previews.clone(),
             on_layout_change: props.on_layout_change.clone(),
+            project_id: props.project_id.clone(),
+            on_data_changed: props.on_data_changed.clone(),
         };
     }
 
@@ -1169,6 +1218,29 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
                                 };
                                 rename_value.set(current_name);
                                 rename_target_id.set(Some(TreeNodeId(payload.node_id.clone())));
+                            }
+                            "duplicate" => {
+                                if is_explorer_folder_node(&payload.node_id) {
+                                    let mut new_layout = handlers.explorer_layout.clone();
+                                    if duplicate_item(&mut new_layout.root_items, &payload.node_id) {
+                                        handlers.on_layout_change.emit(new_layout);
+                                    }
+                                } else if let Some(project_id) = handlers.project_id.clone() {
+                                    let node_id = payload.node_id.clone();
+                                    let on_data_changed = handlers.on_data_changed.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        if let Ok(args) = serde_wasm_bindgen::to_value(&serde_json::json!({
+                                            "nodeId": node_id,
+                                            "projectId": project_id
+                                        })) {
+                                            if explorer_tauri_invoke("duplicate_resource", args).await.is_ok() {
+                                                if let Some(cb) = on_data_changed {
+                                                    cb.emit(());
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
                             }
                             "delete" => {
                                 if !is_explorer_folder_node(&payload.node_id) {

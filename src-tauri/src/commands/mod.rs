@@ -44,6 +44,8 @@ pub fn run() {
             conversion::get_frame_files,
             conversion::read_frame_file,
             conversion::read_cframe_file,
+            project::duplicate_project,
+            project::duplicate_resource,
             project::delete_project,
             conversion::delete_frame_directory,
             conversion::update_frame_custom_name,

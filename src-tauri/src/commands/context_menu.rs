@@ -81,18 +81,22 @@ struct OpenProjectsContextMenuActionPayload {
 }
 
 const RESOURCES_MENU_ITEM_RENAME: &str = "resources-context-menu:rename";
+const RESOURCES_MENU_ITEM_DUPLICATE: &str = "resources-context-menu:duplicate";
 const RESOURCES_MENU_ITEM_OPEN: &str = "resources-context-menu:open";
 const RESOURCES_MENU_ITEM_DELETE: &str = "resources-context-menu:delete";
 const EXPLORER_MENU_ITEM_RENAME: &str = "explorer-context-menu:rename";
+const EXPLORER_MENU_ITEM_DUPLICATE: &str = "explorer-context-menu:duplicate";
 const EXPLORER_MENU_ITEM_DELETE: &str = "explorer-context-menu:delete";
 const EXPLORER_MENU_ITEM_REMOVE: &str = "explorer-context-menu:remove";
 const OPEN_PROJECTS_MENU_ITEM_RENAME: &str = "open-projects-context-menu:rename";
+const OPEN_PROJECTS_MENU_ITEM_DUPLICATE: &str = "open-projects-context-menu:duplicate";
 const OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER: &str = "open-projects-context-menu:open-folder";
 const OPEN_PROJECTS_MENU_ITEM_DELETE: &str = "open-projects-context-menu:delete";
 
 fn resources_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         RESOURCES_MENU_ITEM_RENAME => Some("rename"),
+        RESOURCES_MENU_ITEM_DUPLICATE => Some("duplicate"),
         RESOURCES_MENU_ITEM_OPEN => Some("open"),
         RESOURCES_MENU_ITEM_DELETE => Some("delete"),
         _ => None,
@@ -102,6 +106,7 @@ fn resources_menu_action(menu_id: &str) -> Option<&'static str> {
 fn explorer_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         EXPLORER_MENU_ITEM_RENAME => Some("rename"),
+        EXPLORER_MENU_ITEM_DUPLICATE => Some("duplicate"),
         EXPLORER_MENU_ITEM_DELETE => Some("delete"),
         EXPLORER_MENU_ITEM_REMOVE => Some("remove"),
         _ => None,
@@ -111,6 +116,7 @@ fn explorer_menu_action(menu_id: &str) -> Option<&'static str> {
 fn open_projects_menu_action(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         OPEN_PROJECTS_MENU_ITEM_RENAME => Some("rename"),
+        OPEN_PROJECTS_MENU_ITEM_DUPLICATE => Some("duplicate"),
         OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER => Some("open-folder"),
         OPEN_PROJECTS_MENU_ITEM_DELETE => Some("delete"),
         _ => None,
@@ -135,6 +141,7 @@ pub fn show_resources_context_menu(
 
     let menu_builder = MenuBuilder::new(&window)
         .text(RESOURCES_MENU_ITEM_RENAME, "Rename")
+        .text(RESOURCES_MENU_ITEM_DUPLICATE, "Duplicate")
         .separator()
         .text(RESOURCES_MENU_ITEM_OPEN, "Open Folder")
         .separator()
@@ -179,6 +186,7 @@ pub fn show_explorer_context_menu(
     let menu = if is_folder {
         MenuBuilder::new(&window)
             .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
+            .text(EXPLORER_MENU_ITEM_DUPLICATE, "Duplicate")
             .separator()
             .text(EXPLORER_MENU_ITEM_DELETE, "Delete Folder")
             .build()
@@ -186,6 +194,7 @@ pub fn show_explorer_context_menu(
     } else {
         MenuBuilder::new(&window)
             .text(EXPLORER_MENU_ITEM_RENAME, "Rename")
+            .text(EXPLORER_MENU_ITEM_DUPLICATE, "Duplicate")
             .separator()
             .text(EXPLORER_MENU_ITEM_REMOVE, "Remove from Project")
             .build()
@@ -216,6 +225,7 @@ pub fn show_open_projects_context_menu(
 
     let menu = MenuBuilder::new(&window)
         .text(OPEN_PROJECTS_MENU_ITEM_RENAME, "Rename")
+        .text(OPEN_PROJECTS_MENU_ITEM_DUPLICATE, "Duplicate")
         .separator()
         .text(OPEN_PROJECTS_MENU_ITEM_OPEN_FOLDER, "Open Folder")
         .separator()

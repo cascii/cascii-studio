@@ -2355,6 +2355,39 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         format!("SOURCE VIDEO: {}", without_extension(&source_name))
     });
 
+    let on_data_changed = {
+        let source_files = source_files.clone();
+        let frame_directories = frame_directories.clone();
+        let video_cuts = video_cuts.clone();
+        let previews = previews.clone();
+        let project_id = project_id.clone();
+        Callback::from(move |_: ()| {
+            let source_files = source_files.clone();
+            let frame_directories = frame_directories.clone();
+            let video_cuts = video_cuts.clone();
+            let previews = previews.clone();
+            let project_id = (*project_id).clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
+                    source_files.set(sources);
+                }
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
+                    frame_directories.set(frames);
+                }
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
+                    video_cuts.set(cuts);
+                }
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                    previews.set(previews_list);
+                }
+            });
+        })
+    };
+
     let frames_preview_label = if let Some(preview) = &*selected_preview {
         let name = preview
             .custom_name
@@ -2379,6 +2412,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 <div id="project-explorer-sidebar" class="explorer-sidebar">
                     <div id="project-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree
+                            project_id={(*project_id).clone()}
                             source_files={(*source_files).clone()}
                             video_cuts={(*video_cuts).clone()}
                             frame_directories={(*frame_directories).clone()}
@@ -2403,6 +2437,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_open_cut={on_open_cut_explorer.clone()}
                             on_open_preview={on_open_preview_explorer.clone()}
                             on_add_files={Some(on_add_files_explorer.clone())}
+                            on_data_changed={Some(on_data_changed.clone())}
                         />
                         <ExplorerTree
                             explorer_layout={(*explorer_layout).clone()}
@@ -2425,6 +2460,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             on_rename_frame={on_rename_frame_explorer.clone()}
                             on_rename_cut={on_rename_cut_explorer.clone()}
                             on_rename_preview={on_rename_preview_explorer.clone()}
+                            project_id={Some((*project_id).clone())}
+                            on_data_changed={Some(on_data_changed.clone())}
                         />
                         // Conversion progress indicators
                         {conversions_html}

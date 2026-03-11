@@ -43,6 +43,7 @@ extern "C" {
 
 #[derive(Properties, PartialEq)]
 pub struct ResourcesTreeProps {
+    pub project_id: String,
     pub source_files: Vec<SourceContent>,
     pub video_cuts: Vec<VideoCut>,
     pub frame_directories: Vec<FrameDirectory>,
@@ -68,10 +69,13 @@ pub struct ResourcesTreeProps {
     pub on_open_preview: Callback<Preview>,
     #[prop_or_default]
     pub on_add_files: Option<Callback<()>>,
+    #[prop_or_default]
+    pub on_data_changed: Option<Callback<()>>,
 }
 
 #[derive(Clone)]
 struct ResourcesMenuHandlers {
+    project_id: String,
     source_files: Vec<SourceContent>,
     video_cuts: Vec<VideoCut>,
     frame_directories: Vec<FrameDirectory>,
@@ -84,6 +88,7 @@ struct ResourcesMenuHandlers {
     on_open_frame: Callback<FrameDirectory>,
     on_open_cut: Callback<VideoCut>,
     on_open_preview: Callback<Preview>,
+    on_data_changed: Option<Callback<()>>,
 }
 
 #[derive(Serialize)]
@@ -362,6 +367,7 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
     );
 
     let menu_handlers_ref = use_mut_ref(|| ResourcesMenuHandlers {
+        project_id: props.project_id.clone(),
         source_files: props.source_files.clone(),
         video_cuts: props.video_cuts.clone(),
         frame_directories: props.frame_directories.clone(),
@@ -374,10 +380,12 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
         on_open_frame: props.on_open_frame.clone(),
         on_open_cut: props.on_open_cut.clone(),
         on_open_preview: props.on_open_preview.clone(),
+        on_data_changed: props.on_data_changed.clone(),
     });
     {
         let mut handlers = menu_handlers_ref.borrow_mut();
         *handlers = ResourcesMenuHandlers {
+            project_id: props.project_id.clone(),
             source_files: props.source_files.clone(),
             video_cuts: props.video_cuts.clone(),
             frame_directories: props.frame_directories.clone(),
@@ -390,6 +398,7 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
             on_open_frame: props.on_open_frame.clone(),
             on_open_cut: props.on_open_cut.clone(),
             on_open_preview: props.on_open_preview.clone(),
+            on_data_changed: props.on_data_changed.clone(),
         };
     }
 
@@ -419,6 +428,25 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                     {
                         let handlers = menu_handlers_ref.borrow().clone();
                         let action = payload.action.as_str();
+
+                        if action == "duplicate" {
+                            let node_id = payload.node_id.clone();
+                            let project_id = handlers.project_id.clone();
+                            let on_data_changed = handlers.on_data_changed.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                if let Ok(args) = serde_wasm_bindgen::to_value(&serde_json::json!({
+                                    "nodeId": node_id,
+                                    "projectId": project_id
+                                })) {
+                                    if resources_tauri_invoke("duplicate_resource", args).await.is_ok() {
+                                        if let Some(cb) = on_data_changed {
+                                            cb.emit(());
+                                        }
+                                    }
+                                }
+                            });
+                            return;
+                        }
 
                         if let Some(source_id) = payload.node_id.strip_prefix("res:source:") {
                             if let Some(file) = handlers

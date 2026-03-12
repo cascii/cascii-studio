@@ -22,6 +22,22 @@ pub(crate) struct CutVideoArgs {
     request: CutVideoRequest,
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct CropVideoRequest {
+    source_file_path: String,
+    project_id: String,
+    source_file_id: String,
+    top: u32,
+    bottom: u32,
+    left: u32,
+    right: u32,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct CropVideoArgs {
+    request: CropVideoRequest,
+}
+
 #[tauri::command]
 pub async fn cut_video(
     args: CutVideoArgs,
@@ -140,6 +156,163 @@ fn cut_video_blocking(
     );
 
     println!("✅ Cut saved: {} ({} bytes)", cut.file_path, file_size);
+
+    Ok(cut)
+}
+
+#[tauri::command]
+pub async fn crop_video(
+    args: CropVideoArgs,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
+    tokio::task::spawn_blocking(move || crop_video_blocking(args.request, app))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn crop_video_blocking(
+    request: CropVideoRequest,
+    app: tauri::AppHandle,
+) -> Result<database::VideoCut, String> {
+    use std::process::{Command, Stdio};
+
+    let settings = settings::load();
+    let project = database::get_project(&request.project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+
+    let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
+    let cuts_dir = project_dir.join("cuts");
+    fs::create_dir_all(&cuts_dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
+
+    let input_path = PathBuf::from(&request.source_file_path);
+    if !input_path.exists() {
+        return Err(format!(
+            "Source video not found: {}",
+            request.source_file_path
+        ));
+    }
+
+    let file_stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input filename")?;
+
+    let cut_id = Uuid::new_v4().to_string();
+    let output_filename = format!("cropped - {}_{}.mp4", file_stem, &cut_id[..8]);
+    let output_path = cuts_dir.join(&output_filename);
+    let crop_filter = format!(
+        "crop=iw-{}-{}:ih-{}-{}:{}:{}",
+        request.left, request.right, request.top, request.bottom, request.left, request.top
+    );
+
+    let _ = app.emit(
+        "cut-progress",
+        FileProgress {
+            file_name: output_filename.clone(),
+            status: "processing".to_string(),
+            message: "Cropping video...".to_string(),
+            percentage: Some(0.0),
+        },
+    );
+
+    println!(
+        "✂️ Cropping video: {} -> {}",
+        request.source_file_path,
+        output_path.display()
+    );
+    println!(
+        "   Crop values (px): top={}, bottom={}, left={}, right={}",
+        request.top, request.bottom, request.left, request.right
+    );
+
+    let ffmpeg_config = get_ffmpeg_config(&app, &settings.ffmpeg_source);
+    let ffmpeg_cmd = ffmpeg_config
+        .ffmpeg_path
+        .as_ref()
+        .and_then(|p| p.to_str())
+        .unwrap_or("ffmpeg");
+
+    let status = Command::new(ffmpeg_cmd)
+        .arg("-i")
+        .arg(&request.source_file_path)
+        .arg("-vf")
+        .arg(&crop_filter)
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg("-y")
+        .arg(&output_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .status()
+        .map_err(|e| {
+            format!(
+                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
+                e
+            )
+        })?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&output_path);
+        return Err(format!("ffmpeg crop failed with status: {}", status));
+    }
+
+    let file_size = fs::metadata(&output_path)
+        .map_err(|e| format!("Failed to get file size: {}", e))?
+        .len() as i64;
+
+    let ffprobe_cmd = ffmpeg_config
+        .ffprobe_path
+        .as_ref()
+        .and_then(|p| p.to_str())
+        .unwrap_or("ffprobe");
+    let duration_output = Command::new(ffprobe_cmd)
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("csv=p=0")
+        .arg(&output_path)
+        .output();
+    let duration = duration_output
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|stdout| stdout.trim().parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    let cut = database::VideoCut {
+        id: cut_id,
+        project_id: request.project_id,
+        source_file_id: request.source_file_id,
+        file_path: output_path.to_str().unwrap_or("").to_string(),
+        date_added: Utc::now(),
+        size: file_size,
+        custom_name: Some(format!("cropped - {}", file_stem)),
+        start_time: 0.0,
+        end_time: duration,
+        duration,
+    };
+
+    database::add_video_cut(&cut).map_err(|e| format!("Failed to save cut to database: {}", e))?;
+
+    let _ = app.emit(
+        "cut-progress",
+        FileProgress {
+            file_name: output_filename,
+            status: "completed".to_string(),
+            message: "Crop completed".to_string(),
+            percentage: Some(100.0),
+        },
+    );
+
+    println!(
+        "✅ Cropped video saved: {} ({} bytes)",
+        cut.file_path, file_size
+    );
 
     Ok(cut)
 }

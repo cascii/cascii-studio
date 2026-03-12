@@ -2906,20 +2906,32 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let previews = previews.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                    tauri_invoke("get_project_sources", args).await,
+                ) {
                     source_files.set(sources);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
+                    tauri_invoke("get_project_frames", args).await,
+                ) {
                     frame_directories.set(frames);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
+                    tauri_invoke("get_project_cuts", args).await,
+                ) {
                     video_cuts.set(cuts);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
                     previews.set(previews_list);
                 }
             });

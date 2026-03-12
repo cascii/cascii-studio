@@ -31,3 +31,4 @@ right click on "projects" in open, to duplicate
 
 - lasso icon on ascii frames: select object & insert it on other frames
 - new blank frame
+- fonts

@@ -55,6 +55,7 @@ pub fn run() {
             source::rename_source_file,
             source::delete_source_file,
             cuts::cut_video,
+            cuts::crop_video,
             cuts::get_project_cuts,
             cuts::delete_cut,
             cuts::rename_cut,

@@ -239,12 +239,16 @@ pub async fn duplicate_project(project_id: String) -> Result<database::Project, 
 }
 
 fn duplicate_project_blocking(project_id: &str) -> Result<database::Project, String> {
-    let old_project = database::get_project(project_id).map_err(|e| format!("Failed to get project: {}", e))?;
+    let old_project =
+        database::get_project(project_id).map_err(|e| format!("Failed to get project: {}", e))?;
     let settings = settings::load();
     let output_dir = PathBuf::from(&settings.output_directory);
     let old_dir = output_dir.join(&old_project.project_path);
     if !old_dir.exists() {
-        return Err(format!("Project directory does not exist: {}", old_dir.display()));
+        return Err(format!(
+            "Project directory does not exist: {}",
+            old_dir.display()
+        ));
     }
 
     let new_name = format!("{} copy", old_project.project_name);
@@ -260,7 +264,14 @@ fn duplicate_project_blocking(project_id: &str) -> Result<database::Project, Str
     let old_dir_str = old_dir.to_string_lossy().to_string();
     let new_dir_str = new_dir.to_string_lossy().to_string();
 
-    database::duplicate_project_records(project_id, &new_name, &new_project_path, &old_dir_str, &new_dir_str).map_err(|e| {
+    database::duplicate_project_records(
+        project_id,
+        &new_name,
+        &new_project_path,
+        &old_dir_str,
+        &new_dir_str,
+    )
+    .map_err(|e| {
         let _ = fs::remove_dir_all(&new_dir);
         format!("Failed to duplicate project records: {}", e)
     })
@@ -297,50 +308,83 @@ fn copy_name(name: &str) -> String {
 fn copy_file_path(path: &std::path::Path) -> PathBuf {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let new_name = if ext.is_empty() { format!("{} copy", stem) } else { format!("{} copy.{}", stem, ext) };
+    let new_name = if ext.is_empty() {
+        format!("{} copy", stem)
+    } else {
+        format!("{} copy.{}", stem, ext)
+    };
     path.with_file_name(new_name)
 }
 
 fn copy_dir_name(path: &std::path::Path) -> PathBuf {
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("folder");
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("folder");
     path.with_file_name(format!("{}_copy", name))
 }
 
 fn duplicate_resource_blocking(node_id: &str, project_id: &str) -> Result<String, String> {
-    if let Some(source_id) = node_id.strip_prefix("res:source:").or_else(|| node_id.strip_prefix("exp:source:")) {
+    if let Some(source_id) = node_id
+        .strip_prefix("res:source:")
+        .or_else(|| node_id.strip_prefix("exp:source:"))
+    {
         let sources = database::get_project_sources(project_id).map_err(|e| e.to_string())?;
-        let source = sources.iter().find(|s| s.id == source_id).ok_or("Source not found")?;
+        let source = sources
+            .iter()
+            .find(|s| s.id == source_id)
+            .ok_or("Source not found")?;
         let src_path = PathBuf::from(&source.file_path);
         let dst_path = copy_file_path(&src_path);
         fs::copy(&src_path, &dst_path).map_err(|e| format!("Failed to copy file: {}", e))?;
         let new_id = Uuid::new_v4().to_string();
-        let display = source.custom_name.as_deref().unwrap_or_else(|| src_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file"));
+        let display = source.custom_name.as_deref().unwrap_or_else(|| {
+            src_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+        });
         let new_source = database::SourceContent {
             id: new_id.clone(),
             content_type: source.content_type.clone(),
             project_id: project_id.to_string(),
             date_added: Utc::now(),
-            size: fs::metadata(&dst_path).map(|m| m.len() as i64).unwrap_or(source.size),
+            size: fs::metadata(&dst_path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(source.size),
             file_path: dst_path.to_string_lossy().to_string(),
             custom_name: Some(copy_name(display)),
         };
         database::add_source_content(&new_source).map_err(|e| e.to_string())?;
         Ok(format!("res:source:{}", new_id))
-    } else if let Some(cut_id) = node_id.strip_prefix("res:cut:").or_else(|| node_id.strip_prefix("exp:cut:")) {
+    } else if let Some(cut_id) = node_id
+        .strip_prefix("res:cut:")
+        .or_else(|| node_id.strip_prefix("exp:cut:"))
+    {
         let cuts = database::get_project_cuts(project_id).map_err(|e| e.to_string())?;
-        let cut = cuts.iter().find(|c| c.id == cut_id).ok_or("Cut not found")?;
+        let cut = cuts
+            .iter()
+            .find(|c| c.id == cut_id)
+            .ok_or("Cut not found")?;
         let src_path = PathBuf::from(&cut.file_path);
         let dst_path = copy_file_path(&src_path);
         fs::copy(&src_path, &dst_path).map_err(|e| format!("Failed to copy file: {}", e))?;
         let new_id = Uuid::new_v4().to_string();
-        let display = cut.custom_name.as_deref().unwrap_or_else(|| src_path.file_stem().and_then(|s| s.to_str()).unwrap_or("cut"));
+        let display = cut.custom_name.as_deref().unwrap_or_else(|| {
+            src_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("cut")
+        });
         let new_cut = database::VideoCut {
             id: new_id.clone(),
             project_id: project_id.to_string(),
             source_file_id: cut.source_file_id.clone(),
             file_path: dst_path.to_string_lossy().to_string(),
             date_added: Utc::now(),
-            size: fs::metadata(&dst_path).map(|m| m.len() as i64).unwrap_or(cut.size),
+            size: fs::metadata(&dst_path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(cut.size),
             custom_name: Some(copy_name(display)),
             start_time: cut.start_time,
             end_time: cut.end_time,
@@ -348,15 +392,25 @@ fn duplicate_resource_blocking(node_id: &str, project_id: &str) -> Result<String
         };
         database::add_video_cut(&new_cut).map_err(|e| e.to_string())?;
         Ok(format!("res:cut:{}", new_id))
-    } else if let Some(dir_path) = node_id.strip_prefix("res:framedir:").or_else(|| node_id.strip_prefix("exp:framedir:")) {
-        let conv = database::get_conversion_by_folder_path(dir_path).map_err(|e| e.to_string())?.ok_or("Frame directory not found")?;
+    } else if let Some(dir_path) = node_id
+        .strip_prefix("res:framedir:")
+        .or_else(|| node_id.strip_prefix("exp:framedir:"))
+    {
+        let conv = database::get_conversion_by_folder_path(dir_path)
+            .map_err(|e| e.to_string())?
+            .ok_or("Frame directory not found")?;
         let src_dir = PathBuf::from(&conv.folder_path);
         let dst_dir = copy_dir_name(&src_dir);
-        copy_dir_recursive(&src_dir, &dst_dir).map_err(|e| format!("Failed to copy directory: {}", e))?;
+        copy_dir_recursive(&src_dir, &dst_dir)
+            .map_err(|e| format!("Failed to copy directory: {}", e))?;
         let new_id = Uuid::new_v4().to_string();
         let display = conv.custom_name.as_deref().unwrap_or(&conv.folder_name);
         let dst_dir_str = dst_dir.to_string_lossy().to_string();
-        let new_folder_name = dst_dir.file_name().and_then(|n| n.to_str()).unwrap_or("frames_copy").to_string();
+        let new_folder_name = dst_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("frames_copy")
+            .to_string();
         let total_size = calculate_file_size(&dst_dir_str).unwrap_or(conv.total_size);
         let new_conv = database::AsciiConversion {
             id: new_id.clone(),
@@ -372,15 +426,28 @@ fn duplicate_resource_blocking(node_id: &str, project_id: &str) -> Result<String
         };
         database::add_ascii_conversion(&new_conv).map_err(|e| e.to_string())?;
         Ok(format!("res:framedir:{}", new_conv.folder_path))
-    } else if let Some(preview_id) = node_id.strip_prefix("res:preview:").or_else(|| node_id.strip_prefix("exp:preview:")) {
-        let preview = database::get_preview(preview_id).map_err(|e| e.to_string())?.ok_or("Preview not found")?;
+    } else if let Some(preview_id) = node_id
+        .strip_prefix("res:preview:")
+        .or_else(|| node_id.strip_prefix("exp:preview:"))
+    {
+        let preview = database::get_preview(preview_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Preview not found")?;
         let src_dir = PathBuf::from(&preview.folder_path);
         let dst_dir = copy_dir_name(&src_dir);
-        copy_dir_recursive(&src_dir, &dst_dir).map_err(|e| format!("Failed to copy directory: {}", e))?;
+        copy_dir_recursive(&src_dir, &dst_dir)
+            .map_err(|e| format!("Failed to copy directory: {}", e))?;
         let new_id = Uuid::new_v4().to_string();
-        let display = preview.custom_name.as_deref().unwrap_or(&preview.folder_name);
+        let display = preview
+            .custom_name
+            .as_deref()
+            .unwrap_or(&preview.folder_name);
         let dst_dir_str = dst_dir.to_string_lossy().to_string();
-        let new_folder_name = dst_dir.file_name().and_then(|n| n.to_str()).unwrap_or("preview_copy").to_string();
+        let new_folder_name = dst_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("preview_copy")
+            .to_string();
         let total_size = calculate_file_size(&dst_dir_str).unwrap_or(preview.total_size);
         let new_preview = database::Preview {
             id: new_id.clone(),

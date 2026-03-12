@@ -178,18 +178,25 @@ pub fn open_page(props: &OpenPageProps) -> Html {
                                     })) {
                                         Ok(args) => args,
                                         Err(_) => {
-                                            error_message.set(Some("Failed to duplicate project.".to_string()));
+                                            error_message.set(Some(
+                                                "Failed to duplicate project.".to_string(),
+                                            ));
                                             return;
                                         }
                                     };
 
-                                    match open_projects_tauri_invoke("duplicate_project", args).await {
+                                    match open_projects_tauri_invoke("duplicate_project", args)
+                                        .await
+                                    {
                                         Ok(_) => {
                                             error_message.set(None);
                                             refresh_trigger.set(*refresh_trigger + 1);
                                         }
                                         Err(err) => {
-                                            error_message.set(Some(format!("Failed to duplicate project: {}", js_error_to_string(err))));
+                                            error_message.set(Some(format!(
+                                                "Failed to duplicate project: {}",
+                                                js_error_to_string(err)
+                                            )));
                                         }
                                     }
                                 });

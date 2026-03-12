@@ -507,6 +507,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     let video_cuts = use_state(move || cached_video_cuts.clone());
     let selected_cut = use_state(|| None::<VideoCut>);
     let is_cutting = use_state(|| false);
+    let is_cropping_video = use_state(|| false);
     let is_preprocessing = use_state(|| false);
 
     // Previews state
@@ -948,6 +949,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let url_cache = url_cache.clone();
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
+        let selected_node_id = selected_node_id.clone();
 
         Callback::from(move |source: SourceContent| {
             let resource = ResourceRef::SourceFile {
@@ -962,6 +964,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     label: source_tab_label(&source),
                 },
             );
+            selected_node_id.set(Some(TreeNodeId(format!("res:source:{}", source.id))));
 
             let file_path = source.file_path.clone();
 
@@ -1626,6 +1629,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let current_conversion_id = current_conversion_id.clone();
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
+        let selected_node_id = selected_node_id.clone();
         Callback::from(move |frame_dir: FrameDirectory| {
             let resource = ResourceRef::FrameDirectory {
                 directory_path: frame_dir.directory_path.clone(),
@@ -1639,6 +1643,10 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     label: frame_dir_tab_label(&frame_dir),
                 },
             );
+            selected_node_id.set(Some(TreeNodeId(format!(
+                "res:framedir:{}",
+                frame_dir.directory_path
+            ))));
 
             let directory_path = frame_dir.directory_path.clone();
             selected_frame_dir.set(Some(frame_dir));
@@ -1686,6 +1694,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let selected_frame_dir = selected_frame_dir.clone();
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
+        let selected_node_id = selected_node_id.clone();
         Callback::from(move |preview: Preview| {
             let resource = ResourceRef::Preview {
                 preview_id: preview.id.clone(),
@@ -1699,6 +1708,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     label: preview_tab_label(&preview),
                 },
             );
+            selected_node_id.set(Some(TreeNodeId(format!("res:preview:{}", preview.id))));
 
             selected_preview.set(Some(preview));
             selected_frame_dir.set(None);
@@ -1715,6 +1725,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let error_message = error_message.clone();
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
+        let selected_node_id = selected_node_id.clone();
         Callback::from(move |cut: VideoCut| {
             let resource = ResourceRef::VideoCut {
                 cut_id: cut.id.clone(),
@@ -1728,6 +1739,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     label: cut_tab_label(&cut),
                 },
             );
+            selected_node_id.set(Some(TreeNodeId(format!("res:cut:{}", cut.id))));
 
             selected_cut.set(Some(cut.clone()));
             let file_path = cut.file_path.clone();
@@ -1780,6 +1792,69 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                     }
                 }
             });
+        })
+    };
+
+    // Callback to crop video
+    let on_crop_video = {
+        let project_id = project_id.clone();
+        let selected_source = selected_source.clone();
+        let video_cuts = video_cuts.clone();
+        let is_cropping_video = is_cropping_video.clone();
+        let error_message = error_message.clone();
+        let on_select_cut_explorer = on_select_cut_explorer.clone();
+
+        Callback::from(move |(top, bottom, left, right): (u32, u32, u32, u32)| {
+            if let Some(source) = &*selected_source {
+                let project_id = (*project_id).clone();
+                let source_file_id = source.id.clone();
+                let source_file_path = source.file_path.clone();
+                let video_cuts = video_cuts.clone();
+                let is_cropping_video = is_cropping_video.clone();
+                let error_message = error_message.clone();
+                let on_select_cut_explorer = on_select_cut_explorer.clone();
+
+                is_cropping_video.set(true);
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let args = serde_wasm_bindgen::to_value(&json!({
+                        "args": {
+                            "request": {
+                                "source_file_path": source_file_path,
+                                "project_id": project_id,
+                                "source_file_id": source_file_id,
+                                "top": top,
+                                "bottom": bottom,
+                                "left": left,
+                                "right": right
+                            }
+                        }
+                    }))
+                    .unwrap();
+
+                    match tauri_invoke("crop_video", args).await {
+                        result => {
+                            is_cropping_video.set(false);
+                            if let Ok(new_cut) =
+                                serde_wasm_bindgen::from_value::<VideoCut>(result.clone())
+                            {
+                                let args = serde_wasm_bindgen::to_value(
+                                    &json!({ "projectId": project_id }),
+                                )
+                                .unwrap();
+                                if let Ok(cuts) = serde_wasm_bindgen::from_value(
+                                    tauri_invoke("get_project_cuts", args).await,
+                                ) {
+                                    video_cuts.set(cuts);
+                                }
+                                on_select_cut_explorer.emit(new_cut);
+                            } else {
+                                error_message.set(Some("Failed to crop video".to_string()));
+                            }
+                        }
+                    }
+                });
+            }
         })
     };
 
@@ -2200,6 +2275,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let selected_frame_dir = selected_frame_dir.clone();
         let selected_preview = selected_preview.clone();
         let asset_url = asset_url.clone();
+        let selected_node_id = selected_node_id.clone();
 
         let source_files = source_files.clone();
         let frame_directories = frame_directories.clone();
@@ -2277,6 +2353,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 selected_frame_dir.set(None);
                 selected_preview.set(None);
                 asset_url.set(None);
+                selected_node_id.set(None);
             }
         })
     };
@@ -2368,20 +2445,32 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let previews = previews.clone();
             let project_id = (*project_id).clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                    tauri_invoke("get_project_sources", args).await,
+                ) {
                     source_files.set(sources);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
+                    tauri_invoke("get_project_frames", args).await,
+                ) {
                     frame_directories.set(frames);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
+                    tauri_invoke("get_project_cuts", args).await,
+                ) {
                     video_cuts.set(cuts);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
                     previews.set(previews_list);
                 }
             });
@@ -2842,6 +2931,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                                                 on_cut_video={Some(on_cut_video.clone())}
                                                 is_cutting={Some(*is_cutting)}
+                                                on_crop_video={Some(on_crop_video.clone())}
+                                                is_cropping={Some(*is_cropping_video)}
 
                                                 on_preprocess_video={Some(on_preprocess_video.clone())}
                                                 is_preprocessing={Some(*is_preprocessing)}

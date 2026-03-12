@@ -181,6 +181,11 @@ pub struct VideoPlayerProps {
     pub on_cut_video: Option<Callback<(f64, f64)>>,
     #[prop_or_default]
     pub is_cutting: Option<bool>,
+    /// Callback to crop video: emits (top, bottom, left, right) in pixels
+    #[prop_or_default]
+    pub on_crop_video: Option<Callback<(u32, u32, u32, u32)>>,
+    #[prop_or_default]
+    pub is_cropping: Option<bool>,
 
     // ---- Video preprocessing controls ----
     /// Callback to preprocess video: emits (preset, custom_filter)
@@ -224,11 +229,19 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     // Advanced settings visibility toggle (shows preprocessing controls)
     let show_advanced_settings = use_state(|| false);
+    let show_crop_settings = use_state(|| false);
 
     // Preprocessing UI state (applied during video frame generation)
     let preprocess_enabled = use_state(|| false);
     let preprocess_preset = use_state(|| "contours".to_string());
     let preprocess_custom = use_state(String::new);
+
+    // Video crop UI state (pixel-based)
+    let crop_top = use_state(|| 0u32);
+    let crop_bottom = use_state(|| 0u32);
+    let crop_left = use_state(|| 0u32);
+    let crop_right = use_state(|| 0u32);
+    let crop_side = use_state(|| "top".to_string());
 
     // Preview creation state
     let is_creating_preview = use_state(|| false);
@@ -523,6 +536,103 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     let current_time_str = format_time(*current_time);
     let duration_str = format_time(*duration);
     let timestamp = format!("{} / {}", current_time_str, duration_str);
+    let has_crop = *crop_top > 0 || *crop_bottom > 0 || *crop_left > 0 || *crop_right > 0;
+
+    let crop_preview_overlay = if *show_crop_settings && has_crop {
+        if let Some(video) = video_ref.cast::<HtmlVideoElement>() {
+            let intrinsic_width = video.video_width() as f64;
+            let intrinsic_height = video.video_height() as f64;
+            let bounds = video.get_bounding_client_rect();
+            let container_width = bounds.width();
+            let container_height = bounds.height();
+
+            if intrinsic_width > 0.0
+                && intrinsic_height > 0.0
+                && container_width > 0.0
+                && container_height > 0.0
+            {
+                let video_aspect = intrinsic_width / intrinsic_height;
+                let container_aspect = container_width / container_height;
+                let (content_width, content_height, offset_x, offset_y) =
+                    if container_aspect > video_aspect {
+                        let content_height = container_height;
+                        let content_width = content_height * video_aspect;
+                        let offset_x = (container_width - content_width) / 2.0;
+                        (content_width, content_height, offset_x, 0.0)
+                    } else {
+                        let content_width = container_width;
+                        let content_height = content_width / video_aspect;
+                        let offset_y = (container_height - content_height) / 2.0;
+                        (content_width, content_height, 0.0, offset_y)
+                    };
+
+                let clamped_top = (*crop_top).min(video.video_height()) as f64;
+                let clamped_bottom = (*crop_bottom).min(video.video_height()) as f64;
+                let clamped_left = (*crop_left).min(video.video_width()) as f64;
+                let clamped_right = (*crop_right).min(video.video_width()) as f64;
+
+                let top_pct = (clamped_top / intrinsic_height * 100.0).clamp(0.0, 100.0);
+                let bottom_pct = (clamped_bottom / intrinsic_height * 100.0).clamp(0.0, 100.0);
+                let left_pct = (clamped_left / intrinsic_width * 100.0).clamp(0.0, 100.0);
+                let right_pct = (clamped_right / intrinsic_width * 100.0).clamp(0.0, 100.0);
+
+                let remaining_width_pct = (100.0 - left_pct - right_pct).max(0.0);
+                let remaining_height_pct = (100.0 - top_pct - bottom_pct).max(0.0);
+
+                html! {
+                    <div
+                        class="video-crop-halo-layer"
+                        style={format!(
+                            "left: {:.3}px; top: {:.3}px; width: {:.3}px; height: {:.3}px;",
+                            offset_x, offset_y, content_width, content_height
+                        )}
+                    >
+                        <div class="video-crop-halo-inner">
+                            if top_pct > 0.0 {
+                                <div class="video-crop-halo video-crop-halo-top" style={format!("height: {:.4}%;", top_pct)}></div>
+                            }
+                            if bottom_pct > 0.0 {
+                                <div class="video-crop-halo video-crop-halo-bottom" style={format!("height: {:.4}%;", bottom_pct)}></div>
+                            }
+                            if left_pct > 0.0 {
+                                <div
+                                    class="video-crop-halo video-crop-halo-left"
+                                    style={format!(
+                                        "width: {:.4}%; top: {:.4}%; bottom: {:.4}%;",
+                                        left_pct, top_pct, bottom_pct
+                                    )}
+                                ></div>
+                            }
+                            if right_pct > 0.0 {
+                                <div
+                                    class="video-crop-halo video-crop-halo-right"
+                                    style={format!(
+                                        "width: {:.4}%; top: {:.4}%; bottom: {:.4}%;",
+                                        right_pct, top_pct, bottom_pct
+                                    )}
+                                ></div>
+                            }
+                            if remaining_width_pct > 0.0 && remaining_height_pct > 0.0 {
+                                <div
+                                    class="video-crop-focus-ring"
+                                    style={format!(
+                                        "left: {:.4}%; top: {:.4}%; width: {:.4}%; height: {:.4}%;",
+                                        left_pct, top_pct, remaining_width_pct, remaining_height_pct
+                                    )}
+                                ></div>
+                            }
+                        </div>
+                    </div>
+                }
+            } else {
+                html! {}
+            }
+        } else {
+            html! {}
+        }
+    } else {
+        html! {}
+    };
 
     // External play/pause control (trim-aware)
     {
@@ -738,6 +848,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
     let is_converting = props.is_converting.unwrap_or(false);
     let is_cutting = props.is_cutting.unwrap_or(false);
+    let is_cropping = props.is_cropping.unwrap_or(false);
 
     let on_cut_click = {
         let left_value = left_value.clone();
@@ -753,6 +864,78 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                     let end_time = (*right_value) * dur;
                     on_cut.emit((start_time, end_time));
                 }
+            }
+        })
+    };
+
+    let on_crop_click = {
+        let video_ref = video_ref.clone();
+        let crop_top = crop_top.clone();
+        let crop_bottom = crop_bottom.clone();
+        let crop_left = crop_left.clone();
+        let crop_right = crop_right.clone();
+        let on_crop_video = props.on_crop_video.clone();
+        let on_error_message_change = props.on_error_message_change.clone();
+
+        Callback::from(move |_| {
+            let top = *crop_top;
+            let bottom = *crop_bottom;
+            let left = *crop_left;
+            let right = *crop_right;
+
+            if top == 0 && bottom == 0 && left == 0 && right == 0 {
+                return;
+            }
+
+            let Some(video) = video_ref.cast::<HtmlVideoElement>() else {
+                if let Some(cb) = &on_error_message_change {
+                    cb.emit(Some(
+                        "Crop settings could not be applied because the video is not ready."
+                            .to_string(),
+                    ));
+                }
+                return;
+            };
+
+            let video_width = video.video_width();
+            let video_height = video.video_height();
+
+            if video_width == 0 || video_height == 0 {
+                if let Some(cb) = &on_error_message_change {
+                    cb.emit(Some(
+                        "Crop settings could not be applied because the video dimensions are not available yet."
+                            .to_string(),
+                    ));
+                }
+                return;
+            }
+
+            if top + bottom >= video_height {
+                if let Some(cb) = &on_error_message_change {
+                    cb.emit(Some(format!(
+                        "Top + bottom crop must be less than the video height ({} px).",
+                        video_height
+                    )));
+                }
+                return;
+            }
+
+            if left + right >= video_width {
+                if let Some(cb) = &on_error_message_change {
+                    cb.emit(Some(format!(
+                        "Left + right crop must be less than the video width ({} px).",
+                        video_width
+                    )));
+                }
+                return;
+            }
+
+            if let Some(cb) = &on_error_message_change {
+                cb.emit(None);
+            }
+
+            if let Some(on_crop) = &on_crop_video {
+                on_crop.emit((top, bottom, left, right));
             }
         })
     };
@@ -1079,6 +1262,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
         <div id="video-player" class={classes!("video-player", props.class.clone())}>
             <div id="video-wrap" class="video-wrap">
                 <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="auto" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onloadeddata={on_loaded_data} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
+                {crop_preview_overlay}
                 if let Some(msg) = &*error_text {
                     <div id="video-error-overlay" class="error-overlay">{msg}</div>
                 }
@@ -1127,9 +1311,77 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         }} title={if *show_advanced_settings { "Hide advanced settings" } else { "Show advanced settings" }}>
                             <Icon icon_id={IconId::LucideSettings} width={"20"} height={"20"} />
                         </button>
+                        <button id="frames-crop-settings-btn" class={classes!("ctrl-btn", "advanced-settings-btn", (*show_crop_settings).then_some("active"))} type="button" onclick={{
+                            let show_crop_settings = show_crop_settings.clone();
+                            Callback::from(move |_| show_crop_settings.set(!*show_crop_settings))
+                        }} title={if *show_crop_settings { "Hide crop settings" } else { "Show crop settings" }}>
+                            <Icon icon_id={IconId::LucideCrop} width={"20"} height={"20"} />
+                        </button>
                     </div>
                     <span id="video-timestamp-overlay" class="timestamp-text">{timestamp}</span>
                 </div>
+
+                if *show_crop_settings {
+                    <div class="control-row expanded" id="video-crop-settings">
+                        <select id="video-crop-side-select" class="setting-input crop-preset-select" onchange={{
+                            let crop_side = crop_side.clone();
+                            Callback::from(move |e: Event| {
+                                let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                crop_side.set(select.value());
+                            })
+                        }} value={(*crop_side).clone()}>
+                            <option value="top" selected={*crop_side == "top"}>{"Top"}</option>
+                            <option value="bottom" selected={*crop_side == "bottom"}>{"Bottom"}</option>
+                            <option value="left" selected={*crop_side == "left"}>{"Left"}</option>
+                            <option value="right" selected={*crop_side == "right"}>{"Right"}</option>
+                        </select>
+                        <input
+                            id="video-crop-value-input"
+                            type="number"
+                            class="setting-input"
+                            style="width: 68px;"
+                            min="0"
+                            value={match (*crop_side).as_str() {
+                                "top" => (*crop_top).to_string(),
+                                "bottom" => (*crop_bottom).to_string(),
+                                "left" => (*crop_left).to_string(),
+                                "right" => (*crop_right).to_string(),
+                                _ => "0".to_string(),
+                            }}
+                            oninput={{
+                                let crop_side = crop_side.clone();
+                                let crop_top = crop_top.clone();
+                                let crop_bottom = crop_bottom.clone();
+                                let crop_left = crop_left.clone();
+                                let crop_right = crop_right.clone();
+                                Callback::from(move |e: InputEvent| {
+                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                    let value = input.value().parse::<u32>().unwrap_or(0);
+                                    match (*crop_side).as_str() {
+                                        "top" => crop_top.set(value),
+                                        "bottom" => crop_bottom.set(value),
+                                        "left" => crop_left.set(value),
+                                        "right" => crop_right.set(value),
+                                        _ => {}
+                                    }
+                                })
+                            }}
+                            title="Number of pixels to crop"
+                        />
+                        <span class="crop-label">{"px"}</span>
+                        <div style="flex: 1;"></div>
+                        <button
+                            id="crop-video-button"
+                            class="ctrl-btn"
+                            type="button"
+                            disabled={is_cropping || props.on_crop_video.is_none() || (*crop_top == 0 && *crop_bottom == 0 && *crop_left == 0 && *crop_right == 0)}
+                            title="Apply crop to video"
+                            onclick={on_crop_click.clone()}
+                        >
+                            <Icon icon_id={IconId::LucideCrop} width={"20"} height={"20"} />
+                        </button>
+                    </div>
+                }
 
                 if *show_advanced_settings {
                     <div class={classes!("control-row", (*preprocess_enabled).then_some("expanded"))} id="video-preprocess-settings">

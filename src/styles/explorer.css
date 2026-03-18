@@ -306,6 +306,21 @@
     stroke: currentColor;
 }
 
+/* Export section — MP4 and project export buttons */
+
+.export-section__content {
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.export-section__content .ctrl-btn svg {
+    fill: none;
+    stroke: currentColor;
+}
+
 /* Controls section — integrated into explorer sidebar */
 
 .controls-section {

@@ -420,6 +420,19 @@ pub(crate) fn init_schema(conn: &Connection) -> SqlResult<()> {
         [],
     )?;
 
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('clips') WHERE name='clip_speed_mode'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !column_exists {
+        conn.execute("ALTER TABLE clips ADD COLUMN clip_speed_mode TEXT", [])?;
+    }
+
     migrate_explorer_layout_to_project_content(conn)?;
 
     Ok(())

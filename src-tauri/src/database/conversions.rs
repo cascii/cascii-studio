@@ -83,6 +83,44 @@ pub fn get_project_conversions(project_id: &str) -> SqlResult<Vec<AsciiConversio
     Ok(conversions)
 }
 
+pub fn get_conversion(conversion_id: &str) -> SqlResult<Option<AsciiConversion>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_name, folder_path, frame_count, source_file_id, project_id, luminance, font_ratio, columns, fps, frame_speed, creation_date, total_size, custom_name, color, output_mode, foreground_color, background_color
+         FROM ascii_conversions
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([conversion_id])?;
+    if let Some(row) = rows.next()? {
+        let date_str: String = row.get(11)?;
+        Ok(Some(AsciiConversion {
+            id: row.get(0)?,
+            folder_name: row.get(1)?,
+            folder_path: row.get(2)?,
+            frame_count: row.get(3)?,
+            source_file_id: row.get(4)?,
+            project_id: row.get(5)?,
+            settings: ConversionSettings {
+                luminance: row.get(6)?,
+                font_ratio: row.get(7)?,
+                columns: row.get(8)?,
+                fps: row.get(9)?,
+                frame_speed: row.get(10)?,
+                color: row.get::<_, i32>(14).unwrap_or(0) != 0,
+                output_mode: row.get::<_, Option<String>>(15)?.unwrap_or_else(default_output_mode),
+                foreground_color: row.get(16)?,
+                background_color: row.get(17)?,
+            },
+            creation_date: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            total_size: row.get(12)?,
+            custom_name: row.get(13)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn update_conversion_frame_speed(conversion_id: &str, frame_speed: u32) -> SqlResult<()> {
     println!(
         "📝 DB: Updating frame_speed for conversion {} to {}",

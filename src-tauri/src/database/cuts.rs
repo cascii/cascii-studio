@@ -57,6 +57,34 @@ pub fn get_project_cuts(project_id: &str) -> SqlResult<Vec<VideoCut>> {
     Ok(cuts)
 }
 
+pub fn get_cut(cut_id: &str) -> SqlResult<Option<VideoCut>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, source_file_id, file_path, date_added, size, custom_name, start_time, end_time, duration
+         FROM cuts
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([cut_id])?;
+    if let Some(row) = rows.next()? {
+        let date_str: String = row.get(4)?;
+        Ok(Some(VideoCut {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            source_file_id: row.get(2)?,
+            file_path: row.get(3)?,
+            date_added: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            size: row.get(5)?,
+            custom_name: row.get(6)?,
+            start_time: row.get(7)?,
+            end_time: row.get(8)?,
+            duration: row.get(9)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn delete_cut(cut_id: &str) -> SqlResult<()> {
     println!("🗑️ DB: Deleting cut: {}", cut_id);
     let conn = init_database()?;

@@ -29,10 +29,25 @@ export async function tauriInvoke(cmd, args) {
   if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args); // v1
   throw new Error('Tauri invoke is not available on this page');
 }
+
+export async function tauriListen(event, handler) {
+  const g = globalThis.__TAURI__;
+  if (g?.event?.listen) return g.event.listen(event, handler);
+  throw new Error('Tauri listen is not available');
+}
+
+export async function tauriUnlisten(unlistenFn) {
+  if (unlistenFn) await unlistenFn();
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+
+    #[wasm_bindgen(js_name = tauriListen)]
+    async fn tauri_listen(event: &str, handler: &js_sys::Function) -> JsValue;
+    #[wasm_bindgen(js_name = tauriUnlisten)]
+    async fn tauri_unlisten(unlisten_fn: JsValue);
 }
 
 #[wasm_bindgen(inline_js = r#"
@@ -139,24 +154,6 @@ extern "C" {
     fn disconnect_observer(observer: &JsValue);
 }
 
-// Wasm bindings to Tauri event API (for file conversion progress)
-#[wasm_bindgen(inline_js = r#"
-export async function tauriListen(event, handler) {
-  const g = globalThis.__TAURI__;
-  if (g?.event?.listen) return g.event.listen(event, handler);
-  throw new Error('Tauri listen is not available');
-}
-
-export async function tauriUnlisten(unlistenFn) {
-  if (unlistenFn) await unlistenFn();
-}
-"#)]
-extern "C" {
-    #[wasm_bindgen(js_name = tauriListen)]
-    async fn tauri_listen(event: &str, handler: &js_sys::Function) -> JsValue;
-    #[wasm_bindgen(js_name = tauriUnlisten)]
-    async fn tauri_unlisten(unlisten_fn: JsValue);
-}
 
 #[derive(Serialize, Deserialize)]
 struct AddSourceFilesRequest {

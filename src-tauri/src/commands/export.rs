@@ -48,8 +48,8 @@ fn resolve_clip_media(clip: &database::TimelineClip) -> Result<(String, bool, u3
     }
 }
 
-fn render_frames_to_intermediate_mp4(frames_dir: &str, fps: u32, output_path: &PathBuf, ffmpeg_config: &cascii::FfmpegConfig) -> Result<(), String> {
-    println!("  🎞️  rendering frames from {} at {}fps → {}", frames_dir, fps, output_path.display());
+fn render_frames_to_intermediate_mp4(frames_dir: &str, fps: u32, output_path: &PathBuf, ffmpeg_config: &cascii::FfmpegConfig, use_colors: bool) -> Result<(), String> {
+    println!("  🎞️  rendering frames from {} at {}fps → {} (colors={})", frames_dir, fps, output_path.display(), use_colors);
 
     let converter = AsciiConverter::new().with_ffmpeg_config(ffmpeg_config.clone());
     let to_video_opts = ToVideoOptions {
@@ -57,6 +57,7 @@ fn render_frames_to_intermediate_mp4(frames_dir: &str, fps: u32, output_path: &P
         font_size: 14.0,
         crf: 18,
         mux_audio: false,
+        use_colors: Some(use_colors),
     };
 
     converter.render_frames_to_video(std::path::Path::new(frames_dir), fps, &to_video_opts, |progress| {
@@ -166,7 +167,8 @@ pub async fn export_timeline_mp4(project_id: String, output_path: String, app: t
 
             if is_frames {
                 let intermediate = tmp_dir.join(format!("segment_{:04}.mp4", i));
-                render_frames_to_intermediate_mp4(&media_path, fps, &intermediate, &ffmpeg_config)?;
+                let use_colors = matches!(clip.frame_render_mode, Some(database::FrameRenderMode::ColorFrames));
+                render_frames_to_intermediate_mp4(&media_path, fps, &intermediate, &ffmpeg_config, use_colors)?;
                 segment_paths.push(intermediate);
             } else {
                 // For video clips, re-encode to a consistent format so concat works

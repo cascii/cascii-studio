@@ -1,6 +1,6 @@
 use super::{
-    init_database, FrameRenderMode, ProjectTimeline, Timeline, TimelineClip, TimelineClipDraft,
-    TimelineMediaType, TimelineResourceKind,
+    init_database, ClipSpeedMode, FrameRenderMode, ProjectTimeline, Timeline, TimelineClip,
+    TimelineClipDraft, TimelineMediaType, TimelineResourceKind,
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result as SqlResult};
@@ -43,7 +43,7 @@ fn get_timeline_clips_with_conn(
     timeline_id: &str,
 ) -> SqlResult<Vec<TimelineClip>> {
     let mut stmt = conn.prepare(
-        "SELECT clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated
+        "SELECT clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated, clip_speed_mode
          FROM clips
          WHERE timeline_id = ?1
          ORDER BY order_index ASC, creation_date ASC",
@@ -56,6 +56,9 @@ fn get_timeline_clips_with_conn(
             let frame_render_mode = row
                 .get::<_, Option<String>>(7)?
                 .map(|value| FrameRenderMode::from_string(&value));
+            let clip_speed_mode = row
+                .get::<_, Option<String>>(11)?
+                .map(|value| ClipSpeedMode::from_string(&value));
 
             Ok(TimelineClip {
                 clip_id: row.get(0)?,
@@ -66,6 +69,7 @@ fn get_timeline_clips_with_conn(
                 resource_kind: TimelineResourceKind::from_string(&row.get::<_, String>(5)?),
                 actual_resource_id: row.get(6)?,
                 frame_render_mode,
+                clip_speed_mode,
                 length_seconds: row.get(8)?,
                 creation_date: parse_rfc3339_or_now(&creation_date),
                 last_updated: parse_rfc3339_or_now(&last_updated),
@@ -164,8 +168,8 @@ pub fn save_project_timeline(
             .unwrap_or_else(|| now.to_rfc3339());
 
         tx.execute(
-            "INSERT INTO clips (clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO clips (clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, clip_speed_mode, length_seconds, creation_date, last_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 clip.clip_id,
                 project_id,
@@ -175,6 +179,7 @@ pub fn save_project_timeline(
                 clip.resource_kind.to_string(),
                 clip.actual_resource_id,
                 clip.frame_render_mode.as_ref().map(FrameRenderMode::to_string),
+                clip.clip_speed_mode.as_ref().map(ClipSpeedMode::to_string),
                 clip.length_seconds,
                 clip_creation_date,
                 now.to_rfc3339(),

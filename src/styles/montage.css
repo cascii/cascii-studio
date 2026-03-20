@@ -484,6 +484,51 @@
     cursor: default;
 }
 
+.timeline-item-speed {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #d9d9d9;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 46px;
+    bottom: 10px;
+}
+
+.timeline-item:not(:has(.timeline-item-mode)) .timeline-item-speed {
+    left: 12px;
+}
+
+.timeline-item-speed:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.timeline-item-speed.active {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #fff;
+}
+
+.timeline-item-speed.active:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.timeline-item-speed svg {
+    width: 17px;
+    height: 17px;
+}
+
 .timeline-item-remove {
     background: none;
     border: none;

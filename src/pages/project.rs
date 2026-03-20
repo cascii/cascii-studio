@@ -17,7 +17,7 @@ use crate::components::explorer::{
     ResourceRef, ResourcesTree, TreeNodeId,
 };
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::{Controls, ToolsSection};
+use crate::components::settings::{Controls, ExportSection, ToolsSection};
 use crate::components::tab_bar::{OpenTab, TabBar};
 use crate::components::video_player::VideoPlayer;
 
@@ -29,10 +29,25 @@ export async function tauriInvoke(cmd, args) {
   if (g?.tauri?.invoke) return g.tauri.invoke(cmd, args); // v1
   throw new Error('Tauri invoke is not available on this page');
 }
+
+export async function tauriListen(event, handler) {
+  const g = globalThis.__TAURI__;
+  if (g?.event?.listen) return g.event.listen(event, handler);
+  throw new Error('Tauri listen is not available');
+}
+
+export async function tauriUnlisten(unlistenFn) {
+  if (unlistenFn) await unlistenFn();
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = tauriInvoke)]
     async fn tauri_invoke(cmd: &str, args: JsValue) -> JsValue;
+
+    #[wasm_bindgen(js_name = tauriListen)]
+    async fn tauri_listen(event: &str, handler: &js_sys::Function) -> JsValue;
+    #[wasm_bindgen(js_name = tauriUnlisten)]
+    async fn tauri_unlisten(unlisten_fn: JsValue);
 }
 
 #[wasm_bindgen(inline_js = r#"
@@ -139,24 +154,6 @@ extern "C" {
     fn disconnect_observer(observer: &JsValue);
 }
 
-// Wasm bindings to Tauri event API (for file conversion progress)
-#[wasm_bindgen(inline_js = r#"
-export async function tauriListen(event, handler) {
-  const g = globalThis.__TAURI__;
-  if (g?.event?.listen) return g.event.listen(event, handler);
-  throw new Error('Tauri listen is not available');
-}
-
-export async function tauriUnlisten(unlistenFn) {
-  if (unlistenFn) await unlistenFn();
-}
-"#)]
-extern "C" {
-    #[wasm_bindgen(js_name = tauriListen)]
-    async fn tauri_listen(event: &str, handler: &js_sys::Function) -> JsValue;
-    #[wasm_bindgen(js_name = tauriUnlisten)]
-    async fn tauri_unlisten(unlisten_fn: JsValue);
-}
 
 #[derive(Serialize, Deserialize)]
 struct AddSourceFilesRequest {
@@ -2141,6 +2138,38 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         })
     };
 
+    let on_export_mp4 = {
+        let project = project.clone();
+        let project_id = project_id.clone();
+        Callback::from(move |_: ()| {
+            let project = project.clone();
+            let project_id = (*project_id).clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let default_name = (*project).as_ref().map(|p| format!("{}.mp4", p.project_name)).unwrap_or_else(|| "export.mp4".to_string());
+                web_sys::console::log_1(&format!("[export-mp4] opening save dialog, default_name={default_name}").into());
+                let args = serde_wasm_bindgen::to_value(&json!({"defaultName": default_name})).unwrap();
+                let result = tauri_invoke("pick_save_file_mp4", args).await;
+                let picked: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+                web_sys::console::log_1(&format!("[export-mp4] picked={picked:?}").into());
+                let Some(output_path) = picked else { return };
+
+                web_sys::console::log_1(&format!("[export-mp4] starting export to: {output_path}").into());
+                let export_args = serde_wasm_bindgen::to_value(&json!({"projectId": project_id, "outputPath": output_path})).unwrap();
+                let result = tauri_invoke("export_timeline_mp4", export_args).await;
+                web_sys::console::log_1(&format!("[export-mp4] export result: {:?}", result).into());
+            });
+        })
+    };
+
+    let on_export_project = Callback::from(move |_: ()| {
+        wasm_bindgen_futures::spawn_local(async move {
+            web_sys::console::log_1(&"[export-project] opening folder picker".into());
+            let result = tauri_invoke("pick_export_directory", JsValue::NULL).await;
+            let path: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+            web_sys::console::log_1(&format!("[export-project] picked={path:?}").into());
+        });
+    });
+
     let on_select_tab = {
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
@@ -2513,7 +2542,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
                     </div>
                     <div id="project-sidebar-bottom" class="explorer-sidebar__bottom">
-                        // Controls as a collapsible section (like Outline in VS Code)
+                        <ExportSection on_export_mp4={on_export_mp4.clone()} on_export_project={on_export_project.clone()} />
                         <Controls
                             selected_source={(*selected_source).clone()}
                             selected_frame_dir={(*selected_frame_dir).clone()}

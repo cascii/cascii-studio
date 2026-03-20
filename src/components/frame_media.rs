@@ -92,6 +92,46 @@ impl FrameRenderMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipSpeedMode {
+    Default,
+    Sync,
+}
+
+impl ClipSpeedMode {
+    pub fn title(&self) -> &'static str {
+        match self {
+            ClipSpeedMode::Default => "Default speed",
+            ClipSpeedMode::Sync => "Synced to source video",
+        }
+    }
+}
+
+pub fn supported_speed_modes(metadata: &FrameAssetMetadata) -> Vec<ClipSpeedMode> {
+    if metadata.frame_speed > 0 && metadata.frame_speed != metadata.fps {
+        vec![ClipSpeedMode::Default, ClipSpeedMode::Sync]
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn next_clip_speed_mode(current: &ClipSpeedMode) -> ClipSpeedMode {
+    match current {
+        ClipSpeedMode::Default => ClipSpeedMode::Sync,
+        ClipSpeedMode::Sync => ClipSpeedMode::Default,
+    }
+}
+
+pub fn resolve_playback_fps(metadata: &FrameAssetMetadata, speed_mode: Option<&ClipSpeedMode>) -> u32 {
+    match speed_mode {
+        Some(ClipSpeedMode::Sync) => metadata.fps.max(1),
+        Some(ClipSpeedMode::Default) | None => {
+            if metadata.frame_speed > 0 {metadata.frame_speed} else {metadata.fps.max(1)}
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameAssetMetadata {
     pub directory_path: String,

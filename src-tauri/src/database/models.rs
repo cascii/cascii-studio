@@ -238,6 +238,29 @@ impl FrameRenderMode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipSpeedMode {
+    Default,
+    Sync,
+}
+
+impl ClipSpeedMode {
+    pub(crate) fn to_string(&self) -> &str {
+        match self {
+            ClipSpeedMode::Default => "default",
+            ClipSpeedMode::Sync => "sync",
+        }
+    }
+
+    pub(crate) fn from_string(s: &str) -> Self {
+        match s {
+            "sync" => ClipSpeedMode::Sync,
+            _ => ClipSpeedMode::Default,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Timeline {
     pub timeline_id: String,
@@ -256,6 +279,7 @@ pub struct TimelineClip {
     pub resource_kind: TimelineResourceKind,
     pub actual_resource_id: String,
     pub frame_render_mode: Option<FrameRenderMode>,
+    pub clip_speed_mode: Option<ClipSpeedMode>,
     pub length_seconds: f64,
     pub creation_date: DateTime<Utc>,
     pub last_updated: DateTime<Utc>,
@@ -268,6 +292,7 @@ pub struct TimelineClipDraft {
     pub resource_kind: TimelineResourceKind,
     pub actual_resource_id: String,
     pub frame_render_mode: Option<FrameRenderMode>,
+    pub clip_speed_mode: Option<ClipSpeedMode>,
     pub length_seconds: f64,
 }
 

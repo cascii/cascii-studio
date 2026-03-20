@@ -1,0 +1,19 @@
+version = "0.128.0"
+
+[settings]
+mode = "branch"
+prompt = "never"
+prompt_prefixes = [
+    "feature",
+    "release",
+]
+
+[sync]
+monorepo = "lockstep"
+constants = "curated"
+exclude = []
+
+[prefixes]
+feature = "minor"
+fix = "patch"
+release = "major"

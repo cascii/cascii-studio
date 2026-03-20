@@ -19,12 +19,13 @@ use crate::components::explorer::{
     ResourcesTree, TreeNodeId,
 };
 use crate::components::frame_media::{
-    default_frame_render_mode, next_frame_render_mode, preload_first_frame_bundle,
-    preload_frame_bundle, supported_frame_render_modes, FrameAssetMetadata, FrameRenderMode,
-    PreloadedFrameBundle,
+    default_frame_render_mode, next_clip_speed_mode, next_frame_render_mode,
+    preload_first_frame_bundle, preload_frame_bundle, resolve_playback_fps,
+    supported_frame_render_modes, supported_speed_modes, ClipSpeedMode, FrameAssetMetadata,
+    FrameRenderMode, PreloadedFrameBundle,
 };
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::{Controls, ToolsSection};
+use crate::components::settings::{Controls, ExportSection, ToolsSection};
 use crate::components::video_player::VideoPlayer;
 use cascii_core_view::FrameColors;
 
@@ -505,6 +506,7 @@ pub struct TimelineClipItem {
     pub resource_kind: TimelineResourceKind,
     pub actual_resource_id: String,
     pub frame_render_mode: Option<FrameRenderMode>,
+    pub clip_speed_mode: Option<ClipSpeedMode>,
     pub length_seconds: f64,
 }
 
@@ -526,6 +528,8 @@ pub struct PersistedTimelineClip {
     pub resource_kind: TimelineResourceKind,
     pub actual_resource_id: String,
     pub frame_render_mode: Option<FrameRenderMode>,
+    #[serde(default)]
+    pub clip_speed_mode: Option<ClipSpeedMode>,
     pub length_seconds: f64,
     pub creation_date: String,
     pub last_updated: String,
@@ -544,6 +548,7 @@ pub struct SaveTimelineClip {
     pub resource_kind: TimelineResourceKind,
     pub actual_resource_id: String,
     pub frame_render_mode: Option<FrameRenderMode>,
+    pub clip_speed_mode: Option<ClipSpeedMode>,
     pub length_seconds: f64,
 }
 
@@ -612,26 +617,19 @@ fn frame_asset_metadata_from_preview(preview: &Preview) -> FrameAssetMetadata {
     }
 }
 
-fn frame_length_seconds(metadata: &FrameAssetMetadata, media_type: &TimelineMediaType) -> f64 {
+fn frame_length_seconds(metadata: &FrameAssetMetadata, media_type: &TimelineMediaType, speed_mode: Option<&ClipSpeedMode>) -> f64 {
     if matches!(media_type, TimelineMediaType::Frame) {
         return 1.0;
     }
 
-    let playback_fps = if metadata.frame_speed > 0 {
-        metadata.frame_speed
-    } else if metadata.fps > 0 {
-        metadata.fps
-    } else {
-        1
-    };
-
+    let playback_fps = resolve_playback_fps(metadata, speed_mode);
     (metadata.frame_count.max(1) as f64 / playback_fps.max(1) as f64).max(0.01)
 }
 
 fn make_clip_signature(clip: &TimelineClipItem) -> String {
     format!(
-        "{}::{:?}::{:?}::{:?}",
-        clip.actual_resource_id, clip.resource_kind, clip.media_type, clip.frame_render_mode
+        "{}::{:?}::{:?}::{:?}::{:?}",
+        clip.actual_resource_id, clip.resource_kind, clip.media_type, clip.frame_render_mode, clip.clip_speed_mode
     )
 }
 
@@ -665,6 +663,7 @@ fn hydrate_persisted_clip(
                 resource_kind: TimelineResourceKind::Source,
                 actual_resource_id: source.id.clone(),
                 frame_render_mode: None,
+                clip_speed_mode: None,
                 length_seconds: clip.length_seconds.max(0.0),
             })
         }
@@ -682,6 +681,7 @@ fn hydrate_persisted_clip(
                 resource_kind: TimelineResourceKind::Cut,
                 actual_resource_id: cut.id.clone(),
                 frame_render_mode: None,
+                clip_speed_mode: None,
                 length_seconds: if clip.length_seconds > 0.0 {
                     clip.length_seconds
                 } else {
@@ -700,6 +700,7 @@ fn hydrate_persisted_clip(
                 .clone()
                 .filter(|mode| supported_frame_render_modes(&metadata).contains(mode))
                 .or_else(|| default_frame_render_mode(&metadata));
+            let clip_speed_mode = clip.clip_speed_mode.clone();
             Some(TimelineClipItem {
                 clip_id: clip.clip_id.clone(),
                 name: frame_dir.name.clone(),
@@ -707,10 +708,11 @@ fn hydrate_persisted_clip(
                 resource_kind: TimelineResourceKind::AsciiConversion,
                 actual_resource_id: frame_clip_resource_id(frame_dir),
                 frame_render_mode,
+                clip_speed_mode: clip_speed_mode.clone(),
                 length_seconds: if clip.length_seconds > 0.0 {
                     clip.length_seconds
                 } else {
-                    frame_length_seconds(&metadata, &TimelineMediaType::Frames)
+                    frame_length_seconds(&metadata, &TimelineMediaType::Frames, clip_speed_mode.as_ref())
                 },
             })
         }
@@ -734,10 +736,11 @@ fn hydrate_persisted_clip(
                 resource_kind: TimelineResourceKind::Preview,
                 actual_resource_id: preview.id.clone(),
                 frame_render_mode,
+                clip_speed_mode: None,
                 length_seconds: if clip.length_seconds > 0.0 {
                     clip.length_seconds
                 } else {
-                    frame_length_seconds(&metadata, &TimelineMediaType::Frame)
+                    frame_length_seconds(&metadata, &TimelineMediaType::Frame, None)
                 },
             })
         }
@@ -760,6 +763,7 @@ fn reconcile_timeline_clip(
         resource_kind: clip.resource_kind.clone(),
         actual_resource_id: clip.actual_resource_id.clone(),
         frame_render_mode: clip.frame_render_mode.clone(),
+        clip_speed_mode: clip.clip_speed_mode.clone(),
         length_seconds: clip.length_seconds,
         creation_date: String::new(),
         last_updated: String::new(),
@@ -784,6 +788,7 @@ fn build_source_clip(source: &SourceContent) -> TimelineClipItem {
         resource_kind: TimelineResourceKind::Source,
         actual_resource_id: source.id.clone(),
         frame_render_mode: None,
+        clip_speed_mode: None,
         length_seconds: 0.0,
     }
 }
@@ -799,6 +804,7 @@ fn build_cut_clip(cut: &VideoCut) -> TimelineClipItem {
         resource_kind: TimelineResourceKind::Cut,
         actual_resource_id: cut.id.clone(),
         frame_render_mode: None,
+        clip_speed_mode: None,
         length_seconds: cut.duration.max(0.01),
     }
 }
@@ -812,7 +818,8 @@ fn build_frame_directory_clip(frame_dir: &FrameDirectory) -> TimelineClipItem {
         resource_kind: TimelineResourceKind::AsciiConversion,
         actual_resource_id: frame_clip_resource_id(frame_dir),
         frame_render_mode: default_frame_render_mode(&metadata),
-        length_seconds: frame_length_seconds(&metadata, &TimelineMediaType::Frames),
+        clip_speed_mode: None,
+        length_seconds: frame_length_seconds(&metadata, &TimelineMediaType::Frames, None),
     }
 }
 
@@ -828,7 +835,8 @@ fn build_preview_clip(preview: &Preview) -> TimelineClipItem {
         resource_kind: TimelineResourceKind::Preview,
         actual_resource_id: preview.id.clone(),
         frame_render_mode: default_frame_render_mode(&metadata),
-        length_seconds: frame_length_seconds(&metadata, &TimelineMediaType::Frame),
+        clip_speed_mode: None,
+        length_seconds: frame_length_seconds(&metadata, &TimelineMediaType::Frame, None),
     }
 }
 
@@ -848,6 +856,13 @@ fn frame_mode_icon(mode: Option<&FrameRenderMode>) -> Html {
             html! { <Icon icon_id={IconId::LucideBrush} width={"14"} height={"14"} /> }
         }
         None => html! { <span>{"--"}</span> },
+    }
+}
+
+fn speed_mode_icon(mode: &ClipSpeedMode) -> Html {
+    match mode {
+        ClipSpeedMode::Default => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>"#)),
+        ClipSpeedMode::Sync => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#)),
     }
 }
 
@@ -1674,6 +1689,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 resource_kind: clip.resource_kind.clone(),
                                 actual_resource_id: clip.actual_resource_id.clone(),
                                 frame_render_mode: clip.frame_render_mode.clone(),
+                                clip_speed_mode: clip.clip_speed_mode.clone(),
                                 length_seconds: clip.length_seconds,
                             })
                             .collect::<Vec<_>>();
@@ -2056,11 +2072,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             if let Some(render_mode) =
                                                 clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = if metadata.frame_speed > 0 {
-                                                    metadata.frame_speed
-                                                } else {
-                                                    metadata.fps.max(1)
-                                                };
+                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
                                                 let preview_bundle = preload_first_frame_bundle(
                                                     &metadata,
                                                     render_mode.clone(),
@@ -2069,6 +2081,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 .ok()
                                                 .map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
+                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2089,6 +2102,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                             let duration = frame_length_seconds(
                                                                 &metadata_for_task,
                                                                 &TimelineMediaType::Frames,
+                                                                clip_speed_mode_for_task.as_ref(),
                                                             );
                                                             let mut items =
                                                                 timeline_items_ref.borrow().clone();
@@ -2175,7 +2189,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             if let Some(render_mode) =
                                                 clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = metadata.fps.max(1);
+                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
                                                 let preview_bundle = preload_first_frame_bundle(
                                                     &metadata,
                                                     render_mode.clone(),
@@ -2184,6 +2198,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 .ok()
                                                 .map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
+                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2204,6 +2219,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                             let duration = frame_length_seconds(
                                                                 &metadata_for_task,
                                                                 &TimelineMediaType::Frame,
+                                                                clip_speed_mode_for_task.as_ref(),
                                                             );
                                                             let mut items =
                                                                 timeline_items_ref.borrow().clone();
@@ -2926,6 +2942,38 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
+    let on_export_mp4 = {
+        let project = project.clone();
+        let project_id = props.project_id.clone();
+        Callback::from(move |_: ()| {
+            let project = project.clone();
+            let project_id = project_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let default_name = (*project).as_ref().map(|p| format!("{}.mp4", p.project_name)).unwrap_or_else(|| "export.mp4".to_string());
+                web_sys::console::log_1(&format!("[export-mp4] opening save dialog, default_name={default_name}").into());
+                let args = serde_wasm_bindgen::to_value(&json!({"defaultName": default_name})).unwrap();
+                let result = tauri_invoke("pick_save_file_mp4", args).await;
+                let picked: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+                web_sys::console::log_1(&format!("[export-mp4] picked={picked:?}").into());
+                let Some(output_path) = picked else { return };
+
+                web_sys::console::log_1(&format!("[export-mp4] starting export to: {output_path}").into());
+                let export_args = serde_wasm_bindgen::to_value(&json!({"projectId": project_id, "outputPath": output_path})).unwrap();
+                let result = tauri_invoke("export_timeline_mp4", export_args).await;
+                web_sys::console::log_1(&format!("[export-mp4] export result: {:?}", result).into());
+            });
+        })
+    };
+
+    let on_export_project = Callback::from(move |_: ()| {
+        wasm_bindgen_futures::spawn_local(async move {
+            web_sys::console::log_1(&"[export-project] opening folder picker".into());
+            let result = tauri_invoke("pick_export_directory", JsValue::NULL).await;
+            let path: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+            web_sys::console::log_1(&format!("[export-project] picked={path:?}").into());
+        });
+    });
+
     html! {
         <div id="montage-page" class="container montage-page">
             <div
@@ -2991,6 +3039,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         />
                     </div>
                     <div id="montage-sidebar-bottom" class="explorer-sidebar__bottom">
+                        <ExportSection on_export_mp4={on_export_mp4.clone()} on_export_project={on_export_project.clone()} />
                         <Controls
                             selected_source={(*selected_source).clone()}
                             selected_frame_dir={(*selected_frame_dir).clone()}
@@ -3306,6 +3355,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         let item_icon_id = format!("{}-icon", item_dom_id);
                                         let item_name_id = format!("{}-name", item_dom_id);
                                         let item_mode_id = format!("{}-mode-btn", item_dom_id);
+                                        let item_speed_id = format!("{}-speed-btn", item_dom_id);
                                         let item_remove_id = format!("{}-remove-btn", item_dom_id);
                                         let type_class = match item.resource_kind {
                                             TimelineResourceKind::Source => "source",
@@ -3383,6 +3433,34 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 }
                                             })
                                         };
+                                        let clip_speed_modes = frame_metadata
+                                            .as_ref()
+                                            .map(supported_speed_modes)
+                                            .unwrap_or_default();
+                                        let current_speed_mode = item
+                                            .clip_speed_mode
+                                            .clone()
+                                            .unwrap_or(ClipSpeedMode::Default);
+                                        let on_toggle_speed_mode = {
+                                            let timeline_items = timeline_items.clone();
+                                            let is_playing = is_playing.clone();
+                                            let metadata = frame_metadata.clone();
+                                            let current_speed_mode = current_speed_mode.clone();
+                                            Callback::from(move |e: MouseEvent| {
+                                                e.stop_propagation();
+                                                let Some(metadata) = metadata.clone() else {
+                                                    return;
+                                                };
+                                                let next_mode = next_clip_speed_mode(&current_speed_mode);
+                                                let mut items = (*timeline_items).clone();
+                                                if let Some(item) = items.get_mut(index) {
+                                                    item.clip_speed_mode = Some(next_mode.clone());
+                                                    item.length_seconds = frame_length_seconds(&metadata, &item.media_type, Some(&next_mode));
+                                                }
+                                                is_playing.set(false);
+                                                timeline_items.set(items);
+                                            })
+                                        };
 
                                         html! {
                                             <div
@@ -3418,6 +3496,20 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         title={current_frame_mode.as_ref().map(FrameRenderMode::title).unwrap_or("Frame mode")}
                                                     >
                                                         {frame_mode_icon(current_frame_mode.as_ref())}
+                                                    </button>
+                                                }
+                                                if clip_speed_modes.len() > 1 {
+                                                    <button
+                                                        id={item_speed_id}
+                                                        class={classes!(
+                                                            "timeline-item-speed",
+                                                            matches!(current_speed_mode, ClipSpeedMode::Sync).then_some("active")
+                                                        )}
+                                                        type="button"
+                                                        onclick={on_toggle_speed_mode}
+                                                        title={current_speed_mode.title()}
+                                                    >
+                                                        {speed_mode_icon(&current_speed_mode)}
                                                     </button>
                                                 }
                                                 <button

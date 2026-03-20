@@ -55,6 +55,31 @@ pub fn get_project_sources(project_id: &str) -> SqlResult<Vec<SourceContent>> {
     Ok(sources)
 }
 
+pub fn get_source(source_id: &str) -> SqlResult<Option<SourceContent>> {
+    let conn = init_database()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, content_type, project_id, date_added, size, file_path, custom_name
+         FROM source_content
+         WHERE id = ?1
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([source_id])?;
+    if let Some(row) = rows.next()? {
+        let date_str: String = row.get(3)?;
+        Ok(Some(SourceContent {
+            id: row.get(0)?,
+            content_type: SourceType::from_string(&row.get::<_, String>(1)?),
+            project_id: row.get(2)?,
+            date_added: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            size: row.get(4)?,
+            file_path: row.get(5)?,
+            custom_name: row.get(6)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn update_source_custom_name(source_id: &str, custom_name: Option<String>) -> SqlResult<()> {
     let conn = init_database()?;
 

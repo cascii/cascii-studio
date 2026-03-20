@@ -259,7 +259,7 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
         let new_timeline_id = remap(&id_map, &old_timeline_id);
         let new_resource_id = remap(&id_map, &old_resource_id);
         tx.execute(
-            "INSERT INTO clips (clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, length_seconds, creation_date, last_updated) SELECT ?1, ?2, ?3, order_index, media_type, resource_kind, ?4, frame_render_mode, length_seconds, creation_date, last_updated FROM clips WHERE clip_id = ?5",
+            "INSERT INTO clips (clip_id, project_id, timeline_id, order_index, media_type, resource_kind, actual_resource_id, frame_render_mode, clip_speed_mode, length_seconds, creation_date, last_updated) SELECT ?1, ?2, ?3, order_index, media_type, resource_kind, ?4, frame_render_mode, clip_speed_mode, length_seconds, creation_date, last_updated FROM clips WHERE clip_id = ?5",
             params![new_id, new_project_id, new_timeline_id, new_resource_id, old_id],
         )?;
     }

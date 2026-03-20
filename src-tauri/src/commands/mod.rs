@@ -2,6 +2,7 @@ mod content;
 mod context_menu;
 mod conversion;
 mod cuts;
+mod export;
 mod media;
 mod preview;
 mod project;
@@ -29,6 +30,8 @@ pub fn run() {
             settings_cmd::set_loop_enabled,
             settings_cmd::get_loop_enabled,
             crate::util::pick_directory,
+            crate::util::pick_save_file_mp4,
+            crate::util::pick_export_directory,
             crate::util::open_directory,
             source::pick_files,
             source::add_source_files,
@@ -73,7 +76,8 @@ pub fn run() {
             content::save_project_content,
             context_menu::show_resources_context_menu,
             context_menu::show_explorer_context_menu,
-            context_menu::show_open_projects_context_menu
+            context_menu::show_open_projects_context_menu,
+            export::export_timeline_mp4
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

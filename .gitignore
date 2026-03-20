@@ -28,3 +28,4 @@ target
 .DS_Store
 .git/version_bumped_branches
 .docs
+.ssmver/

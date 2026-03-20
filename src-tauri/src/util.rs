@@ -22,6 +22,30 @@ pub async fn pick_directory(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn pick_save_file_mp4(app: tauri::AppHandle, default_name: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::{DialogExt, FilePath};
+
+    let picked = app.dialog().file().set_file_name(&default_name).add_filter("MP4 Video", &["mp4"]).blocking_save_file();
+    match picked {
+        Some(FilePath::Path(path)) => Ok(Some(path.display().to_string())),
+        Some(FilePath::Url(url)) => Err(format!("unsupported URL: {url}")),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn pick_export_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::{DialogExt, FilePath};
+
+    let picked = app.dialog().file().set_title("Export project files").blocking_pick_folder();
+    match picked {
+        Some(FilePath::Path(path)) => Ok(Some(path.display().to_string())),
+        Some(FilePath::Url(url)) => Err(format!("unsupported URL: {url}")),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
 pub fn open_directory(path: String) -> Result<(), String> {
     use std::process::Command;
 

@@ -70,7 +70,9 @@ pub fn get_source(source_id: &str) -> SqlResult<Option<SourceContent>> {
             id: row.get(0)?,
             content_type: SourceType::from_string(&row.get::<_, String>(1)?),
             project_id: row.get(2)?,
-            date_added: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            date_added: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
             size: row.get(4)?,
             file_path: row.get(5)?,
             custom_name: row.get(6)?,

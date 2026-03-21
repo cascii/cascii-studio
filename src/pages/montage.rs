@@ -25,7 +25,7 @@ use crate::components::frame_media::{
     FrameRenderMode, PreloadedFrameBundle,
 };
 use crate::components::settings::available_cuts::VideoCut;
-use crate::components::settings::{Controls, ExportSection, ToolsSection};
+use crate::components::settings::{Controls, ToolsSection};
 use crate::components::video_player::VideoPlayer;
 use cascii_core_view::FrameColors;
 
@@ -617,7 +617,11 @@ fn frame_asset_metadata_from_preview(preview: &Preview) -> FrameAssetMetadata {
     }
 }
 
-fn frame_length_seconds(metadata: &FrameAssetMetadata, media_type: &TimelineMediaType, speed_mode: Option<&ClipSpeedMode>) -> f64 {
+fn frame_length_seconds(
+    metadata: &FrameAssetMetadata,
+    media_type: &TimelineMediaType,
+    speed_mode: Option<&ClipSpeedMode>,
+) -> f64 {
     if matches!(media_type, TimelineMediaType::Frame) {
         return 1.0;
     }
@@ -629,7 +633,11 @@ fn frame_length_seconds(metadata: &FrameAssetMetadata, media_type: &TimelineMedi
 fn make_clip_signature(clip: &TimelineClipItem) -> String {
     format!(
         "{}::{:?}::{:?}::{:?}::{:?}",
-        clip.actual_resource_id, clip.resource_kind, clip.media_type, clip.frame_render_mode, clip.clip_speed_mode
+        clip.actual_resource_id,
+        clip.resource_kind,
+        clip.media_type,
+        clip.frame_render_mode,
+        clip.clip_speed_mode
     )
 }
 
@@ -712,7 +720,11 @@ fn hydrate_persisted_clip(
                 length_seconds: if clip.length_seconds > 0.0 {
                     clip.length_seconds
                 } else {
-                    frame_length_seconds(&metadata, &TimelineMediaType::Frames, clip_speed_mode.as_ref())
+                    frame_length_seconds(
+                        &metadata,
+                        &TimelineMediaType::Frames,
+                        clip_speed_mode.as_ref(),
+                    )
                 },
             })
         }
@@ -861,8 +873,12 @@ fn frame_mode_icon(mode: Option<&FrameRenderMode>) -> Html {
 
 fn speed_mode_icon(mode: &ClipSpeedMode) -> Html {
     match mode {
-        ClipSpeedMode::Default => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>"#)),
-        ClipSpeedMode::Sync => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#)),
+        ClipSpeedMode::Default => Html::from_html_unchecked(AttrValue::from(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>"#,
+        )),
+        ClipSpeedMode::Sync => Html::from_html_unchecked(AttrValue::from(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#,
+        )),
     }
 }
 
@@ -892,6 +908,198 @@ fn make_unique_clip_id(original_id: &str) -> String {
     let ts = js_sys::Date::now();
     let rand = (js_sys::Math::random() * 1_000_000_000_f64).floor() as u32;
     format!("timeline-{}-{}-{}", original_id, ts, rand)
+}
+
+fn js_value_message(value: &JsValue) -> Option<String> {
+    value
+        .as_string()
+        .filter(|message| !message.trim().is_empty())
+        .or_else(|| {
+            js_sys::Reflect::get(value, &JsValue::from_str("message"))
+                .ok()
+                .and_then(|message| message.as_string())
+                .filter(|message| !message.trim().is_empty())
+        })
+        .or_else(|| {
+            js_sys::Reflect::get(value, &JsValue::from_str("error"))
+                .ok()
+                .and_then(|message| message.as_string())
+                .filter(|message| !message.trim().is_empty())
+        })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ExportFormat {
+    Mp4,
+    Mov,
+    Mkv,
+}
+
+impl ExportFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Mp4 => "mp4",
+            Self::Mov => "mov",
+            Self::Mkv => "mkv",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Mp4 => "MP4",
+            Self::Mov => "MOV",
+            Self::Mkv => "MKV",
+        }
+    }
+}
+
+fn export_format_from_value(value: &str) -> ExportFormat {
+    match value {
+        "mov" => ExportFormat::Mov,
+        "mkv" => ExportFormat::Mkv,
+        _ => ExportFormat::Mp4,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+enum ExportResolution {
+    #[serde(rename = "720p")]
+    P720,
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "1440p")]
+    P1440,
+    #[serde(rename = "2160p")]
+    P2160,
+}
+
+impl ExportResolution {
+    fn label(self) -> &'static str {
+        match self {
+            Self::P720 => "720p",
+            Self::P1080 => "1080p",
+            Self::P1440 => "1440p",
+            Self::P2160 => "2160p",
+        }
+    }
+}
+
+fn export_resolution_from_value(value: &str) -> ExportResolution {
+    match value {
+        "720p" => ExportResolution::P720,
+        "1440p" => ExportResolution::P1440,
+        "2160p" => ExportResolution::P2160,
+        _ => ExportResolution::P1080,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+enum ExportFrameRate {
+    #[serde(rename = "24")]
+    Fps24,
+    #[serde(rename = "30")]
+    Fps30,
+    #[serde(rename = "60")]
+    Fps60,
+}
+
+impl ExportFrameRate {
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Fps24 => 24,
+            Self::Fps30 => 30,
+            Self::Fps60 => 60,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Fps24 => "24 FPS",
+            Self::Fps30 => "30 FPS",
+            Self::Fps60 => "60 FPS",
+        }
+    }
+}
+
+fn export_frame_rate_from_value(value: &str) -> ExportFrameRate {
+    match value {
+        "24" => ExportFrameRate::Fps24,
+        "60" => ExportFrameRate::Fps60,
+        _ => ExportFrameRate::Fps30,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ExportQuality {
+    Draft,
+    Balanced,
+    High,
+}
+
+impl ExportQuality {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Draft => "Draft",
+            Self::Balanced => "Balanced",
+            Self::High => "High",
+        }
+    }
+}
+
+fn export_quality_from_value(value: &str) -> ExportQuality {
+    match value {
+        "draft" => ExportQuality::Draft,
+        "high" => ExportQuality::High,
+        _ => ExportQuality::Balanced,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MontageExportOptions {
+    format: ExportFormat,
+    resolution: ExportResolution,
+    frame_rate: ExportFrameRate,
+    quality: ExportQuality,
+    include_audio: bool,
+}
+
+impl MontageExportOptions {
+    fn hint_text(self) -> String {
+        format!(
+            "{} • {} • {} • {}",
+            self.format.label(),
+            self.resolution.label(),
+            self.frame_rate.label(),
+            self.quality.label()
+        )
+    }
+}
+
+impl Default for MontageExportOptions {
+    fn default() -> Self {
+        Self {
+            format: ExportFormat::Mp4,
+            resolution: ExportResolution::P1080,
+            frame_rate: ExportFrameRate::Fps30,
+            quality: ExportQuality::Balanced,
+            include_audio: true,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MontageVideoExportRequest {
+    project_id: String,
+    output_path: String,
+    format: ExportFormat,
+    resolution: ExportResolution,
+    frame_rate: u32,
+    quality: ExportQuality,
+    include_audio: bool,
 }
 
 #[derive(Properties, PartialEq)]
@@ -962,6 +1170,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let loop_enabled = use_state(|| true);
     let video_volume = use_state(|| 1.0f64);
     let video_is_muted = use_state(|| false);
+    let export_options = use_state(MontageExportOptions::default);
+    let is_exporting_video = use_state(|| false);
+    let export_status_message = use_state(|| None::<String>);
+    let export_status_error = use_state(|| false);
     let resources_loaded = use_state(|| cached_sidebar_data.is_some());
 
     // Explorer sidebar state
@@ -2078,7 +2290,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             if let Some(render_mode) =
                                                 clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
+                                                let playback_fps = resolve_playback_fps(
+                                                    &metadata,
+                                                    clip.clip_speed_mode.as_ref(),
+                                                );
                                                 let preview_bundle = preload_first_frame_bundle(
                                                     &metadata,
                                                     render_mode.clone(),
@@ -2087,7 +2302,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 .ok()
                                                 .map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
-                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
+                                                let clip_speed_mode_for_task =
+                                                    clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2195,7 +2411,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             if let Some(render_mode) =
                                                 clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
+                                                let playback_fps = resolve_playback_fps(
+                                                    &metadata,
+                                                    clip.clip_speed_mode.as_ref(),
+                                                );
                                                 let preview_bundle = preload_first_frame_bundle(
                                                     &metadata,
                                                     render_mode.clone(),
@@ -2204,7 +2423,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 .ok()
                                                 .map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
-                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
+                                                let clip_speed_mode_for_task =
+                                                    clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2928,57 +3148,208 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let previews = previews.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
+                    tauri_invoke("get_project_sources", args).await,
+                ) {
                     source_files.set(sources);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
+                    tauri_invoke("get_project_frames", args).await,
+                ) {
                     frame_directories.set(frames);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
+                    tauri_invoke("get_project_cuts", args).await,
+                ) {
                     video_cuts.set(cuts);
                 }
-                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
+                let args =
+                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
+                    tauri_invoke("get_project_previews", args).await,
+                ) {
                     previews.set(previews_list);
                 }
             });
         })
     };
 
-    let on_export_mp4 = {
+    let on_export_format_change = {
+        let export_options = export_options.clone();
+        Callback::from(move |e: Event| {
+            if let Some(target) = e.target() {
+                if let Ok(select) = target.dyn_into::<web_sys::HtmlSelectElement>() {
+                    let mut next = *export_options;
+                    next.format = export_format_from_value(&select.value());
+                    export_options.set(next);
+                }
+            }
+        })
+    };
+
+    let on_export_resolution_change = {
+        let export_options = export_options.clone();
+        Callback::from(move |e: Event| {
+            if let Some(target) = e.target() {
+                if let Ok(select) = target.dyn_into::<web_sys::HtmlSelectElement>() {
+                    let mut next = *export_options;
+                    next.resolution = export_resolution_from_value(&select.value());
+                    export_options.set(next);
+                }
+            }
+        })
+    };
+
+    let on_export_frame_rate_change = {
+        let export_options = export_options.clone();
+        Callback::from(move |e: Event| {
+            if let Some(target) = e.target() {
+                if let Ok(select) = target.dyn_into::<web_sys::HtmlSelectElement>() {
+                    let mut next = *export_options;
+                    next.frame_rate = export_frame_rate_from_value(&select.value());
+                    export_options.set(next);
+                }
+            }
+        })
+    };
+
+    let on_export_quality_change = {
+        let export_options = export_options.clone();
+        Callback::from(move |e: Event| {
+            if let Some(target) = e.target() {
+                if let Ok(select) = target.dyn_into::<web_sys::HtmlSelectElement>() {
+                    let mut next = *export_options;
+                    next.quality = export_quality_from_value(&select.value());
+                    export_options.set(next);
+                }
+            }
+        })
+    };
+
+    let on_export_audio_change = {
+        let export_options = export_options.clone();
+        Callback::from(move |e: Event| {
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    let mut next = *export_options;
+                    next.include_audio = input.checked();
+                    export_options.set(next);
+                }
+            }
+        })
+    };
+
+    let on_export_video = {
         let project = project.clone();
         let project_id = props.project_id.clone();
-        Callback::from(move |_: ()| {
+        let export_options = export_options.clone();
+        let is_exporting_video = is_exporting_video.clone();
+        let export_status_message = export_status_message.clone();
+        let export_status_error = export_status_error.clone();
+        Callback::from(move |_: MouseEvent| {
+            if *is_exporting_video {
+                return;
+            }
+
             let project = project.clone();
             let project_id = project_id.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let default_name = (*project).as_ref().map(|p| format!("{}.mp4", p.project_name)).unwrap_or_else(|| "export.mp4".to_string());
-                web_sys::console::log_1(&format!("[export-mp4] opening save dialog, default_name={default_name}").into());
-                let args = serde_wasm_bindgen::to_value(&json!({"defaultName": default_name})).unwrap();
-                let result = tauri_invoke("pick_save_file_mp4", args).await;
-                let picked: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
-                web_sys::console::log_1(&format!("[export-mp4] picked={picked:?}").into());
-                let Some(output_path) = picked else { return };
+            let options = *export_options;
+            let is_exporting_video = is_exporting_video.clone();
+            let export_status_message = export_status_message.clone();
+            let export_status_error = export_status_error.clone();
 
-                web_sys::console::log_1(&format!("[export-mp4] starting export to: {output_path}").into());
-                let export_args = serde_wasm_bindgen::to_value(&json!({"projectId": project_id, "outputPath": output_path})).unwrap();
-                let result = tauri_invoke("export_timeline_mp4", export_args).await;
-                web_sys::console::log_1(&format!("[export-mp4] export result: {:?}", result).into());
+            is_exporting_video.set(true);
+            export_status_error.set(false);
+            export_status_message.set(Some(format!(
+                "Preparing {} export...",
+                options.format.label()
+            )));
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let default_name = (*project)
+                    .as_ref()
+                    .map(|p| format!("{}.{}", p.project_name, options.format.extension()))
+                    .unwrap_or_else(|| format!("export.{}", options.format.extension()));
+                let args = serde_wasm_bindgen::to_value(&json!({
+                    "defaultName": default_name,
+                    "extension": options.format.extension(),
+                }))
+                .unwrap();
+                let result = tauri_invoke("pick_save_file_video", args).await;
+                let picked: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+                let Some(output_path) = picked else {
+                    is_exporting_video.set(false);
+                    export_status_error.set(false);
+                    export_status_message.set(None);
+                    return;
+                };
+
+                export_status_error.set(false);
+                export_status_message.set(Some(format!(
+                    "Exporting {}...",
+                    file_name_from_path(&output_path)
+                )));
+
+                let request = MontageVideoExportRequest {
+                    project_id,
+                    output_path: output_path.clone(),
+                    format: options.format,
+                    resolution: options.resolution,
+                    frame_rate: options.frame_rate.as_u32(),
+                    quality: options.quality,
+                    include_audio: options.include_audio,
+                };
+                let export_args =
+                    serde_wasm_bindgen::to_value(&json!({ "request": request })).unwrap();
+                let result = tauri_invoke("export_timeline_video", export_args).await;
+
+                if let Ok(saved_path) = serde_wasm_bindgen::from_value::<String>(result.clone()) {
+                    export_status_error.set(false);
+                    export_status_message
+                        .set(Some(format!("Saved {}", file_name_from_path(&saved_path))));
+                } else {
+                    export_status_error.set(true);
+                    export_status_message.set(Some(
+                        js_value_message(&result).unwrap_or_else(|| "Export failed.".to_string()),
+                    ));
+                }
+
+                is_exporting_video.set(false);
             });
         })
     };
 
-    let on_export_project = Callback::from(move |_: ()| {
-        wasm_bindgen_futures::spawn_local(async move {
-            web_sys::console::log_1(&"[export-project] opening folder picker".into());
-            let result = tauri_invoke("pick_export_directory", JsValue::NULL).await;
-            let path: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
-            web_sys::console::log_1(&format!("[export-project] picked={path:?}").into());
-        });
-    });
+    let on_export_project = {
+        let is_exporting_video = is_exporting_video.clone();
+        Callback::from(move |_: MouseEvent| {
+            if *is_exporting_video {
+                return;
+            }
+
+            wasm_bindgen_futures::spawn_local(async move {
+                web_sys::console::log_1(&"[export-project] opening folder picker".into());
+                let result = tauri_invoke("pick_export_directory", JsValue::NULL).await;
+                let path: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
+                web_sys::console::log_1(&format!("[export-project] picked={path:?}").into());
+            });
+        })
+    };
+
+    let export_hint_text = (*export_status_message)
+        .clone()
+        .unwrap_or_else(|| (*export_options).hint_text());
+    let export_hint_class = classes!(
+        "timeline-hint",
+        "export-panel__hint",
+        (*export_status_error).then_some("export-panel__hint--error"),
+        (*is_exporting_video).then_some("export-panel__hint--busy")
+    );
 
     html! {
         <div id="montage-page" class="container montage-page">
@@ -3050,7 +3421,6 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         />
                     </div>
                     <div id="montage-sidebar-bottom" class="explorer-sidebar__bottom">
-                        <ExportSection on_export_mp4={on_export_mp4.clone()} on_export_project={on_export_project.clone()} />
                         <Controls
                             selected_source={(*selected_source).clone()}
                             selected_frame_dir={(*selected_frame_dir).clone()}
@@ -3539,6 +3909,110 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                     }).collect::<Html>() }
                                 </div>
                             }
+                        </div>
+                    </div>
+                    <div id="montage-export-container" class="timeline-container export-panel">
+                        <div id="montage-export-header" class="timeline-header export-panel__header">
+                            <span id="montage-export-title" class="timeline-title">{"Export"}</span>
+                            <span id="montage-export-status" class={export_hint_class}>{export_hint_text}</span>
+                        </div>
+                        <div id="montage-export-body" class="export-panel__body">
+                            <div id="montage-export-actions" class="export-panel__actions">
+                                <button
+                                    id="montage-export-video-btn"
+                                    class="ctrl-btn export-panel__action"
+                                    data-label="Export video"
+                                    aria-label="Export video"
+                                    type="button"
+                                    onclick={on_export_video}
+                                    disabled={*is_exporting_video || timeline_items.is_empty()}
+                                    title={if timeline_items.is_empty() {
+                                        "Add clips to the timeline before exporting"
+                                    } else if *is_exporting_video {
+                                        "Export in progress"
+                                    } else {
+                                        "Export timeline video"
+                                    }}
+                                >
+                                    <Icon icon_id={IconId::LucideFilm} width={"16"} height={"16"} />
+                                </button>
+                                <button
+                                    id="montage-export-files-btn"
+                                    class="ctrl-btn export-panel__action"
+                                    data-label="Export Files"
+                                    aria-label="Export Files"
+                                    type="button"
+                                    onclick={on_export_project}
+                                    disabled={*is_exporting_video}
+                                    title="Export project files"
+                                >
+                                    <Icon icon_id={IconId::LucideFolderOpen} width={"16"} height={"16"} />
+                                </button>
+                            </div>
+                            <div id="montage-export-separator" class="export-panel__separator" />
+                            <div id="montage-export-options" class="export-panel__options">
+                                <label class="export-panel__field" for="montage-export-format-select">
+                                    <span class="export-panel__field-label">{"Format"}</span>
+                                    <select
+                                        id="montage-export-format-select"
+                                        class="export-panel__select"
+                                        onchange={on_export_format_change}
+                                    >
+                                        <option value="mp4" selected={matches!((*export_options).format, ExportFormat::Mp4)}>{"MP4"}</option>
+                                        <option value="mov" selected={matches!((*export_options).format, ExportFormat::Mov)}>{"MOV"}</option>
+                                        <option value="mkv" selected={matches!((*export_options).format, ExportFormat::Mkv)}>{"MKV"}</option>
+                                    </select>
+                                </label>
+                                <label class="export-panel__field" for="montage-export-resolution-select">
+                                    <span class="export-panel__field-label">{"Size"}</span>
+                                    <select
+                                        id="montage-export-resolution-select"
+                                        class="export-panel__select"
+                                        onchange={on_export_resolution_change}
+                                    >
+                                        <option value="720p" selected={matches!((*export_options).resolution, ExportResolution::P720)}>{"720p"}</option>
+                                        <option value="1080p" selected={matches!((*export_options).resolution, ExportResolution::P1080)}>{"1080p"}</option>
+                                        <option value="1440p" selected={matches!((*export_options).resolution, ExportResolution::P1440)}>{"1440p"}</option>
+                                        <option value="2160p" selected={matches!((*export_options).resolution, ExportResolution::P2160)}>{"2160p"}</option>
+                                    </select>
+                                </label>
+                                <label class="export-panel__field" for="montage-export-frame-rate-select">
+                                    <span class="export-panel__field-label">{"Frame rate"}</span>
+                                    <select
+                                        id="montage-export-frame-rate-select"
+                                        class="export-panel__select"
+                                        onchange={on_export_frame_rate_change}
+                                    >
+                                        <option value="24" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps24)}>{"24 FPS"}</option>
+                                        <option value="30" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps30)}>{"30 FPS"}</option>
+                                        <option value="60" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps60)}>{"60 FPS"}</option>
+                                    </select>
+                                </label>
+                                <label class="export-panel__field" for="montage-export-quality-select">
+                                    <span class="export-panel__field-label">{"Quality"}</span>
+                                    <select
+                                        id="montage-export-quality-select"
+                                        class="export-panel__select"
+                                        onchange={on_export_quality_change}
+                                    >
+                                        <option value="draft" selected={matches!((*export_options).quality, ExportQuality::Draft)}>{"Draft"}</option>
+                                        <option value="balanced" selected={matches!((*export_options).quality, ExportQuality::Balanced)}>{"Balanced"}</option>
+                                        <option value="high" selected={matches!((*export_options).quality, ExportQuality::High)}>{"High"}</option>
+                                    </select>
+                                </label>
+                                <label class="export-panel__field export-panel__field--checkbox" for="montage-export-audio-checkbox">
+                                    <span class="export-panel__field-label">{"Audio"}</span>
+                                    <span class="export-panel__checkbox-row">
+                                        <input
+                                            id="montage-export-audio-checkbox"
+                                            type="checkbox"
+                                            checked={(*export_options).include_audio}
+                                            onchange={on_export_audio_change}
+                                        />
+                                        <span>{"Include audio"}</span>
+                                    </span>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>

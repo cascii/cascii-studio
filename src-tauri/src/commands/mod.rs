@@ -31,6 +31,7 @@ pub fn run() {
             settings_cmd::get_loop_enabled,
             crate::util::pick_directory,
             crate::util::pick_save_file_mp4,
+            crate::util::pick_save_file_video,
             crate::util::pick_export_directory,
             crate::util::open_directory,
             source::pick_files,
@@ -77,6 +78,7 @@ pub fn run() {
             context_menu::show_resources_context_menu,
             context_menu::show_explorer_context_menu,
             context_menu::show_open_projects_context_menu,
+            export::export_timeline_video,
             export::export_timeline_mp4
         ])
         .run(tauri::generate_context!())

@@ -73,7 +73,9 @@ pub fn get_cut(cut_id: &str) -> SqlResult<Option<VideoCut>> {
             project_id: row.get(1)?,
             source_file_id: row.get(2)?,
             file_path: row.get(3)?,
-            date_added: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            date_added: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
             size: row.get(5)?,
             custom_name: row.get(6)?,
             start_time: row.get(7)?,

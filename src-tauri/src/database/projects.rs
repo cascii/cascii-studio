@@ -141,7 +141,13 @@ pub fn delete_project(project_id: &str) -> SqlResult<()> {
 /// Duplicate all database records for a project, remapping IDs and file paths.
 /// `old_dir` / `new_dir` are the absolute project directory paths used to rewrite
 /// stored filesystem paths.
-pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_project_path: &str, old_dir: &str, new_dir: &str) -> SqlResult<Project> {
+pub fn duplicate_project_records(
+    old_project_id: &str,
+    new_name: &str,
+    new_project_path: &str,
+    old_dir: &str,
+    new_dir: &str,
+) -> SqlResult<Project> {
     let mut conn = init_database()?;
     let tx = conn.transaction()?;
 
@@ -165,23 +171,37 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     let mut id_map: HashMap<String, String> = HashMap::new();
 
     // Helper: query a list of id-only rows
-    fn query_ids(tx: &rusqlite::Transaction, sql: &str, project_id: &str) -> SqlResult<Vec<String>> {
+    fn query_ids(
+        tx: &rusqlite::Transaction,
+        sql: &str,
+        project_id: &str,
+    ) -> SqlResult<Vec<String>> {
         let mut stmt = tx.prepare(sql)?;
         let rows = stmt.query_map([project_id], |row| row.get(0))?;
         rows.collect()
     }
 
     // Helper: query (id, fk) pairs
-    fn query_id_fk(tx: &rusqlite::Transaction, sql: &str, project_id: &str) -> SqlResult<Vec<(String, String)>> {
+    fn query_id_fk(
+        tx: &rusqlite::Transaction,
+        sql: &str,
+        project_id: &str,
+    ) -> SqlResult<Vec<(String, String)>> {
         let mut stmt = tx.prepare(sql)?;
         let rows = stmt.query_map([project_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
         rows.collect()
     }
 
     // Helper: query (id, fk1, fk2) triples
-    fn query_id_fk2(tx: &rusqlite::Transaction, sql: &str, project_id: &str) -> SqlResult<Vec<(String, String, String)>> {
+    fn query_id_fk2(
+        tx: &rusqlite::Transaction,
+        sql: &str,
+        project_id: &str,
+    ) -> SqlResult<Vec<(String, String, String)>> {
         let mut stmt = tx.prepare(sql)?;
-        let rows = stmt.query_map([project_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let rows = stmt.query_map([project_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
         rows.collect()
     }
 
@@ -190,7 +210,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- source_content ---
-    for old_id in query_ids(&tx, "SELECT id FROM source_content WHERE project_id = ?1", old_project_id)? {
+    for old_id in query_ids(
+        &tx,
+        "SELECT id FROM source_content WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO source_content (id, content_type, project_id, date_added, size, file_path, custom_name) SELECT ?1, content_type, ?2, date_added, size, REPLACE(file_path, ?3, ?4), custom_name FROM source_content WHERE id = ?5",
@@ -200,7 +224,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- ascii_conversions ---
-    for (old_id, old_source_id) in query_id_fk(&tx, "SELECT id, source_file_id FROM ascii_conversions WHERE project_id = ?1", old_project_id)? {
+    for (old_id, old_source_id) in query_id_fk(
+        &tx,
+        "SELECT id, source_file_id FROM ascii_conversions WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         let new_source_id = remap(&id_map, &old_source_id);
         tx.execute(
@@ -211,7 +239,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- cuts ---
-    for (old_id, old_source_id) in query_id_fk(&tx, "SELECT id, source_file_id FROM cuts WHERE project_id = ?1", old_project_id)? {
+    for (old_id, old_source_id) in query_id_fk(
+        &tx,
+        "SELECT id, source_file_id FROM cuts WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         let new_source_id = remap(&id_map, &old_source_id);
         tx.execute(
@@ -222,7 +254,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- audio ---
-    for (old_id, old_source_id) in query_id_fk(&tx, "SELECT id, source_file_id FROM audio WHERE project_id = ?1", old_project_id)? {
+    for (old_id, old_source_id) in query_id_fk(
+        &tx,
+        "SELECT id, source_file_id FROM audio WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         let new_source_id = remap(&id_map, &old_source_id);
         tx.execute(
@@ -233,7 +269,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- previews ---
-    for (old_id, old_source_id) in query_id_fk(&tx, "SELECT id, source_file_id FROM previews WHERE project_id = ?1", old_project_id)? {
+    for (old_id, old_source_id) in query_id_fk(
+        &tx,
+        "SELECT id, source_file_id FROM previews WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         let new_source_id = remap(&id_map, &old_source_id);
         tx.execute(
@@ -244,7 +284,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- timelines ---
-    for old_id in query_ids(&tx, "SELECT timeline_id FROM timelines WHERE project_id = ?1", old_project_id)? {
+    for old_id in query_ids(
+        &tx,
+        "SELECT timeline_id FROM timelines WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO timelines (timeline_id, project_id, creation_date, last_updated) SELECT ?1, ?2, creation_date, last_updated FROM timelines WHERE timeline_id = ?3",
@@ -254,7 +298,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- clips ---
-    for (old_id, old_timeline_id, old_resource_id) in query_id_fk2(&tx, "SELECT clip_id, timeline_id, actual_resource_id FROM clips WHERE project_id = ?1", old_project_id)? {
+    for (old_id, old_timeline_id, old_resource_id) in query_id_fk2(
+        &tx,
+        "SELECT clip_id, timeline_id, actual_resource_id FROM clips WHERE project_id = ?1",
+        old_project_id,
+    )? {
         let new_id = Uuid::new_v4().to_string();
         let new_timeline_id = remap(&id_map, &old_timeline_id);
         let new_resource_id = remap(&id_map, &old_resource_id);
@@ -265,7 +313,11 @@ pub fn duplicate_project_records(old_project_id: &str, new_name: &str, new_proje
     }
 
     // --- project_content ---
-    let content_rows = query_id_fk(&tx, "SELECT id, item_id FROM project_content WHERE project_id = ?1", old_project_id)?;
+    let content_rows = query_id_fk(
+        &tx,
+        "SELECT id, item_id FROM project_content WHERE project_id = ?1",
+        old_project_id,
+    )?;
     for (old_id, old_item_id) in &content_rows {
         let new_id = Uuid::new_v4().to_string();
         let new_item_id = remap(&id_map, old_item_id);

@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
-use super::open::Project;
+use super::open::{OpenPage, Project};
 use super::project_cache::{
     get_project_sidebar_cache, set_project_sidebar_cache, ProjectSidebarCache,
 };
@@ -386,6 +386,12 @@ pub struct ProjectPageProps {
     pub explorer_on_left: bool,
     #[prop_or_default]
     pub on_navigate: Option<Callback<&'static str>>,
+    #[prop_or_default]
+    pub show_open_in_sidebar: bool,
+    #[prop_or_default]
+    pub on_open_project: Option<Callback<String>>,
+    #[prop_or_default]
+    pub on_open_montage: Option<Callback<String>>,
 }
 
 #[function_component(ProjectPage)]
@@ -2439,6 +2445,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 )}
             >
                 <div id="project-explorer-sidebar" class="explorer-sidebar">
+                    if props.show_open_in_sidebar {
+                        if let Some(ref on_open_project) = props.on_open_project {
+                            <OpenPage sidebar_only=true on_open_project={on_open_project.clone()} on_open_montage={props.on_open_montage.clone()} explorer_on_left={props.explorer_on_left} />
+                        }
+                    } else {
                     <div id="project-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree
                             project_id={(*project_id).clone()}
@@ -2612,6 +2623,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             <ToolsSection on_navigate={on_navigate.clone()} current_page={"project"} />
                         }
                     </div>
+                    } // else !show_open_in_sidebar
                 </div>
 
                 <div id="project-main-content" class="main-content">

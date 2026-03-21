@@ -1,5 +1,6 @@
 use crate::components::sidebar::Sidebar;
 use crate::pages;
+use crate::pages::open::OpenPage;
 use yew::prelude::*;
 
 #[function_component(App)]
@@ -8,10 +9,19 @@ pub fn app() -> Html {
     let active_project_id = use_state(|| Option::<String>::None);
     let active_project_name = use_state(|| Option::<String>::None);
     let explorer_on_left = use_state(|| false);
+    let show_open_in_sidebar = use_state(|| false);
 
     let on_nav = {
         let current_page = current_page.clone();
+        let show_open_in_sidebar = show_open_in_sidebar.clone();
         Callback::from(move |route: &'static str| {
+            if route == "open" {
+                if current_page.as_str() != "open" {
+                    show_open_in_sidebar.set(!*show_open_in_sidebar);
+                }
+                return;
+            }
+            show_open_in_sidebar.set(false);
             if current_page.as_str() != route {
                 current_page.set(route.to_string());
             }
@@ -22,9 +32,11 @@ pub fn app() -> Html {
         let current_page = current_page.clone();
         let active_project_id = active_project_id.clone();
         let active_project_name = active_project_name.clone();
+        let show_open_in_sidebar = show_open_in_sidebar.clone();
         Callback::from(move |project_id: String| {
             active_project_id.set(Some(project_id));
             active_project_name.set(None);
+            show_open_in_sidebar.set(false);
             current_page.set("project".to_string());
         })
     };
@@ -33,9 +45,11 @@ pub fn app() -> Html {
         let current_page = current_page.clone();
         let active_project_id = active_project_id.clone();
         let active_project_name = active_project_name.clone();
+        let show_open_in_sidebar = show_open_in_sidebar.clone();
         Callback::from(move |project_id: String| {
             active_project_id.set(Some(project_id));
             active_project_name.set(None);
+            show_open_in_sidebar.set(false);
             current_page.set("montage".to_string());
         })
     };
@@ -76,31 +90,53 @@ pub fn app() -> Html {
                 has_active_project={active_project_id.is_some()}
                 explorer_on_left={*explorer_on_left}
                 on_toggle_explorer_side={on_toggle_explorer_side}
+                show_open_in_sidebar={*show_open_in_sidebar}
             />
             <main class="container" id="app-container">
                 {
                     match current_page.as_str() {
-                        "home"      => html! { <pages::home::HomePage /> },
-                        "new"       => html! { <pages::new::NewPage on_open_project={on_open_project.clone()} /> },
-                        "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> },
-                        "settings"  => html! { <pages::settings::SettingsPage /> },
-                        "library"   => html! { <pages::library::LibraryPage /> },
-                        "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
                         "project" => {
                             if let Some(id) = &*active_project_id {
-                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} /> }
+                                html! { <pages::project::ProjectPage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} show_open_in_sidebar={*show_open_in_sidebar} on_open_project={Some(on_open_project.clone())} on_open_montage={Some(on_open_montage.clone())} /> }
                             } else {
                                 html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }
                         },
                         "montage" => {
                             if let Some(id) = &*active_project_id {
-                                html! { <pages::montage::MontagePage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} /> }
+                                html! { <pages::montage::MontagePage project_id={id.clone()} on_project_name_change={on_project_name_change.clone()} explorer_on_left={*explorer_on_left} on_navigate={Some(on_nav.clone())} show_open_in_sidebar={*show_open_in_sidebar} on_open_project={Some(on_open_project.clone())} on_open_montage={Some(on_open_montage.clone())} /> }
                             } else {
                                 html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> }
                             }
                         },
-                        _ => html! { <pages::home::HomePage /> },
+                        _ => {
+                            let page_content = match current_page.as_str() {
+                                "home"      => html! { <pages::home::HomePage /> },
+                                "new"       => html! { <pages::new::NewPage on_open_project={on_open_project.clone()} /> },
+                                "open"      => html! { <pages::open::OpenPage on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} /> },
+                                "settings"  => html! { <pages::settings::SettingsPage /> },
+                                "library"   => html! { <pages::library::LibraryPage /> },
+                                "sponsor"   => html! { <pages::sponsor::SponsorPage /> },
+                                _           => html! { <pages::home::HomePage /> },
+                            };
+
+                            if *show_open_in_sidebar && current_page.as_str() != "open" {
+                                html! {
+                                    <div class="open-page">
+                                        <div class={classes!("open-layout", explorer_on_left.then_some("open-layout--explorer-left"))}>
+                                            <div class="explorer-sidebar open-projects-sidebar">
+                                                <OpenPage sidebar_only=true on_open_project={on_open_project.clone()} on_open_montage={Some(on_open_montage.clone())} explorer_on_left={*explorer_on_left} />
+                                            </div>
+                                            <div class="open-main-content">
+                                                {page_content}
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            } else {
+                                page_content
+                            }
+                        }
                     }
                 }
             </main>

@@ -31,3 +31,9 @@ right click on "projects" in open, to duplicate
 
 - lasso icon on ascii frames: select object & insert it on other frames
 - new blank frame
+
+
+- when cutting frames/video
+---> sidebar panel to select exact second/frame
+
+Add COMPUTING BAR WHEN PREPROCESSING VIDEO

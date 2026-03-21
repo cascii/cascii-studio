@@ -17,6 +17,8 @@ pub struct SidebarProps {
     pub has_active_project: bool,
     pub explorer_on_left: bool,
     pub on_toggle_explorer_side: Callback<()>,
+    #[prop_or_default]
+    pub show_open_in_sidebar: bool,
 }
 
 #[derive(Clone)]
@@ -112,11 +114,12 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     };
 
     let get_btn_class = |route: &'static str, current_page: &str| {
-        if current_page == route {
-            "nav-btn active"
+        let is_active = if props.show_open_in_sidebar {
+            route == "open"
         } else {
-            "nav-btn"
-        }
+            route == current_page
+        };
+        if is_active {"nav-btn active"} else {"nav-btn"}
     };
 
     let current_context_action = if props.has_active_project {

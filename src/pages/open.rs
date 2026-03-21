@@ -60,6 +60,8 @@ pub struct OpenPageProps {
     pub explorer_on_left: bool,
     #[prop_or_default]
     pub on_open_montage: Option<Callback<String>>,
+    #[prop_or_default]
+    pub sidebar_only: bool,
 }
 
 #[derive(Serialize)]
@@ -410,141 +412,149 @@ pub fn open_page(props: &OpenPageProps) -> Html {
         OpenProjectSortKey::LastUpdated => "last updated",
     };
 
-    html! {
-        <div id="open-page" class="container open-page">
-            <div id="open-layout" class={classes!("open-layout", props.explorer_on_left.then_some("open-layout--explorer-left"))}>
-                <div id="open-projects-sidebar" class="explorer-sidebar open-projects-sidebar">
-                    <div id="open-projects-scroll" class="explorer-sidebar__scroll-area open-projects-scroll">
-                        <div id="open-projects-section" class="tree-section open-projects-section">
-                            <div id="open-projects-header" class="tree-section-header open-projects-header">
-                                <span class="tree-section-header__title open-projects-header__title">{"Open"}</span>
-                                <div id="open-projects-header-actions" class="tree-section-header__actions open-projects-header__actions">
-                                    <button id="open-projects-sort-key-btn" type="button" class="open-projects-sort-key-btn" onclick={on_cycle_sort_key} title="Change sort field">{sort_key_label}</button>
-                                    <button id="open-projects-sort-direction-btn" type="button" class="open-projects-sort-direction-btn" onclick={on_toggle_sort_direction} title={if *sort_desc {"Descending"} else {"Ascending"}} aria-label="Toggle sort direction">
-                                        <span class={classes!("open-projects-sort-direction-icon", (!*sort_desc).then_some("open-projects-sort-direction-icon--asc"))}>
-                                            <Icon icon_id={IconId::LucideChevronRight} width={"14"} height={"14"} />
-                                        </span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="open-projects-content" class="tree-section__content open-projects-content">
-                                if let Some(error) = &*error_message {
-                                    <div id="open-projects-error" class="tree-section__empty open-projects-error">{error}</div>
-                                } else if visible_projects.is_empty() {
-                                    <div id="open-projects-empty" class="tree-section__empty">
-                                        {
-                                            if search_normalized.is_empty() {
-                                                "No projects found."
-                                            } else {
-                                                "No projects match your search."
-                                            }
-                                        }
-                                    </div>
-                                } else {
-                                    <div id="open-projects-list" class="open-projects-list">
-                                        {
-                                            visible_projects.iter().map(|project| {
-                                                let project_id = project.id.clone();
-                                                let project_name = project.project_name.clone();
-                                                let is_renaming = rename_project_id.as_deref() == Some(project.id.as_str());
-
-                                                if is_renaming {
-                                                    let project_id_for_commit = project_id.clone();
-                                                    let on_rename_input = {
-                                                        let rename_value = rename_value.clone();
-                                                        Callback::from(move |e: InputEvent| {
-                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                            rename_value.set(input.value());
-                                                        })
-                                                    };
-                                                    let on_rename_keydown = {
-                                                        let commit_rename = commit_rename.clone();
-                                                        let on_cancel_rename = on_cancel_rename.clone();
-                                                        let project_id = project_id_for_commit.clone();
-                                                        Callback::from(move |e: KeyboardEvent| {
-                                                            if e.key() == "Enter" {
-                                                                e.prevent_default();
-                                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                                commit_rename.emit((project_id.clone(), input.value()));
-                                                            } else if e.key() == "Escape" {
-                                                                e.prevent_default();
-                                                                on_cancel_rename.emit(());
-                                                            }
-                                                        })
-                                                    };
-                                                    let on_rename_blur = {
-                                                        let commit_rename = commit_rename.clone();
-                                                        let project_id = project_id_for_commit.clone();
-                                                        Callback::from(move |e: FocusEvent| {
-                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
-                                                            commit_rename.emit((project_id.clone(), input.value()));
-                                                        })
-                                                    };
-
-                                                    html! {
-                                                        <div id={format!("open-project-item-{}", project.id)} class="tree-node open-project-item open-project-item--renaming">
-                                                            <span class="tree-node__chevron-spacer"></span>
-                                                            <span class="tree-node__icon">
-                                                                <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
-                                                            </span>
-                                                            <input id="open-project-rename-input" class="tree-node__rename-input open-project-rename-input" type="text" value={(*rename_value).clone()} oninput={on_rename_input} onkeydown={on_rename_keydown} onblur={on_rename_blur} onclick={Callback::from(|e: MouseEvent| e.stop_propagation())} autofocus=true />
-                                                        </div>
-                                                    }
-                                                } else {
-                                                    let on_open_project = props.on_open_project.clone();
-                                                    let project_id_for_open = project_id.clone();
-                                                    let on_click = Callback::from(move |_| {
-                                                        on_open_project.emit(project_id_for_open.clone());
-                                                    });
-
-                                                    let project_id_for_menu = project_id.clone();
-                                                    let on_context_menu = Callback::from(move |e: MouseEvent| {
-                                                        e.prevent_default();
-                                                        e.stop_propagation();
-
-                                                        let request = ShowOpenProjectsContextMenuRequest {
-                                                            project_id: project_id_for_menu.clone(),
-                                                            x: e.client_x() as f64,
-                                                            y: e.client_y() as f64,
-                                                        };
-
-                                                        wasm_bindgen_futures::spawn_local(async move {
-                                                            if let Ok(args) = serde_wasm_bindgen::to_value(&json!({
-                                                                "request": request
-                                                            })) {
-                                                                let _ = open_projects_tauri_invoke(
-                                                                    "show_open_projects_context_menu",
-                                                                    args,
-                                                                )
-                                                                .await;
-                                                            }
-                                                        });
-                                                    });
-
-                                                    html! {
-                                                        <button id={format!("open-project-item-{}", project.id)} type="button" class="tree-node open-project-item" title={project_name.clone()} onclick={on_click} oncontextmenu={on_context_menu}>
-                                                            <span class="tree-node__chevron-spacer"></span>
-                                                            <span class="tree-node__icon">
-                                                                <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
-                                                            </span>
-                                                            <span class="tree-node__label">{project_name}</span>
-                                                        </button>
-                                                    }
-                                                }
-                                            }).collect::<Html>()
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-
-                        <div id="open-projects-search-container" class="open-projects-search-container">
-                            <input id="open-projects-search-input" class="open-projects-search-input" type="search" placeholder="Search projects" value={(*search_query).clone()} oninput={on_search_input} autocomplete="off" spellcheck="false" />
-                        </div>
+    let sidebar_scroll = html! {
+        <div id="open-projects-scroll" class="explorer-sidebar__scroll-area open-projects-scroll">
+            <div id="open-projects-section" class="tree-section open-projects-section">
+                <div id="open-projects-header" class="tree-section-header open-projects-header">
+                    <span class="tree-section-header__title open-projects-header__title">{"Open"}</span>
+                    <div id="open-projects-header-actions" class="tree-section-header__actions open-projects-header__actions">
+                        <button id="open-projects-sort-key-btn" type="button" class="open-projects-sort-key-btn" onclick={on_cycle_sort_key} title="Change sort field">{sort_key_label}</button>
+                        <button id="open-projects-sort-direction-btn" type="button" class="open-projects-sort-direction-btn" onclick={on_toggle_sort_direction} title={if *sort_desc {"Descending"} else {"Ascending"}} aria-label="Toggle sort direction">
+                            <span class={classes!("open-projects-sort-direction-icon", (!*sort_desc).then_some("open-projects-sort-direction-icon--asc"))}>
+                                <Icon icon_id={IconId::LucideChevronRight} width={"14"} height={"14"} />
+                            </span>
+                        </button>
                     </div>
                 </div>
-                <div id="open-main-content" class="open-main-content"></div>
+                <div id="open-projects-content" class="tree-section__content open-projects-content">
+                    if let Some(error) = &*error_message {
+                        <div id="open-projects-error" class="tree-section__empty open-projects-error">{error}</div>
+                    } else if visible_projects.is_empty() {
+                        <div id="open-projects-empty" class="tree-section__empty">
+                            {
+                                if search_normalized.is_empty() {
+                                    "No projects found."
+                                } else {
+                                    "No projects match your search."
+                                }
+                            }
+                        </div>
+                    } else {
+                        <div id="open-projects-list" class="open-projects-list">
+                            {
+                                visible_projects.iter().map(|project| {
+                                    let project_id = project.id.clone();
+                                    let project_name = project.project_name.clone();
+                                    let is_renaming = rename_project_id.as_deref() == Some(project.id.as_str());
+
+                                    if is_renaming {
+                                        let project_id_for_commit = project_id.clone();
+                                        let on_rename_input = {
+                                            let rename_value = rename_value.clone();
+                                            Callback::from(move |e: InputEvent| {
+                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                rename_value.set(input.value());
+                                            })
+                                        };
+                                        let on_rename_keydown = {
+                                            let commit_rename = commit_rename.clone();
+                                            let on_cancel_rename = on_cancel_rename.clone();
+                                            let project_id = project_id_for_commit.clone();
+                                            Callback::from(move |e: KeyboardEvent| {
+                                                if e.key() == "Enter" {
+                                                    e.prevent_default();
+                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                    commit_rename.emit((project_id.clone(), input.value()));
+                                                } else if e.key() == "Escape" {
+                                                    e.prevent_default();
+                                                    on_cancel_rename.emit(());
+                                                }
+                                            })
+                                        };
+                                        let on_rename_blur = {
+                                            let commit_rename = commit_rename.clone();
+                                            let project_id = project_id_for_commit.clone();
+                                            Callback::from(move |e: FocusEvent| {
+                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                commit_rename.emit((project_id.clone(), input.value()));
+                                            })
+                                        };
+
+                                        html! {
+                                            <div id={format!("open-project-item-{}", project.id)} class="tree-node open-project-item open-project-item--renaming">
+                                                <span class="tree-node__chevron-spacer"></span>
+                                                <span class="tree-node__icon">
+                                                    <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
+                                                </span>
+                                                <input id="open-project-rename-input" class="tree-node__rename-input open-project-rename-input" type="text" value={(*rename_value).clone()} oninput={on_rename_input} onkeydown={on_rename_keydown} onblur={on_rename_blur} onclick={Callback::from(|e: MouseEvent| e.stop_propagation())} autofocus=true />
+                                            </div>
+                                        }
+                                    } else {
+                                        let on_open_project = props.on_open_project.clone();
+                                        let project_id_for_open = project_id.clone();
+                                        let on_click = Callback::from(move |_| {
+                                            on_open_project.emit(project_id_for_open.clone());
+                                        });
+
+                                        let project_id_for_menu = project_id.clone();
+                                        let on_context_menu = Callback::from(move |e: MouseEvent| {
+                                            e.prevent_default();
+                                            e.stop_propagation();
+
+                                            let request = ShowOpenProjectsContextMenuRequest {
+                                                project_id: project_id_for_menu.clone(),
+                                                x: e.client_x() as f64,
+                                                y: e.client_y() as f64,
+                                            };
+
+                                            wasm_bindgen_futures::spawn_local(async move {
+                                                if let Ok(args) = serde_wasm_bindgen::to_value(&json!({
+                                                    "request": request
+                                                })) {
+                                                    let _ = open_projects_tauri_invoke(
+                                                        "show_open_projects_context_menu",
+                                                        args,
+                                                    )
+                                                    .await;
+                                                }
+                                            });
+                                        });
+
+                                        html! {
+                                            <button id={format!("open-project-item-{}", project.id)} type="button" class="tree-node open-project-item" title={project_name.clone()} onclick={on_click} oncontextmenu={on_context_menu}>
+                                                <span class="tree-node__chevron-spacer"></span>
+                                                <span class="tree-node__icon">
+                                                    <Icon icon_id={IconId::LucideFolder} width={"16"} height={"16"} />
+                                                </span>
+                                                <span class="tree-node__label">{project_name}</span>
+                                            </button>
+                                        }
+                                    }
+                                }).collect::<Html>()
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div id="open-projects-search-container" class="open-projects-search-container">
+                <input id="open-projects-search-input" class="open-projects-search-input" type="search" placeholder="Search projects" value={(*search_query).clone()} oninput={on_search_input} autocomplete="off" spellcheck="false" />
             </div>
         </div>
+    };
+
+    if props.sidebar_only {
+        sidebar_scroll
+    } else {
+        html! {
+            <div id="open-page" class="container open-page">
+                <div id="open-layout" class={classes!("open-layout", props.explorer_on_left.then_some("open-layout--explorer-left"))}>
+                    <div id="open-projects-sidebar" class="explorer-sidebar open-projects-sidebar">
+                        {sidebar_scroll}
+                    </div>
+                    <div id="open-main-content" class="open-main-content"></div>
+                </div>
+            </div>
+        }
     }
 }

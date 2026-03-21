@@ -166,4 +166,5 @@
 .open-main-content {
     flex: 1;
     min-width: 0;
+    background-color: #2f2f2f;
 }

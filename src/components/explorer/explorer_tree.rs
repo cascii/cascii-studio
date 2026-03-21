@@ -573,7 +573,12 @@ fn find_folder_name(items: &[ExplorerItem], target_id: &str) -> Option<String> {
 
 fn deep_clone_folder(item: &ExplorerItem) -> ExplorerItem {
     match item {
-        ExplorerItem::Folder { name, children, is_expanded, .. } => ExplorerItem::Folder {
+        ExplorerItem::Folder {
+            name,
+            children,
+            is_expanded,
+            ..
+        } => ExplorerItem::Folder {
             id: format!("{}", js_sys::Math::random().to_bits()),
             name: name.clone(),
             children: children.iter().map(deep_clone_folder).collect(),
@@ -1222,18 +1227,24 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
                             "duplicate" => {
                                 if is_explorer_folder_node(&payload.node_id) {
                                     let mut new_layout = handlers.explorer_layout.clone();
-                                    if duplicate_item(&mut new_layout.root_items, &payload.node_id) {
+                                    if duplicate_item(&mut new_layout.root_items, &payload.node_id)
+                                    {
                                         handlers.on_layout_change.emit(new_layout);
                                     }
                                 } else if let Some(project_id) = handlers.project_id.clone() {
                                     let node_id = payload.node_id.clone();
                                     let on_data_changed = handlers.on_data_changed.clone();
                                     wasm_bindgen_futures::spawn_local(async move {
-                                        if let Ok(args) = serde_wasm_bindgen::to_value(&serde_json::json!({
-                                            "nodeId": node_id,
-                                            "projectId": project_id
-                                        })) {
-                                            if explorer_tauri_invoke("duplicate_resource", args).await.is_ok() {
+                                        if let Ok(args) =
+                                            serde_wasm_bindgen::to_value(&serde_json::json!({
+                                                "nodeId": node_id,
+                                                "projectId": project_id
+                                            }))
+                                        {
+                                            if explorer_tauri_invoke("duplicate_resource", args)
+                                                .await
+                                                .is_ok()
+                                            {
                                                 if let Some(cb) = on_data_changed {
                                                     cb.emit(());
                                                 }
@@ -1413,8 +1424,7 @@ pub fn explorer_tree(props: &ExplorerTreeProps) -> Html {
                             }
                         }
                         ResourceRef::VideoCut { cut_id } => {
-                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned()
-                            {
+                            if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
                                 on_rename_cut.emit((cut, custom_name));
                             }
                         }

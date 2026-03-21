@@ -61,9 +61,24 @@ fn determine_media_kind(path: &Path) -> MediaKind {
 /// asset:// URLs, so we replace anything that isn't alphanumeric, `-`, `_`, or `.`
 /// and append a path hash to avoid collisions.
 fn safe_cache_filename(source_path: &Path) -> String {
-    let ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-    let stem = source_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-    let safe_stem: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let ext = source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let stem = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let safe_stem: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let mut hasher = DefaultHasher::new();
     source_path.hash(&mut hasher);
     format!("{}_{:08x}.{}", safe_stem, hasher.finish() as u32, ext)

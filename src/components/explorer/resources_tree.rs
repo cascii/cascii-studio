@@ -438,7 +438,10 @@ pub fn resources_tree(props: &ResourcesTreeProps) -> Html {
                                     "nodeId": node_id,
                                     "projectId": project_id
                                 })) {
-                                    if resources_tauri_invoke("duplicate_resource", args).await.is_ok() {
+                                    if resources_tauri_invoke("duplicate_resource", args)
+                                        .await
+                                        .is_ok()
+                                    {
                                         if let Some(cb) = on_data_changed {
                                             cb.emit(());
                                         }

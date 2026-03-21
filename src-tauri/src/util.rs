@@ -3,6 +3,7 @@ use rand::{thread_rng, Rng};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri_plugin_dialog::{DialogExt, FilePath};
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {
@@ -11,8 +12,6 @@ pub fn greet(name: &str) -> String {
 
 #[tauri::command]
 pub async fn pick_directory(app: tauri::AppHandle) -> Result<String, String> {
-    use tauri_plugin_dialog::{DialogExt, FilePath};
-
     let picked = app.dialog().file().blocking_pick_folder();
     match picked {
         Some(FilePath::Path(path)) => Ok(path.display().to_string()),
@@ -21,11 +20,27 @@ pub async fn pick_directory(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
-pub async fn pick_save_file_mp4(app: tauri::AppHandle, default_name: String) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::{DialogExt, FilePath};
+fn ensure_extension(default_name: &str, extension: &str) -> String {
+    let extension = extension.trim_start_matches('.');
+    let mut path = PathBuf::from(default_name);
+    path.set_extension(extension);
+    path.display().to_string()
+}
 
-    let picked = app.dialog().file().set_file_name(&default_name).add_filter("MP4 Video", &["mp4"]).blocking_save_file();
+fn pick_save_file_with_extension(
+    app: tauri::AppHandle,
+    default_name: String,
+    filter_label: &str,
+    extension: &str,
+) -> Result<Option<String>, String> {
+    let file_name = ensure_extension(&default_name, extension);
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter(filter_label, &[extension])
+        .blocking_save_file();
+
     match picked {
         Some(FilePath::Path(path)) => Ok(Some(path.display().to_string())),
         Some(FilePath::Url(url)) => Err(format!("unsupported URL: {url}")),
@@ -34,10 +49,36 @@ pub async fn pick_save_file_mp4(app: tauri::AppHandle, default_name: String) -> 
 }
 
 #[tauri::command]
-pub async fn pick_export_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::{DialogExt, FilePath};
+pub async fn pick_save_file_mp4(
+    app: tauri::AppHandle,
+    default_name: String,
+) -> Result<Option<String>, String> {
+    pick_save_file_with_extension(app, default_name, "MP4 Video", "mp4")
+}
 
-    let picked = app.dialog().file().set_title("Export project files").blocking_pick_folder();
+#[tauri::command]
+pub async fn pick_save_file_video(
+    app: tauri::AppHandle,
+    default_name: String,
+    extension: String,
+) -> Result<Option<String>, String> {
+    let normalized_extension = extension.trim().trim_start_matches('.').to_lowercase();
+    let filter_label = match normalized_extension.as_str() {
+        "mov" => "MOV Video",
+        "mkv" => "MKV Video",
+        _ => "MP4 Video",
+    };
+
+    pick_save_file_with_extension(app, default_name, filter_label, &normalized_extension)
+}
+
+#[tauri::command]
+pub async fn pick_export_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Export project files")
+        .blocking_pick_folder();
     match picked {
         Some(FilePath::Path(path)) => Ok(Some(path.display().to_string())),
         Some(FilePath::Url(url)) => Err(format!("unsupported URL: {url}")),

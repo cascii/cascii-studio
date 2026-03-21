@@ -119,7 +119,11 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         } else {
             route == current_page
         };
-        if is_active {"nav-btn active"} else {"nav-btn"}
+        if is_active {
+            "nav-btn active"
+        } else {
+            "nav-btn"
+        }
     };
 
     let current_context_action = if props.has_active_project {

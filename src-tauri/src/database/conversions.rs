@@ -108,11 +108,15 @@ pub fn get_conversion(conversion_id: &str) -> SqlResult<Option<AsciiConversion>>
                 fps: row.get(9)?,
                 frame_speed: row.get(10)?,
                 color: row.get::<_, i32>(14).unwrap_or(0) != 0,
-                output_mode: row.get::<_, Option<String>>(15)?.unwrap_or_else(default_output_mode),
+                output_mode: row
+                    .get::<_, Option<String>>(15)?
+                    .unwrap_or_else(default_output_mode),
                 foreground_color: row.get(16)?,
                 background_color: row.get(17)?,
             },
-            creation_date: DateTime::parse_from_rfc3339(&date_str).unwrap_or_else(|_| Utc::now().into()).with_timezone(&Utc),
+            creation_date: DateTime::parse_from_rfc3339(&date_str)
+                .unwrap_or_else(|_| Utc::now().into())
+                .with_timezone(&Utc),
             total_size: row.get(12)?,
             custom_name: row.get(13)?,
         }))

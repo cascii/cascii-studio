@@ -123,11 +123,18 @@ pub fn next_clip_speed_mode(current: &ClipSpeedMode) -> ClipSpeedMode {
     }
 }
 
-pub fn resolve_playback_fps(metadata: &FrameAssetMetadata, speed_mode: Option<&ClipSpeedMode>) -> u32 {
+pub fn resolve_playback_fps(
+    metadata: &FrameAssetMetadata,
+    speed_mode: Option<&ClipSpeedMode>,
+) -> u32 {
     match speed_mode {
         Some(ClipSpeedMode::Sync) => metadata.fps.max(1),
         Some(ClipSpeedMode::Default) | None => {
-            if metadata.frame_speed > 0 {metadata.frame_speed} else {metadata.fps.max(1)}
+            if metadata.frame_speed > 0 {
+                metadata.frame_speed
+            } else {
+                metadata.fps.max(1)
+            }
         }
     }
 }

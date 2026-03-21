@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 use yew::prelude::*;
 use yew_icons::{Icon, IconId};
 
-use super::open::Project;
+use super::open::{OpenPage, Project};
 use super::project::{FrameDirectory, PreparedMedia, Preview, SourceContent};
 use super::project_cache::{
     get_project_sidebar_cache, set_project_sidebar_cache, ProjectSidebarCache,
@@ -901,6 +901,12 @@ pub struct MontagePageProps {
     pub explorer_on_left: bool,
     #[prop_or_default]
     pub on_navigate: Option<Callback<&'static str>>,
+    #[prop_or_default]
+    pub show_open_in_sidebar: bool,
+    #[prop_or_default]
+    pub on_open_project: Option<Callback<String>>,
+    #[prop_or_default]
+    pub on_open_montage: Option<Callback<String>>,
 }
 
 #[function_component(MontagePage)]
@@ -2984,6 +2990,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 )}
             >
                 <div id="montage-explorer-sidebar" class="explorer-sidebar">
+                    if props.show_open_in_sidebar {
+                        if let Some(ref on_open_project) = props.on_open_project {
+                            <OpenPage sidebar_only=true on_open_project={on_open_project.clone()} on_open_montage={props.on_open_montage.clone()} explorer_on_left={props.explorer_on_left} />
+                        }
+                    } else {
                     <div id="montage-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree
                             project_id={props.project_id.clone()}
@@ -3111,6 +3122,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             <ToolsSection on_navigate={on_navigate.clone()} current_page={"montage"} />
                         }
                     </div>
+                    } // else !show_open_in_sidebar
                 </div>
 
                 <div id="montage-main-content" class="main-content">

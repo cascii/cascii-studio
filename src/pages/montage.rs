@@ -3027,6 +3027,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         <VideoPlayer
                                                             key={format!("video-{}", clip_id)}
                                                             src={asset_url.clone()}
+                                                            show_controls={false}
                                                             should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                             should_reset={*should_reset}
                                                             seek_percentage={*active_seek_percentage}
@@ -3052,6 +3053,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         <AsciiFramesViewer
                                                             key={format!("frames-{}", clip_id)}
                                                             directory_path={directory_path.clone()}
+                                                            show_controls={false}
                                                             fps={*fps}
                                                             settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
                                                             should_play={if *is_playing {Some(true)} else {Some(false)}}
@@ -3119,7 +3121,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                                                     }
                                                                                     TimelineMediaType::Frames | TimelineMediaType::Frame => {
                                                                                         if let Some(preloaded_bundle) = preload.frame_bundle.clone() {
-                                                                                            html! {<AsciiFramesViewer key={format!("overview-frames-{}", item.clip_id)} directory_path={preloaded_bundle.directory_path.clone()} fps={preload.playback_fps.unwrap_or(24)} settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>} should_play={Some(false)} should_reset={false} loop_enabled={false} frame_render_mode={Some(item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText))} frame_colors={Some(preloaded_bundle.frame_colors.clone())} preloaded_bundle={Some(preloaded_bundle)} />}
+                                                                                            html! {<AsciiFramesViewer key={format!("overview-frames-{}", item.clip_id)} directory_path={preloaded_bundle.directory_path.clone()} show_controls={false} fps={preload.playback_fps.unwrap_or(24)} settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>} should_play={Some(false)} should_reset={false} loop_enabled={false} frame_render_mode={Some(item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText))} frame_colors={Some(preloaded_bundle.frame_colors.clone())} preloaded_bundle={Some(preloaded_bundle)} />}
                                                                                         } else {
                                                                                             html! {}
                                                                                         }

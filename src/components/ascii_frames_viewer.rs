@@ -39,6 +39,14 @@ export function startInterval(callback, intervalMs) {
 export function clearIntervalById(id) {
   clearInterval(id);
 }
+
+export function requestAnimationFrameHandle(callback) {
+  return requestAnimationFrame(callback);
+}
+
+export function cancelAnimationFrameHandle(id) {
+  cancelAnimationFrame(id);
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = observeResize)]
@@ -52,6 +60,12 @@ extern "C" {
 
     #[wasm_bindgen(js_name = clearIntervalById)]
     fn clear_interval_by_id(id: i32);
+
+    #[wasm_bindgen(js_name = requestAnimationFrameHandle)]
+    fn request_animation_frame_handle(callback: &Closure<dyn FnMut(f64)>) -> i32;
+
+    #[wasm_bindgen(js_name = cancelAnimationFrameHandle)]
+    fn cancel_animation_frame_handle(id: i32);
 }
 
 async fn sleep_ms(ms: i32) {
@@ -147,6 +161,8 @@ pub struct AsciiFramesViewerProps {
     /// Preloaded frame bundle supplied by montage.
     #[prop_or_default]
     pub preloaded_bundle: Option<Rc<PreloadedFrameBundle>>,
+    #[prop_or(true)]
+    pub show_controls: bool,
 }
 
 #[function_component(AsciiFramesViewer)]
@@ -178,8 +194,10 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
     // Dual range selector state (0..1)
     let left_value = use_state(|| 0.0f64);
     let right_value = use_state(|| 1.0f64);
-    // Store interval handle for animation
-    let interval_handle: Rc<RefCell<Option<Interval>>> = use_mut_ref(|| None);
+    // Store requestAnimationFrame bookkeeping for playback.
+    let playback_frame_handle: Rc<RefCell<Option<i32>>> = use_mut_ref(|| None);
+    let playback_loop_callback: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>> =
+        use_mut_ref(|| None);
     let on_loading_changed = props.on_loading_changed.clone();
 
     // Color display toggle
@@ -287,7 +305,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let error_message = error_message.clone();
         let color_progress = color_progress.clone();
         let current_index = current_index.clone();
-        let interval_handle = interval_handle.clone();
+        let playback_frame_handle = playback_frame_handle.clone();
+        let playback_loop_callback = playback_loop_callback.clone();
         let is_playing = is_playing.clone();
         let left_value = left_value.clone();
         let right_value = right_value.clone();
@@ -323,7 +342,10 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 is_playing.set(false);
                 left_value.set(0.0);
                 right_value.set(1.0);
-                interval_handle.borrow_mut().take();
+                if let Some(handle) = playback_frame_handle.borrow_mut().take() {
+                    cancel_animation_frame_handle(handle);
+                }
+                playback_loop_callback.borrow_mut().take();
 
                 if let Some(callback) = &on_loading_changed {
                     callback.emit(true);
@@ -455,7 +477,8 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let current_index = current_index.clone();
         let current_index_ref = current_index_ref.clone();
         let is_playing_state = is_playing.clone();
-        let interval_handle = interval_handle.clone();
+        let playback_frame_handle = playback_frame_handle.clone();
+        let playback_loop_callback = playback_loop_callback.clone();
         let left_value = left_value.clone();
         let right_value = right_value.clone();
         let loop_enabled = props.loop_enabled;
@@ -464,72 +487,116 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
         let ended_fired = ended_fired.clone();
         let playing = *is_playing;
         let total_frames = *frame_count;
+        let is_playing_ref = is_playing_ref.clone();
 
-        use_effect_with((playing, current_fps, total_frames), move |_| {
-            // Always clear existing interval first
-            interval_handle.borrow_mut().take();
+        use_effect_with(
+            (playing, current_fps, total_frames, *left_value, *right_value),
+            move |_| {
+                if let Some(handle) = playback_frame_handle.borrow_mut().take() {
+                    cancel_animation_frame_handle(handle);
+                }
+                playback_loop_callback.borrow_mut().take();
 
-            if playing && total_frames > 0 {
-                *ended_fired.borrow_mut() = false;
-                let interval_ms = (1000.0 / current_fps as f64).max(1.0) as u32;
-                let current_index_clone = current_index.clone();
-                let current_index_ref_clone = current_index_ref.clone();
-                let is_playing_clone = is_playing_state.clone();
-                let interval_handle_clone = interval_handle.clone();
-                let left_value_clone = left_value.clone();
-                let right_value_clone = right_value.clone();
-                let on_ended_clone = on_ended.clone();
-                let on_progress_clone = on_progress.clone();
-                let ended_fired_clone = ended_fired.clone();
+                if playing && total_frames > 0 {
+                    *ended_fired.borrow_mut() = false;
 
-                let interval = Interval::new(interval_ms, move || {
                     let max_idx = total_frames.saturating_sub(1) as f64;
-                    let effective_start = (*left_value_clone * max_idx).round() as usize;
-                    let effective_end = (*right_value_clone * max_idx).round() as usize;
-                    let range_len = effective_end.saturating_sub(effective_start).max(1);
+                    let effective_start = (*left_value * max_idx).round() as usize;
+                    let effective_end = (*right_value * max_idx).round() as usize;
+                    let frame_span = effective_end.saturating_sub(effective_start) + 1;
+                    let progress_denominator = frame_span.saturating_sub(1).max(1);
 
-                    // Use ref for latest value
-                    let mut current = *current_index_ref_clone.borrow();
+                    let start_frame = (*current_index_ref.borrow())
+                        .max(effective_start)
+                        .min(effective_end);
+                    *current_index_ref.borrow_mut() = start_frame;
+                    current_index.set(start_frame);
 
-                    if current < effective_start {
-                        current = effective_start;
-                    }
+                    let initial_offset = start_frame.saturating_sub(effective_start);
+                    let first_timestamp_ms = Rc::new(RefCell::new(None::<f64>));
 
-                    if current >= effective_end {
-                        if loop_enabled {
-                            current = effective_start;
-                            *current_index_ref_clone.borrow_mut() = current;
-                            current_index_clone.set(current);
+                    let callback_holder = playback_loop_callback.clone();
+                    let frame_handle_ref = playback_frame_handle.clone();
+                    let current_index_clone = current_index.clone();
+                    let current_index_ref_clone = current_index_ref.clone();
+                    let is_playing_clone = is_playing_state.clone();
+                    let is_playing_ref_clone = is_playing_ref.clone();
+                    let on_ended_clone = on_ended.clone();
+                    let on_progress_clone = on_progress.clone();
+                    let ended_fired_clone = ended_fired.clone();
+                    let first_timestamp_ms_clone = first_timestamp_ms.clone();
+
+                    let callback = Closure::wrap(Box::new(move |timestamp_ms: f64| {
+                        if !*is_playing_ref_clone.borrow() {
+                            return;
+                        }
+
+                        let base_timestamp_ms = {
+                            let mut first = first_timestamp_ms_clone.borrow_mut();
+                            if first.is_none() {
+                                *first = Some(timestamp_ms);
+                            }
+                            first.unwrap_or(timestamp_ms)
+                        };
+
+                        let elapsed_ms = (timestamp_ms - base_timestamp_ms).max(0.0);
+                        let frames_advanced =
+                            ((elapsed_ms / 1000.0) * current_fps as f64).floor() as usize;
+                        let absolute_offset = initial_offset.saturating_add(frames_advanced);
+
+                        let reached_end = !loop_enabled && absolute_offset >= frame_span;
+                        let next = if loop_enabled {
+                            effective_start + (absolute_offset % frame_span)
                         } else {
-                            interval_handle_clone.borrow_mut().take();
+                            effective_start
+                                + absolute_offset.min(frame_span.saturating_sub(1))
+                        };
+
+                        if next != *current_index_ref_clone.borrow() {
+                            *current_index_ref_clone.borrow_mut() = next;
+                            current_index_clone.set(next);
+                        }
+
+                        if let Some(cb) = &on_progress_clone {
+                            let progress = (next.saturating_sub(effective_start)) as f64
+                                / progress_denominator as f64;
+                            cb.emit(progress.clamp(0.0, 1.0));
+                        }
+
+                        if reached_end {
+                            *is_playing_ref_clone.borrow_mut() = false;
                             is_playing_clone.set(false);
+                            frame_handle_ref.borrow_mut().take();
                             if !*ended_fired_clone.borrow() {
                                 *ended_fired_clone.borrow_mut() = true;
                                 if let Some(cb) = &on_ended_clone {
                                     cb.emit(());
                                 }
                             }
+                            return;
                         }
-                    } else {
-                        current += 1;
-                        *current_index_ref_clone.borrow_mut() = current;
-                        current_index_clone.set(current);
+
+                        if let Some(next_callback) = callback_holder.borrow().as_ref() {
+                            let handle = request_animation_frame_handle(next_callback);
+                            *frame_handle_ref.borrow_mut() = Some(handle);
+                        }
+                    }) as Box<dyn FnMut(f64)>);
+
+                    *playback_loop_callback.borrow_mut() = Some(callback);
+                    if let Some(initial_callback) = playback_loop_callback.borrow().as_ref() {
+                        let handle = request_animation_frame_handle(initial_callback);
+                        *playback_frame_handle.borrow_mut() = Some(handle);
                     }
+                }
 
-                    // Emit progress relative to trim window
-                    if let Some(cb) = &on_progress_clone {
-                        let progress =
-                            (current.saturating_sub(effective_start)) as f64 / range_len as f64;
-                        cb.emit(progress.clamp(0.0, 1.0));
+                move || {
+                    if let Some(handle) = playback_frame_handle.borrow_mut().take() {
+                        cancel_animation_frame_handle(handle);
                     }
-                });
-
-                // Store the interval to keep it alive
-                *interval_handle.borrow_mut() = Some(interval);
-            }
-
-            || ()
-        });
+                    playback_loop_callback.borrow_mut().take();
+                }
+            },
+        );
     }
 
     // External play/pause control
@@ -1151,6 +1218,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                 }
             </div>
 
+            if props.show_controls {
             <div class="controls" id="frames-controls">
                 <div class="control-row" id="frames-progress">
                     <input id="frames-progress-bar" class="progress" type="range" min="0" max="1" step="0.001" value={progress_in_range.to_string()} oninput={on_seek} title="Seek frame" disabled={total_frames == 0} />
@@ -1383,6 +1451,7 @@ pub fn ascii_frames_viewer(props: &AsciiFramesViewerProps) -> Html {
                     </div>
                 }
             </div>
+            }
         </div>
     }
 }

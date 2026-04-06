@@ -199,6 +199,8 @@ pub struct VideoPlayerProps {
     /// Callback when a preview is created (emits the created Preview)
     #[prop_or_default]
     pub on_preview_created: Option<Callback<serde_json::Value>>,
+    #[prop_or(true)]
+    pub show_controls: bool,
 }
 
 #[function_component(VideoPlayer)]
@@ -1084,6 +1086,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 }
             </div>
 
+            if props.show_controls {
             <div class="controls" id="video-controls">
                 <div class="control-row" id="video-progress">
                     <input id="video-progress-bar" class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
@@ -1195,6 +1198,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                 </div>
 
             </div>
+            }
         </div>
     }
 }

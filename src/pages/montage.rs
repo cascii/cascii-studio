@@ -617,11 +617,7 @@ fn frame_asset_metadata_from_preview(preview: &Preview) -> FrameAssetMetadata {
     }
 }
 
-fn frame_length_seconds(
-    metadata: &FrameAssetMetadata,
-    media_type: &TimelineMediaType,
-    speed_mode: Option<&ClipSpeedMode>,
-) -> f64 {
+fn frame_length_seconds(metadata: &FrameAssetMetadata, media_type: &TimelineMediaType, speed_mode: Option<&ClipSpeedMode>) -> f64 {
     if matches!(media_type, TimelineMediaType::Frame) {
         return 1.0;
     }
@@ -631,14 +627,7 @@ fn frame_length_seconds(
 }
 
 fn make_clip_signature(clip: &TimelineClipItem) -> String {
-    format!(
-        "{}::{:?}::{:?}::{:?}::{:?}",
-        clip.actual_resource_id,
-        clip.resource_kind,
-        clip.media_type,
-        clip.frame_render_mode,
-        clip.clip_speed_mode
-    )
+    format!("{}::{:?}::{:?}::{:?}::{:?}", clip.actual_resource_id, clip.resource_kind, clip.media_type, clip.frame_render_mode, clip.clip_speed_mode)
 }
 
 fn frame_clip_resource_id(frame_dir: &FrameDirectory) -> String {
@@ -649,24 +638,13 @@ fn frame_clip_resource_id(frame_dir: &FrameDirectory) -> String {
     }
 }
 
-fn hydrate_persisted_clip(
-    clip: &PersistedTimelineClip,
-    source_files: &[SourceContent],
-    frame_directories: &[FrameDirectory],
-    video_cuts: &[VideoCut],
-    previews: &[Preview],
-) -> Option<TimelineClipItem> {
+fn hydrate_persisted_clip(clip: &PersistedTimelineClip, source_files: &[SourceContent], frame_directories: &[FrameDirectory], video_cuts: &[VideoCut], previews: &[Preview]) -> Option<TimelineClipItem> {
     match clip.resource_kind {
         TimelineResourceKind::Source => {
-            let source = source_files
-                .iter()
-                .find(|source| source.id == clip.actual_resource_id)?;
+            let source = source_files.iter().find(|source| source.id == clip.actual_resource_id)?;
             Some(TimelineClipItem {
                 clip_id: clip.clip_id.clone(),
-                name: source
-                    .custom_name
-                    .clone()
-                    .unwrap_or_else(|| file_name_from_path(&source.file_path)),
+                name: source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path)),
                 media_type: TimelineMediaType::Video,
                 resource_kind: TimelineResourceKind::Source,
                 actual_resource_id: source.id.clone(),
@@ -676,15 +654,10 @@ fn hydrate_persisted_clip(
             })
         }
         TimelineResourceKind::Cut => {
-            let cut = video_cuts
-                .iter()
-                .find(|cut| cut.id == clip.actual_resource_id)?;
+            let cut = video_cuts.iter().find(|cut| cut.id == clip.actual_resource_id)?;
             Some(TimelineClipItem {
                 clip_id: clip.clip_id.clone(),
-                name: cut
-                    .custom_name
-                    .clone()
-                    .unwrap_or_else(|| file_name_from_path(&cut.file_path)),
+                name: cut.custom_name.clone().unwrap_or_else(|| file_name_from_path(&cut.file_path)),
                 media_type: TimelineMediaType::Video,
                 resource_kind: TimelineResourceKind::Cut,
                 actual_resource_id: cut.id.clone(),
@@ -699,8 +672,7 @@ fn hydrate_persisted_clip(
         }
         TimelineResourceKind::AsciiConversion => {
             let frame_dir = frame_directories.iter().find(|frame_dir| {
-                frame_clip_resource_id(frame_dir) == clip.actual_resource_id
-                    || frame_dir.directory_path == clip.actual_resource_id
+                frame_clip_resource_id(frame_dir) == clip.actual_resource_id || frame_dir.directory_path == clip.actual_resource_id
             })?;
             let metadata = frame_asset_metadata_from_directory(frame_dir);
             let frame_render_mode = clip
@@ -720,18 +692,11 @@ fn hydrate_persisted_clip(
                 length_seconds: if clip.length_seconds > 0.0 {
                     clip.length_seconds
                 } else {
-                    frame_length_seconds(
-                        &metadata,
-                        &TimelineMediaType::Frames,
-                        clip_speed_mode.as_ref(),
-                    )
-                },
+                    frame_length_seconds(&metadata, &TimelineMediaType::Frames, clip_speed_mode.as_ref())}
             })
         }
         TimelineResourceKind::Preview => {
-            let preview = previews
-                .iter()
-                .find(|preview| preview.id == clip.actual_resource_id)?;
+            let preview = previews.iter().find(|preview| preview.id == clip.actual_resource_id)?;
             let metadata = frame_asset_metadata_from_preview(preview);
             let frame_render_mode = clip
                 .frame_render_mode
@@ -740,10 +705,7 @@ fn hydrate_persisted_clip(
                 .or_else(|| default_frame_render_mode(&metadata));
             Some(TimelineClipItem {
                 clip_id: clip.clip_id.clone(),
-                name: preview
-                    .custom_name
-                    .clone()
-                    .unwrap_or_else(|| preview.folder_name.clone()),
+                name: preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone()),
                 media_type: TimelineMediaType::Frame,
                 resource_kind: TimelineResourceKind::Preview,
                 actual_resource_id: preview.id.clone(),
@@ -759,13 +721,7 @@ fn hydrate_persisted_clip(
     }
 }
 
-fn reconcile_timeline_clip(
-    clip: &TimelineClipItem,
-    source_files: &[SourceContent],
-    frame_directories: &[FrameDirectory],
-    video_cuts: &[VideoCut],
-    previews: &[Preview],
-) -> Option<TimelineClipItem> {
+fn reconcile_timeline_clip(clip: &TimelineClipItem, source_files: &[SourceContent], frame_directories: &[FrameDirectory], video_cuts: &[VideoCut], previews: &[Preview]) -> Option<TimelineClipItem> {
     let clip_snapshot = PersistedTimelineClip {
         clip_id: clip.clip_id.clone(),
         project_id: String::new(),
@@ -780,22 +736,13 @@ fn reconcile_timeline_clip(
         creation_date: String::new(),
         last_updated: String::new(),
     };
-    hydrate_persisted_clip(
-        &clip_snapshot,
-        source_files,
-        frame_directories,
-        video_cuts,
-        previews,
-    )
+    hydrate_persisted_clip(&clip_snapshot, source_files, frame_directories, video_cuts, previews)
 }
 
 fn build_source_clip(source: &SourceContent) -> TimelineClipItem {
     TimelineClipItem {
         clip_id: make_unique_clip_id(&source.id),
-        name: source
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| file_name_from_path(&source.file_path)),
+        name: source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path)),
         media_type: TimelineMediaType::Video,
         resource_kind: TimelineResourceKind::Source,
         actual_resource_id: source.id.clone(),
@@ -808,10 +755,7 @@ fn build_source_clip(source: &SourceContent) -> TimelineClipItem {
 fn build_cut_clip(cut: &VideoCut) -> TimelineClipItem {
     TimelineClipItem {
         clip_id: make_unique_clip_id(&cut.id),
-        name: cut
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| file_name_from_path(&cut.file_path)),
+        name: cut.custom_name.clone().unwrap_or_else(|| file_name_from_path(&cut.file_path)),
         media_type: TimelineMediaType::Video,
         resource_kind: TimelineResourceKind::Cut,
         actual_resource_id: cut.id.clone(),
@@ -839,10 +783,7 @@ fn build_preview_clip(preview: &Preview) -> TimelineClipItem {
     let metadata = frame_asset_metadata_from_preview(preview);
     TimelineClipItem {
         clip_id: make_unique_clip_id(&preview.id),
-        name: preview
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| preview.folder_name.clone()),
+        name: preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone()),
         media_type: TimelineMediaType::Frame,
         resource_kind: TimelineResourceKind::Preview,
         actual_resource_id: preview.id.clone(),
@@ -853,9 +794,7 @@ fn build_preview_clip(preview: &Preview) -> TimelineClipItem {
 }
 
 fn bw_frame_mode_icon() -> Html {
-    Html::from_html_unchecked(AttrValue::from(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 16 2.536-7.328a1.02 1.02 0 1 1 1.928 0L22 16"/><path d="M15.697 14h5.606"/><path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M3.304 13h6.392"/></svg>"#,
-    ))
+    Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 16 2.536-7.328a1.02 1.02 0 1 1 1.928 0L22 16"/><path d="M15.697 14h5.606"/><path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/><path d="M3.304 13h6.392"/></svg>"#,))
 }
 
 fn frame_mode_icon(mode: Option<&FrameRenderMode>) -> Html {
@@ -873,12 +812,8 @@ fn frame_mode_icon(mode: Option<&FrameRenderMode>) -> Html {
 
 fn speed_mode_icon(mode: &ClipSpeedMode) -> Html {
     match mode {
-        ClipSpeedMode::Default => Html::from_html_unchecked(AttrValue::from(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>"#,
-        )),
-        ClipSpeedMode::Sync => Html::from_html_unchecked(AttrValue::from(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#,
-        )),
+        ClipSpeedMode::Default => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>"#,)),
+        ClipSpeedMode::Sync => Html::from_html_unchecked(AttrValue::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(90deg)"><path d="m4 6 3-3 3 3"/><path d="M7 17V3"/><path d="m14 6 3-3 3 3"/><path d="M17 17V3"/><path d="M4 21h16"/></svg>"#,))
     }
 }
 
@@ -927,6 +862,9 @@ fn js_value_message(value: &JsValue) -> Option<String> {
                 .filter(|message| !message.trim().is_empty())
         })
 }
+
+const PLAYBACK_PROGRESS_SYNC_INTERVAL_MS: f64 = 125.0;
+const ENABLE_MONTAGE_VIDEO_WARMUP: bool = false;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -1068,13 +1006,7 @@ struct MontageExportOptions {
 
 impl MontageExportOptions {
     fn hint_text(self) -> String {
-        format!(
-            "{} • {} • {} • {}",
-            self.format.label(),
-            self.resolution.label(),
-            self.frame_rate.label(),
-            self.quality.label()
-        )
+        format!("{} • {} • {} • {}", self.format.label(), self.resolution.label(), self.frame_rate.label(), self.quality.label())
     }
 }
 
@@ -1147,10 +1079,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let cached_explorer_layout = cached_sidebar_data
         .as_ref()
         .map(|data| data.explorer_layout.clone())
-        .unwrap_or_else(|| ExplorerLayout {
-            project_id: props.project_id.clone(),
-            root_items: Vec::new(),
-        });
+        .unwrap_or_else(|| ExplorerLayout {project_id: props.project_id.clone(), root_items: Vec::new()});
 
     let project = use_state(move || cached_project.clone());
     let source_files = use_state(move || cached_source_files.clone());
@@ -1196,6 +1125,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let workspace_ready = use_state(|| false);
     let url_cache = use_state(|| HashMap::<String, String>::new());
     let preload_generation = use_mut_ref(|| 0u64);
+    let last_progress_sync_ms = use_mut_ref(|| 0.0f64);
 
     // Load persisted loop setting once on mount.
     {
@@ -1254,10 +1184,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             match item.media_type {
                                 TimelineMediaType::Video => {
                                     if let Some(asset_url) = preload.video_asset_url.clone() {
-                                        Some(PlayableItem::Video {
-                                            clip_id: item.clip_id.clone(),
-                                            asset_url,
-                                        })
+                                        Some(PlayableItem::Video {clip_id: item.clip_id.clone(), asset_url})
                                     } else {
                                         None
                                     }
@@ -1268,14 +1195,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             clip_id: item.clip_id.clone(),
                                             directory_path: preloaded_bundle.directory_path.clone(),
                                             fps: preload.playback_fps.unwrap_or(24),
-                                            frame_render_mode: item
-                                                .frame_render_mode
-                                                .clone()
-                                                .unwrap_or(FrameRenderMode::BwText),
+                                            frame_render_mode: item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText),
                                             frame_colors: preloaded_bundle.frame_colors.clone(),
-                                            preloaded_bundle: (preload.status
-                                                == PreloadStatus::Ready)
-                                                .then_some(preloaded_bundle),
+                                            preloaded_bundle: (preload.status == PreloadStatus::Ready).then_some(preloaded_bundle),
                                         })
                                     } else {
                                         None
@@ -1296,33 +1218,18 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 // (clip exists, preload in Loading state with no URL/bundle),
                 // keep the current active_playable to avoid unmounting a playing
                 // component. Only clear when the active index or item is truly gone.
-                let should_clear = active_timeline_index.is_none()
-                    || active_timeline_index
-                        .map(|idx| timeline_items.get(idx).is_none())
-                        .unwrap_or(false);
+                let should_clear = active_timeline_index.is_none() || active_timeline_index.map(|idx| timeline_items.get(idx).is_none()).unwrap_or(false);
 
                 match next {
                     Some(new_playable) => {
                         if *active_playable != Some(new_playable.clone()) {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "[montage] active_playable CHANGED: idx={:?}",
-                                    active_timeline_index
-                                )
-                                .into(),
-                            );
+                            web_sys::console::log_1(&format!("[montage] active_playable CHANGED: idx={:?}", active_timeline_index).into());
                             active_playable.set(Some(new_playable));
                         }
                     }
                     None if should_clear => {
                         if (*active_playable).is_some() {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "[montage] active_playable CLEARED: idx={:?} should_clear=true",
-                                    active_timeline_index
-                                )
-                                .into(),
-                            );
+                            web_sys::console::log_1(&format!("[montage] active_playable CLEARED: idx={:?} should_clear=true", active_timeline_index).into());
                             active_playable.set(None);
                         }
                     }
@@ -1331,8 +1238,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             "[montage] active_playable KEPT (preload pending): idx={:?} current={:?}",
                             active_timeline_index,
                             (*active_playable).as_ref().map(|p| match p {
-                                PlayableItem::Video { clip_id, .. } => format!("video:{}", clip_id),
-                                PlayableItem::Frames { clip_id, .. } => format!("frames:{}", clip_id),
+                                PlayableItem::Video { clip_id, .. }     => format!("video:{}", clip_id),
+                                PlayableItem::Frames { clip_id, .. }    => format!("frames:{}", clip_id),
                             })
                         ).into());
                     }
@@ -1347,15 +1254,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let playing = *is_playing;
         let has_active_playable = (*active_playable).is_some();
         let show_workspace_overview = show_workspace_overview.clone();
-        let workspace_ready = *workspace_ready;
         use_effect_with(
-            (playing, has_active_playable, workspace_ready),
-            move |(playing, has_active_playable, workspace_ready)| {
-                if *playing && *has_active_playable && *workspace_ready {
+            (playing, has_active_playable),
+            move |(playing, has_active_playable)| {
+                if *playing && *has_active_playable {
                     show_workspace_overview.set(false);
                 }
                 || ()
-            },
+            }
         );
     }
 
@@ -1366,13 +1272,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         });
         let workspace_ready = workspace_ready.clone();
         use_effect_with(active_clip_key.clone(), move |key| {
-            web_sys::console::log_1(
-                &format!(
-                    "[montage] workspace_ready RESET to false (clip_key={:?})",
-                    key
-                )
-                .into(),
-            );
+            web_sys::console::log_1(&format!("[montage] workspace_ready RESET to false (clip_key={:?})", key).into());
             workspace_ready.set(false);
             || ()
         });
@@ -1386,10 +1286,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         use_effect_with(
             (show_workspace_overview_value, has_timeline_items),
             move |(show_workspace_overview_value, has_timeline_items)| {
-                if *show_workspace_overview_value
-                    && *has_timeline_items
-                    && (*active_timeline_index).is_none()
-                {
+                if *show_workspace_overview_value && *has_timeline_items && (*active_timeline_index).is_none() {
                     resolve_and_activate(0);
                 }
                 || ()
@@ -1410,13 +1307,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let current = (*active_timeline_index).unwrap_or(0);
             let next = current + 1;
             let total = timeline_items.len();
-            web_sys::console::log_1(
-                &format!(
-                    "[montage] on_item_ended: current={} next={} total={} loop={}",
-                    current, next, total, *loop_enabled
-                )
-                .into(),
-            );
+            web_sys::console::log_1(&format!("[montage] on_item_ended: current={} next={} total={} loop={}", current, next, total, *loop_enabled).into());
             if next < total {
                 resolve_and_activate(next);
             } else if *loop_enabled && total > 0 {
@@ -1439,6 +1330,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let timeline_items = timeline_items.clone();
         let synced_progress = synced_progress.clone();
         let is_playing = is_playing.clone();
+        let last_progress_sync_ms = last_progress_sync_ms.clone();
         Callback::from(move |local_progress: f64| {
             if !*is_playing {
                 return;
@@ -1449,9 +1341,29 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             }
             let current = (*active_timeline_index).unwrap_or(0);
             let global = (current as f64 + local_progress) / total as f64 * 100.0;
-            synced_progress.set(global.clamp(0.0, 100.0));
+            let now = js_sys::Date::now();
+            let last_sync_ms = *last_progress_sync_ms.borrow();
+            let should_sync = last_sync_ms <= 0.0
+                || (now - last_sync_ms) >= PLAYBACK_PROGRESS_SYNC_INTERVAL_MS
+                || local_progress <= 0.001
+                || local_progress >= 0.999;
+
+            if should_sync {
+                *last_progress_sync_ms.borrow_mut() = now;
+                synced_progress.set(global.clamp(0.0, 100.0));
+            }
         })
     };
+
+    {
+        let playing = *is_playing;
+        let active_index = *active_timeline_index;
+        let last_progress_sync_ms = last_progress_sync_ms.clone();
+        use_effect_with((playing, active_index), move |_| {
+            *last_progress_sync_ms.borrow_mut() = 0.0;
+            || ()
+        });
+    }
 
     // Handle play/pause: when play is pressed and no active item, start from 0
     {
@@ -1738,22 +1650,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                let loaded_timeline = serde_wasm_bindgen::from_value::<PersistedProjectTimeline>(
-                    tauri_invoke("get_active_project_timeline", args).await,
-                )
-                .unwrap_or(PersistedProjectTimeline {
-                    timeline: None,
-                    clips: Vec::new(),
-                });
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                let loaded_timeline = serde_wasm_bindgen::from_value::<PersistedProjectTimeline>(tauri_invoke("get_active_project_timeline", args).await).unwrap_or(PersistedProjectTimeline {timeline: None, clips: Vec::new()});
 
-                timeline_id.set(
-                    loaded_timeline
-                        .timeline
-                        .as_ref()
-                        .map(|timeline| timeline.timeline_id.clone()),
-                );
+                timeline_id.set(loaded_timeline.timeline.as_ref().map(|timeline| timeline.timeline_id.clone()),);
                 persisted_timeline.set(Some(loaded_timeline));
                 timeline_loaded.set(true);
             });
@@ -1800,20 +1700,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     let hydrated_items = persisted_timeline_value
                         .as_ref()
                         .map(|timeline| {
-                            timeline
-                                .clips
-                                .iter()
-                                .filter_map(|clip| {
-                                    hydrate_persisted_clip(
-                                        clip,
-                                        source_files,
-                                        frame_directories,
-                                        video_cuts,
-                                        previews,
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                        })
+                            timeline.clips.iter().filter_map(|clip| {hydrate_persisted_clip(clip, source_files, frame_directories, video_cuts, previews)}).collect::<Vec<_>>()})
                         .unwrap_or_default();
 
                     timeline_items.set(hydrated_items);
@@ -1835,34 +1722,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let active_playable = active_playable.clone();
 
         use_effect_with(
-            (
-                timeline_initialized_value,
-                source_files,
-                frame_directories,
-                video_cuts,
-                previews,
-            ),
-            move |(
-                timeline_initialized_value,
-                source_files,
-                frame_directories,
-                video_cuts,
-                previews,
-            )| {
+            (timeline_initialized_value, source_files, frame_directories, video_cuts, previews), move |(timeline_initialized_value, source_files, frame_directories, video_cuts, previews)| {
                 if *timeline_initialized_value {
                     let current_items = (*timeline_items).clone();
-                    let reconciled_items = current_items
-                        .iter()
-                        .filter_map(|clip| {
-                            reconcile_timeline_clip(
-                                clip,
-                                source_files,
-                                frame_directories,
-                                video_cuts,
-                                previews,
-                            )
-                        })
-                        .collect::<Vec<_>>();
+                    let reconciled_items = current_items.iter().filter_map(|clip| {reconcile_timeline_clip( clip, source_files, frame_directories, video_cuts, previews)}).collect::<Vec<_>>();
 
                     if reconciled_items != current_items {
                         let reconciled_len = reconciled_items.len();
@@ -1889,12 +1752,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let timeline_items_snapshot = (*timeline_items).clone();
         let timeline_id = timeline_id.clone();
 
-        use_effect_with(
-            (
-                timeline_initialized_value,
-                project_id.clone(),
-                timeline_items_snapshot,
-            ),
+        use_effect_with((timeline_initialized_value, project_id.clone(), timeline_items_snapshot),
             move |(timeline_initialized_value, project_id, timeline_items_snapshot)| {
                 if *timeline_initialized_value {
                     let current_timeline_id = (*timeline_id).clone();
@@ -1924,17 +1782,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             }))
                             .unwrap();
 
-                            if let Ok(saved_timeline) =
-                                serde_wasm_bindgen::from_value::<PersistedProjectTimeline>(
-                                    tauri_invoke("save_project_timeline", args).await,
-                                )
+                            if let Ok(saved_timeline) = serde_wasm_bindgen::from_value::<PersistedProjectTimeline>(tauri_invoke("save_project_timeline", args).await,)
                             {
-                                timeline_id.set(
-                                    saved_timeline
-                                        .timeline
-                                        .as_ref()
-                                        .map(|timeline| timeline.timeline_id.clone()),
-                                );
+                                timeline_id.set(saved_timeline.timeline.as_ref().map(|timeline| timeline.timeline_id.clone()));
                             }
                         });
                     }
@@ -1955,27 +1805,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         Rc::new(
             move |item_type: &str, id: String, name: String, insert_at: Option<usize>| {
                 let new_clip = match item_type {
-                    "source" => (*source_files)
-                        .iter()
-                        .find(|source| source.id == id)
-                        .map(build_source_clip),
-                    "frame" => (*frame_directories)
-                        .iter()
-                        .find(|frame_dir| {
-                            frame_clip_resource_id(frame_dir) == id
-                                || frame_dir.directory_path == id
-                        })
-                        .map(build_frame_directory_clip)
-                        .or_else(|| {
-                            (*previews)
-                                .iter()
-                                .find(|preview| preview.id == id)
-                                .map(build_preview_clip)
-                        }),
-                    "cut" => (*video_cuts)
-                        .iter()
-                        .find(|cut| cut.id == id)
-                        .map(build_cut_clip),
+                    "source" => (*source_files).iter().find(|source| source.id == id).map(build_source_clip),
+                    "frame" => (*frame_directories).iter().find(|frame_dir| {frame_clip_resource_id(frame_dir) == id || frame_dir.directory_path == id}).map(build_frame_directory_clip).or_else(|| {(*previews).iter().find(|preview| preview.id == id).map(build_preview_clip)}),
+                    "cut" => (*video_cuts).iter().find(|cut| cut.id == id).map(build_cut_clip),
                     _ => None,
                 };
 
@@ -2028,24 +1860,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let timeline_items_ref = timeline_items_ref.clone();
 
         use_effect_with(
-            (
-                timeline_initialized_value,
-                resources_loaded_value,
-                timeline_items_snapshot,
-                source_files,
-                frame_directories,
-                video_cuts,
-                previews,
-            ),
-            move |(
-                timeline_initialized_value,
-                resources_loaded_value,
-                timeline_items_snapshot,
-                source_files,
-                frame_directories,
-                video_cuts,
-                previews,
-            )| {
+            (timeline_initialized_value, resources_loaded_value, timeline_items_snapshot, source_files, frame_directories, video_cuts, previews),
+            move |(timeline_initialized_value, resources_loaded_value, timeline_items_snapshot, source_files, frame_directories, video_cuts, previews)| {
                 if *timeline_initialized_value && *resources_loaded_value {
                     let generation = preload_generation.borrow().wrapping_add(1);
                     *preload_generation.borrow_mut() = generation;
@@ -2074,7 +1890,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 frame_bundle: None,
                                 playback_fps: None,
                                 error: None,
-                            },
+                            }
                         );
                     }
                     clip_preloads.set(next_states.clone());
@@ -2099,51 +1915,23 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 }
 
                                 let signature = make_clip_signature(&clip);
-                                let existing_state =
-                                    clip_preloads_ref.borrow().get(&clip.clip_id).cloned();
-                                if matches!(
-                                    existing_state,
-                                    Some(ClipPreloadState {
-                                        status: PreloadStatus::Ready,
-                                        signature: ref existing_signature,
-                                        ..
-                                    }) if *existing_signature == signature
-                                ) {
+                                let existing_state = clip_preloads_ref.borrow().get(&clip.clip_id).cloned();
+                                if matches!(existing_state, Some(ClipPreloadState {status: PreloadStatus::Ready, signature: ref existing_signature, ..}) if *existing_signature == signature) {
                                     continue;
                                 }
 
-                                let preload_result: Result<
-                                    (ClipPreloadState, Option<f64>),
-                                    String,
-                                > = match clip.resource_kind {
+                                let preload_result: Result<(ClipPreloadState, Option<f64>), String> = match clip.resource_kind {
                                     TimelineResourceKind::Source => {
-                                        if let Some(source) = source_files
-                                            .iter()
-                                            .find(|source| source.id == clip.actual_resource_id)
-                                            .cloned()
-                                        {
-                                            let asset_url_result = if let Some(cached_url) =
-                                                url_cache.get(&source.file_path)
-                                            {
+                                        if let Some(source) = source_files.iter().find(|source| source.id == clip.actual_resource_id).cloned() {
+                                            let asset_url_result = if let Some(cached_url) = url_cache.get(&source.file_path) {
                                                 Ok(cached_url.clone())
                                             } else {
-                                                let args = serde_wasm_bindgen::to_value(
-                                                    &json!({ "path": source.file_path.clone() }),
-                                                )
-                                                .unwrap();
-                                                match serde_wasm_bindgen::from_value::<PreparedMedia>(
-                                                    tauri_invoke("prepare_media", args).await,
-                                                ) {
+                                                let args = serde_wasm_bindgen::to_value(&json!({ "path": source.file_path.clone()})).unwrap();
+                                                match serde_wasm_bindgen::from_value::<PreparedMedia>(tauri_invoke("prepare_media", args).await) {
                                                     Ok(prepared) => {
-                                                        let asset_url = app_convert_file_src(
-                                                            &prepared.cached_abs_path,
-                                                        );
-                                                        let mut next_url_cache =
-                                                            (*url_cache).clone();
-                                                        next_url_cache.insert(
-                                                            source.file_path.clone(),
-                                                            asset_url.clone(),
-                                                        );
+                                                        let asset_url = app_convert_file_src(&prepared.cached_abs_path);
+                                                        let mut next_url_cache = (*url_cache).clone();
+                                                        next_url_cache.insert(source.file_path.clone(), asset_url.clone());
                                                         url_cache.set(next_url_cache);
                                                         Ok(asset_url)
                                                     }
@@ -2155,39 +1943,18 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             };
                                             match asset_url_result {
                                                 Ok(asset_url) => {
-                                                    let mut next_preloads =
-                                                        clip_preloads_ref.borrow().clone();
-                                                    next_preloads.insert(
-                                                        clip.clip_id.clone(),
-                                                        ClipPreloadState {
-                                                            signature: signature.clone(),
-                                                            status: PreloadStatus::Loading,
-                                                            video_asset_url: Some(
-                                                                asset_url.clone(),
-                                                            ),
-                                                            frame_bundle: None,
-                                                            playback_fps: None,
-                                                            error: None,
-                                                        },
-                                                    );
+                                                    let mut next_preloads = clip_preloads_ref.borrow().clone();
+                                                    next_preloads.insert(clip.clip_id.clone(), ClipPreloadState {signature: signature.clone(), status: PreloadStatus::Loading, video_asset_url: Some(asset_url.clone()), frame_bundle: None, playback_fps: None, error: None});
                                                     clip_preloads.set(next_preloads);
-                                                    let asset_url_for_warm = asset_url.clone();
-                                                    wasm_bindgen_futures::spawn_local(async move {
-                                                        let _ =
-                                                            warm_video_asset(&asset_url_for_warm)
-                                                                .await;
-                                                    });
-                                                    Ok((
-                                                        ClipPreloadState {
-                                                            signature: signature.clone(),
-                                                            status: PreloadStatus::Ready,
-                                                            video_asset_url: Some(asset_url),
-                                                            frame_bundle: None,
-                                                            playback_fps: None,
-                                                            error: None,
-                                                        },
-                                                        None,
-                                                    ))
+                                                    if ENABLE_MONTAGE_VIDEO_WARMUP {
+                                                        let asset_url_for_warm = asset_url.clone();
+                                                        wasm_bindgen_futures::spawn_local(
+                                                            async move {
+                                                                let _ = warm_video_asset(&asset_url_for_warm).await;
+                                                            }
+                                                        );
+                                                    }
+                                                    Ok((ClipPreloadState {signature: signature.clone(), status: PreloadStatus::Ready, video_asset_url: Some(asset_url), frame_bundle: None, playback_fps: None, error: None}, None))
                                                 }
                                                 Err(error) => Err(error),
                                             }
@@ -2196,14 +1963,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         }
                                     }
                                     TimelineResourceKind::Cut => {
-                                        if let Some(cut) = video_cuts
-                                            .iter()
-                                            .find(|cut| cut.id == clip.actual_resource_id)
-                                            .cloned()
-                                        {
-                                            let asset_url_result = if let Some(cached_url) =
-                                                url_cache.get(&cut.file_path)
-                                            {
+                                        if let Some(cut) = video_cuts.iter().find(|cut| cut.id == clip.actual_resource_id).cloned() {
+                                            let asset_url_result = if let Some(cached_url) = url_cache.get(&cut.file_path) {
                                                 Ok(cached_url.clone())
                                             } else {
                                                 let args = serde_wasm_bindgen::to_value(
@@ -2217,18 +1978,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         let asset_url = app_convert_file_src(
                                                             &prepared.cached_abs_path,
                                                         );
-                                                        let mut next_url_cache =
-                                                            (*url_cache).clone();
-                                                        next_url_cache.insert(
-                                                            cut.file_path.clone(),
-                                                            asset_url.clone(),
-                                                        );
+                                                        let mut next_url_cache = (*url_cache).clone();
+                                                        next_url_cache.insert(cut.file_path.clone(), asset_url.clone());
                                                         url_cache.set(next_url_cache);
                                                         Ok(asset_url)
                                                     }
                                                     Err(_) => {
-                                                        Err("Failed to prepare cut media."
-                                                            .to_string())
+                                                        Err("Failed to prepare cut media.".to_string())
                                                     }
                                                 }
                                             };
@@ -2250,12 +2006,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         },
                                                     );
                                                     clip_preloads.set(next_preloads);
-                                                    let asset_url_for_warm = asset_url.clone();
-                                                    wasm_bindgen_futures::spawn_local(async move {
-                                                        let _ =
-                                                            warm_video_asset(&asset_url_for_warm)
+                                                    if ENABLE_MONTAGE_VIDEO_WARMUP {
+                                                        let asset_url_for_warm = asset_url.clone();
+                                                        wasm_bindgen_futures::spawn_local(
+                                                            async move {
+                                                                let _ = warm_video_asset(&asset_url_for_warm)
                                                                 .await;
-                                                    });
+                                                            });
+                                                    }
                                                     Ok((
                                                         ClipPreloadState {
                                                             signature: signature.clone(),
@@ -2265,10 +2023,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                             playback_fps: None,
                                                             error: None,
                                                         },
-                                                        Some(cut.duration.max(0.01)),
+                                                        Some(cut.duration.max(0.01))
                                                     ))
                                                 }
-                                                Err(error) => Err(error),
+                                                Err(error) => Err(error)
                                             }
                                         } else {
                                             Err("Cut clip not found.".to_string())
@@ -2278,32 +2036,21 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         if let Some(frame_dir) = frame_directories
                                             .iter()
                                             .find(|frame_dir| {
-                                                frame_clip_resource_id(frame_dir)
-                                                    == clip.actual_resource_id
-                                                    || frame_dir.directory_path
-                                                        == clip.actual_resource_id
+                                                frame_clip_resource_id(frame_dir) == clip.actual_resource_id || frame_dir.directory_path == clip.actual_resource_id
                                             })
                                             .cloned()
                                         {
                                             let metadata =
                                                 frame_asset_metadata_from_directory(&frame_dir);
-                                            if let Some(render_mode) =
-                                                clip.frame_render_mode.clone()
+                                            if let Some(render_mode) = clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = resolve_playback_fps(
-                                                    &metadata,
-                                                    clip.clip_speed_mode.as_ref(),
-                                                );
-                                                let preview_bundle = preload_first_frame_bundle(
-                                                    &metadata,
-                                                    render_mode.clone(),
-                                                )
+                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
+                                                let preview_bundle = preload_first_frame_bundle(&metadata, render_mode.clone())
                                                 .await
                                                 .ok()
                                                 .map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
-                                                let clip_speed_mode_for_task =
-                                                    clip.clip_speed_mode.clone();
+                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2311,39 +2058,25 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 let timeline_items_ref = timeline_items_ref.clone();
                                                 let clip_preloads = clip_preloads.clone();
                                                 let clip_preloads_ref = clip_preloads_ref.clone();
-                                                let preload_generation_ref =
-                                                    preload_generation_ref.clone();
+                                                let preload_generation_ref = preload_generation_ref.clone();
                                                 wasm_bindgen_futures::spawn_local(async move {
-                                                    let next_state = match preload_frame_bundle(
-                                                        &metadata_for_task,
-                                                        render_mode_for_task,
-                                                    )
-                                                    .await
+                                                    let next_state = match preload_frame_bundle(&metadata_for_task, render_mode_for_task).await
                                                     {
                                                         Ok(bundle) => {
-                                                            let duration = frame_length_seconds(
-                                                                &metadata_for_task,
-                                                                &TimelineMediaType::Frames,
-                                                                clip_speed_mode_for_task.as_ref(),
-                                                            );
-                                                            let mut items =
-                                                                timeline_items_ref.borrow().clone();
-                                                            if let Some(item) =
-                                                                items.iter_mut().find(|item| {
+                                                            let duration = frame_length_seconds(&metadata_for_task, &TimelineMediaType::Frames, clip_speed_mode_for_task.as_ref());
+                                                            let mut items =timeline_items_ref.borrow().clone();
+                                                            if let Some(item) = items.iter_mut().find(|item| {
                                                                     item.clip_id == clip_id
                                                                 })
                                                             {
-                                                                if (item.length_seconds - duration)
-                                                                    .abs()
-                                                                    > 0.01
+                                                                if (item.length_seconds - duration).abs() > 0.01
                                                                 {
                                                                     item.length_seconds = duration;
                                                                     timeline_items.set(items);
                                                                 }
                                                             }
                                                             ClipPreloadState {
-                                                                signature: signature_for_task
-                                                                    .clone(),
+                                                                signature: signature_for_task.clone(),
                                                                 status: PreloadStatus::Ready,
                                                                 video_asset_url: None,
                                                                 frame_bundle: Some(Rc::new(bundle)),
@@ -2361,19 +2094,15 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         },
                                                     };
 
-                                                    if *preload_generation_ref.borrow()
-                                                        != generation
+                                                    if *preload_generation_ref.borrow() != generation
                                                     {
                                                         return;
                                                     }
 
-                                                    let mut next_preloads =
-                                                        clip_preloads_ref.borrow().clone();
-                                                    if let Some(existing_state) =
-                                                        next_preloads.get(&clip_id)
+                                                    let mut next_preloads = clip_preloads_ref.borrow().clone();
+                                                    if let Some(existing_state) = next_preloads.get(&clip_id)
                                                     {
-                                                        if existing_state.signature
-                                                            != signature_for_task
+                                                        if existing_state.signature != signature_for_task
                                                         {
                                                             return;
                                                         }
@@ -2393,38 +2122,21 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                     None,
                                                 ))
                                             } else {
-                                                Err("Missing frame render mode for frames clip."
-                                                    .to_string())
+                                                Err("Missing frame render mode for frames clip.".to_string())
                                             }
                                         } else {
                                             Err("Frames clip not found.".to_string())
                                         }
                                     }
                                     TimelineResourceKind::Preview => {
-                                        if let Some(preview) = previews
-                                            .iter()
-                                            .find(|preview| preview.id == clip.actual_resource_id)
-                                            .cloned()
-                                        {
-                                            let metadata =
-                                                frame_asset_metadata_from_preview(&preview);
-                                            if let Some(render_mode) =
-                                                clip.frame_render_mode.clone()
+                                        if let Some(preview) = previews.iter().find(|preview| preview.id == clip.actual_resource_id).cloned() {
+                                            let metadata = frame_asset_metadata_from_preview(&preview);
+                                            if let Some(render_mode) = clip.frame_render_mode.clone()
                                             {
-                                                let playback_fps = resolve_playback_fps(
-                                                    &metadata,
-                                                    clip.clip_speed_mode.as_ref(),
-                                                );
-                                                let preview_bundle = preload_first_frame_bundle(
-                                                    &metadata,
-                                                    render_mode.clone(),
-                                                )
-                                                .await
-                                                .ok()
-                                                .map(Rc::new);
+                                                let playback_fps = resolve_playback_fps(&metadata, clip.clip_speed_mode.as_ref());
+                                                let preview_bundle = preload_first_frame_bundle(&metadata, render_mode.clone()).await.ok().map(Rc::new);
                                                 let clip_id = clip.clip_id.clone();
-                                                let clip_speed_mode_for_task =
-                                                    clip.clip_speed_mode.clone();
+                                                let clip_speed_mode_for_task = clip.clip_speed_mode.clone();
                                                 let signature_for_task = signature.clone();
                                                 let metadata_for_task = metadata.clone();
                                                 let render_mode_for_task = render_mode.clone();
@@ -2435,36 +2147,19 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 let preload_generation_ref =
                                                     preload_generation_ref.clone();
                                                 wasm_bindgen_futures::spawn_local(async move {
-                                                    let next_state = match preload_frame_bundle(
-                                                        &metadata_for_task,
-                                                        render_mode_for_task,
-                                                    )
-                                                    .await
+                                                    let next_state = match preload_frame_bundle(&metadata_for_task, render_mode_for_task).await
                                                     {
                                                         Ok(bundle) => {
-                                                            let duration = frame_length_seconds(
-                                                                &metadata_for_task,
-                                                                &TimelineMediaType::Frame,
-                                                                clip_speed_mode_for_task.as_ref(),
-                                                            );
-                                                            let mut items =
-                                                                timeline_items_ref.borrow().clone();
-                                                            if let Some(item) =
-                                                                items.iter_mut().find(|item| {
-                                                                    item.clip_id == clip_id
-                                                                })
-                                                            {
-                                                                if (item.length_seconds - duration)
-                                                                    .abs()
-                                                                    > 0.01
-                                                                {
+                                                            let duration = frame_length_seconds(&metadata_for_task, &TimelineMediaType::Frame, clip_speed_mode_for_task.as_ref());
+                                                            let mut items = timeline_items_ref.borrow().clone();
+                                                            if let Some(item) = items.iter_mut().find(|item| {item.clip_id == clip_id}) {
+                                                                if (item.length_seconds - duration).abs() > 0.01 {
                                                                     item.length_seconds = duration;
                                                                     timeline_items.set(items);
                                                                 }
                                                             }
                                                             ClipPreloadState {
-                                                                signature: signature_for_task
-                                                                    .clone(),
+                                                                signature: signature_for_task.clone(),
                                                                 status: PreloadStatus::Ready,
                                                                 video_asset_url: None,
                                                                 frame_bundle: Some(Rc::new(bundle)),
@@ -2482,20 +2177,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                         },
                                                     };
 
-                                                    if *preload_generation_ref.borrow()
-                                                        != generation
-                                                    {
+                                                    if *preload_generation_ref.borrow() != generation {
                                                         return;
                                                     }
 
-                                                    let mut next_preloads =
-                                                        clip_preloads_ref.borrow().clone();
-                                                    if let Some(existing_state) =
-                                                        next_preloads.get(&clip_id)
-                                                    {
-                                                        if existing_state.signature
-                                                            != signature_for_task
-                                                        {
+                                                    let mut next_preloads = clip_preloads_ref.borrow().clone();
+                                                    if let Some(existing_state) = next_preloads.get(&clip_id) {
+                                                        if existing_state.signature != signature_for_task {
                                                             return;
                                                         }
                                                     }
@@ -2514,8 +2202,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                     None,
                                                 ))
                                             } else {
-                                                Err("Missing frame render mode for preview clip."
-                                                    .to_string())
+                                                Err("Missing frame render mode for preview clip.".to_string())
                                             }
                                         } else {
                                             Err("Preview clip not found.".to_string())
@@ -2527,10 +2214,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                     Ok((state, maybe_duration)) => {
                                         if let Some(duration) = maybe_duration {
                                             let mut items = timeline_items_ref.borrow().clone();
-                                            if let Some(item) = items
-                                                .iter_mut()
-                                                .find(|item| item.clip_id == clip.clip_id)
-                                            {
+                                            if let Some(item) = items.iter_mut().find(|item| item.clip_id == clip.clip_id) {
                                                 if (item.length_seconds - duration).abs() > 0.01 {
                                                     item.length_seconds = duration;
                                                     timeline_items.set(items);
@@ -2590,36 +2274,17 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     web_sys::console::log_1(&format!("Pending drop data: {}", data_str).into());
                     match serde_json::from_str::<DragData>(&data_str) {
                         Ok(drag_data) => {
-                            web_sys::console::log_1(
-                                &format!(
-                                    "Parsed drag data - origin: {}, index: {:?}",
-                                    drag_data.origin, drag_data.index
-                                )
-                                .into(),
-                            );
+                            web_sys::console::log_1(&format!("Parsed drag data - origin: {}, index: {:?}", drag_data.origin, drag_data.index).into());
                             let mut items = timeline_items_ref.borrow().clone();
-                            web_sys::console::log_1(
-                                &format!("Current items count: {}", items.len()).into(),
-                            );
+                            web_sys::console::log_1(&format!("Current items count: {}", items.len()).into(),);
 
                             if drag_data.origin == "sidebar" {
-                                add_to_timeline(
-                                    &drag_data.item_type,
-                                    drag_data.id,
-                                    drag_data.name,
-                                    target_index,
-                                );
+                                add_to_timeline(&drag_data.item_type, drag_data.id, drag_data.name, target_index);
                             } else if drag_data.origin == "timeline" {
                                 // Reordering existing timeline item
                                 if let Some(from_index) = drag_data.index {
                                     if let Some(to_index) = target_index {
-                                        web_sys::console::log_1(
-                                            &format!(
-                                                "Moving item from {} to {}",
-                                                from_index, to_index
-                                            )
-                                            .into(),
-                                        );
+                                        web_sys::console::log_1(&format!("Moving item from {} to {}", from_index, to_index).into());
                                         if from_index < items.len() {
                                             let item = items.remove(from_index);
                                             // Adjust target index after removal
@@ -2632,17 +2297,13 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             timeline_items.set(items);
                                         }
                                     } else {
-                                        web_sys::console::log_1(
-                                            &"No target index for timeline reorder".into(),
-                                        );
+                                        web_sys::console::log_1(&"No target index for timeline reorder".into());
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            web_sys::console::log_1(
-                                &format!("Failed to parse drag data: {:?}", e).into(),
-                            );
+                            web_sys::console::log_1(&format!("Failed to parse drag data: {:?}", e).into(),);
                         }
                     }
                 } else {
@@ -2685,18 +2346,16 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         Callback::from(move |section: String| {
             let mut state = (*sidebar_state).clone();
             match section.as_str() {
-                "resources" => state.resources_expanded = !state.resources_expanded,
-                "explorer" => state.explorer_expanded = !state.explorer_expanded,
-                "res:source_files" => state.source_files_expanded = !state.source_files_expanded,
-                "res:original_files" => {
-                    state.original_files_expanded = !state.original_files_expanded
-                }
-                "res:cuts" => state.cuts_expanded = !state.cuts_expanded,
-                "res:frames" => state.frames_expanded = !state.frames_expanded,
-                "res:source_frames" => state.source_frames_expanded = !state.source_frames_expanded,
-                "res:frame_cuts" => state.frame_cuts_expanded = !state.frame_cuts_expanded,
-                "res:previews" => state.previews_expanded = !state.previews_expanded,
-                _ => {}
+                "resources"             => state.resources_expanded = !state.resources_expanded,
+                "explorer"              => state.explorer_expanded = !state.explorer_expanded,
+                "res:source_files"      => state.source_files_expanded = !state.source_files_expanded,
+                "res:original_files"    => state.original_files_expanded = !state.original_files_expanded,
+                "res:cuts"              => state.cuts_expanded = !state.cuts_expanded,
+                "res:frames"            => state.frames_expanded = !state.frames_expanded,
+                "res:source_frames"     => state.source_frames_expanded = !state.source_frames_expanded,
+                "res:frame_cuts"        => state.frame_cuts_expanded = !state.frame_cuts_expanded,
+                "res:previews"          => state.previews_expanded = !state.previews_expanded,
+                _                       => {}
             }
             sidebar_state.set(state);
         })
@@ -2708,10 +2367,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let selected_source = selected_source.clone();
         Callback::from(move |source: SourceContent| {
             selected_source.set(Some(source.clone()));
-            let name = source
-                .custom_name
-                .clone()
-                .unwrap_or_else(|| file_name_from_path(&source.file_path));
+            let name = source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path));
             add_to_timeline("source", source.id.clone(), name, None);
         })
     };
@@ -2721,22 +2377,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         let selected_frame_dir = selected_frame_dir.clone();
         Callback::from(move |frame_dir: FrameDirectory| {
             selected_frame_dir.set(Some(frame_dir.clone()));
-            add_to_timeline(
-                "frame",
-                frame_clip_resource_id(&frame_dir),
-                frame_dir.name.clone(),
-                None,
-            );
+            add_to_timeline("frame", frame_clip_resource_id(&frame_dir), frame_dir.name.clone(), None);
         })
     };
 
     let on_select_cut = {
         let add_to_timeline = add_to_timeline.clone();
         Callback::from(move |cut: VideoCut| {
-            let name = cut
-                .custom_name
-                .clone()
-                .unwrap_or_else(|| file_name_from_path(&cut.file_path));
+            let name = cut.custom_name.clone().unwrap_or_else(|| file_name_from_path(&cut.file_path));
             add_to_timeline("cut", cut.id.clone(), name, None);
         })
     };
@@ -2744,10 +2392,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
     let on_select_preview = {
         let add_to_timeline = add_to_timeline.clone();
         Callback::from(move |preview: Preview| {
-            let name = preview
-                .custom_name
-                .clone()
-                .unwrap_or_else(|| preview.folder_name.clone());
+            let name = preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone());
             add_to_timeline("frame", preview.id.clone(), name, None);
         })
     };
@@ -2764,31 +2409,19 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let video_cuts = video_cuts.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "source_id": source.id, "file_path": source.file_path }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": { "source_id": source.id, "file_path": source.file_path }})).unwrap();
                 let _ = tauri_invoke("delete_source_file", args).await;
                 // Refresh all data
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(s) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
                     source_files.set(s);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(f) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(f) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
                     frame_directories.set(f);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(c) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
                     video_cuts.set(c);
                 }
             });
@@ -2802,16 +2435,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let frame_directories = frame_directories.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "directoryPath": frame_dir.directory_path
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"directoryPath": frame_dir.directory_path})).unwrap();
                 let _ = tauri_invoke("delete_frame_directory", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(f) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(f) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
                     frame_directories.set(f);
                 }
             });
@@ -2825,16 +2452,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let video_cuts = video_cuts.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "cut_id": cut.id, "file_path": cut.file_path }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"cut_id": cut.id, "file_path": cut.file_path}})).unwrap();
                 let _ = tauri_invoke("delete_cut", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(c) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
                     video_cuts.set(c);
                 }
             });
@@ -2848,16 +2469,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let previews = previews.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "preview_id": preview.id, "folder_path": preview.folder_path }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"preview_id": preview.id, "folder_path": preview.folder_path}})).unwrap();
                 let _ = tauri_invoke("delete_preview", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
-                    tauri_invoke("get_project_previews", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
                     previews.set(p);
                 }
             });
@@ -2873,16 +2488,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 let source_files = source_files.clone();
                 let project_id = project_id.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let args = serde_wasm_bindgen::to_value(&json!({
-                        "sourceId": source.id, "customName": custom_name
-                    }))
-                    .unwrap();
+                    let args = serde_wasm_bindgen::to_value(&json!({"sourceId": source.id, "customName": custom_name})).unwrap();
                     let _ = tauri_invoke("rename_source_file", args).await;
-                    let args =
-                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                    if let Ok(s) = serde_wasm_bindgen::from_value(
-                        tauri_invoke("get_project_sources", args).await,
-                    ) {
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
                         source_files.set(s);
                     }
                 });
@@ -2898,16 +2507,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 let frame_directories = frame_directories.clone();
                 let project_id = project_id.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "folderPath": frame_dir.directory_path, "customName": custom_name }
-                }))
-                .unwrap();
+                    let args = serde_wasm_bindgen::to_value(&json!({"request": {"folderPath": frame_dir.directory_path, "customName": custom_name}})).unwrap();
                     let _ = tauri_invoke("update_frame_custom_name", args).await;
                     let args =
                         serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                    if let Ok(f) = serde_wasm_bindgen::from_value(
-                        tauri_invoke("get_project_frames", args).await,
-                    ) {
+                    if let Ok(f) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
                         frame_directories.set(f);
                     }
                 });
@@ -2922,16 +2526,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let video_cuts = video_cuts.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "cutId": cut.id, "customName": custom_name }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"cutId": cut.id, "customName": custom_name}})).unwrap();
                 let _ = tauri_invoke("rename_cut", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(c) =
-                    serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await)
-                {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(c) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_cuts", args).await) {
                     video_cuts.set(c);
                 }
             });
@@ -2945,16 +2543,10 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let previews = previews.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": { "previewId": preview.id, "customName": custom_name }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"previewId": preview.id, "customName": custom_name}})).unwrap();
                 let _ = tauri_invoke("rename_preview", args).await;
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
-                    tauri_invoke("get_project_previews", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(p) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
                     previews.set(p);
                 }
             });
@@ -3016,23 +2608,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 return;
                             }
 
-                            let add_files_args = serde_wasm_bindgen::to_value(&json!({
-                                "args": {
-                                    "request": {
-                                        "project_id": project_id,
-                                        "file_paths": file_paths
-                                    }
-                                }
-                            }))
-                            .unwrap();
+                            let add_files_args = serde_wasm_bindgen::to_value(&json!({"args": {"request": {"project_id": project_id, "file_paths": file_paths}}})).unwrap();
                             let _ = tauri_invoke("add_source_files", add_files_args).await;
 
-                            let args =
-                                serde_wasm_bindgen::to_value(&json!({ "projectId": project_id }))
-                                    .unwrap();
-                            if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
-                                tauri_invoke("get_project_sources", args).await,
-                            ) {
+                            let args =serde_wasm_bindgen::to_value(&json!({"projectId": project_id})).unwrap();
+                            if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
                                 source_files.set(sources);
                             }
                         }
@@ -3056,21 +2636,9 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         Callback::from(move |new_layout: ExplorerLayout| {
             explorer_layout.set(new_layout.clone());
             let project_id = project_id.clone();
-            let entries = project_content_from_layout(
-                &new_layout,
-                &source_files,
-                &video_cuts,
-                &frame_directories,
-                &previews,
-            );
+            let entries = project_content_from_layout(&new_layout, &source_files, &video_cuts, &frame_directories, &previews);
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": {
-                        "project_id": project_id,
-                        "entries": entries
-                    }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"project_id": project_id, "entries": entries}})).unwrap();
                 let _ = tauri_invoke("save_project_content", args).await;
             });
         })
@@ -3086,12 +2654,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             // Don't start drag if clicking on the remove button
             if let Some(target) = e.target() {
                 if let Some(element) = target.dyn_ref::<web_sys::Element>() {
-                    if element
-                        .closest(".timeline-item-remove")
-                        .ok()
-                        .flatten()
-                        .is_some()
-                    {
+                    if element.closest(".timeline-item-remove").ok().flatten().is_some() {
                         return;
                     }
                 }
@@ -3122,16 +2685,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         .count();
     let preload_total_count = timeline_items.len();
     let first_preload_error = timeline_items.iter().find_map(|clip| {
-        clip_preloads
-            .get(&clip.clip_id)
-            .and_then(|state| state.error.clone())
+        clip_preloads.get(&clip.clip_id).and_then(|state| state.error.clone())
     });
     let preload_incomplete = !timeline_items.is_empty()
         && timeline_items.iter().any(|clip| {
-            !matches!(
-                clip_preloads.get(&clip.clip_id).map(|state| &state.status),
-                Some(PreloadStatus::Ready)
-            )
+            !matches!(clip_preloads.get(&clip.clip_id).map(|state| &state.status), Some(PreloadStatus::Ready))
         });
     let transport_loading = !*show_workspace_overview && *viewer_loading;
 
@@ -3148,32 +2706,20 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
             let previews = previews.clone();
             let project_id = project_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
-                    tauri_invoke("get_project_sources", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
                     source_files.set(sources);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
-                    tauri_invoke("get_project_frames", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await) {
                     frame_directories.set(frames);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
-                    tauri_invoke("get_project_cuts", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
                     video_cuts.set(cuts);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
-                    tauri_invoke("get_project_previews", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
                     previews.set(previews_list);
                 }
             });
@@ -3266,21 +2812,11 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
 
             is_exporting_video.set(true);
             export_status_error.set(false);
-            export_status_message.set(Some(format!(
-                "Preparing {} export...",
-                options.format.label()
-            )));
+            export_status_message.set(Some(format!("Preparing {} export...", options.format.label())));
 
             wasm_bindgen_futures::spawn_local(async move {
-                let default_name = (*project)
-                    .as_ref()
-                    .map(|p| format!("{}.{}", p.project_name, options.format.extension()))
-                    .unwrap_or_else(|| format!("export.{}", options.format.extension()));
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "defaultName": default_name,
-                    "extension": options.format.extension(),
-                }))
-                .unwrap();
+                let default_name = (*project).as_ref().map(|p| format!("{}.{}", p.project_name, options.format.extension())).unwrap_or_else(|| format!("export.{}", options.format.extension()));
+                let args = serde_wasm_bindgen::to_value(&json!({"defaultName": default_name, "extension": options.format.extension()})).unwrap();
                 let result = tauri_invoke("pick_save_file_video", args).await;
                 let picked: Option<String> = serde_wasm_bindgen::from_value(result).unwrap_or(None);
                 let Some(output_path) = picked else {
@@ -3291,10 +2827,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                 };
 
                 export_status_error.set(false);
-                export_status_message.set(Some(format!(
-                    "Exporting {}...",
-                    file_name_from_path(&output_path)
-                )));
+                export_status_message.set(Some(format!("Exporting {}...", file_name_from_path(&output_path))));
 
                 let request = MontageVideoExportRequest {
                     project_id,
@@ -3305,19 +2838,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                     quality: options.quality,
                     include_audio: options.include_audio,
                 };
-                let export_args =
-                    serde_wasm_bindgen::to_value(&json!({ "request": request })).unwrap();
+                let export_args = serde_wasm_bindgen::to_value(&json!({ "request": request })).unwrap();
                 let result = tauri_invoke("export_timeline_video", export_args).await;
-
                 if let Ok(saved_path) = serde_wasm_bindgen::from_value::<String>(result.clone()) {
                     export_status_error.set(false);
-                    export_status_message
-                        .set(Some(format!("Saved {}", file_name_from_path(&saved_path))));
+                    export_status_message.set(Some(format!("Saved {}", file_name_from_path(&saved_path))));
                 } else {
                     export_status_error.set(true);
-                    export_status_message.set(Some(
-                        js_value_message(&result).unwrap_or_else(|| "Export failed.".to_string()),
-                    ));
+                    export_status_message.set(Some(js_value_message(&result).unwrap_or_else(|| "Export failed.".to_string())));
                 }
 
                 is_exporting_video.set(false);
@@ -3341,30 +2869,15 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
         })
     };
 
-    let export_hint_text = (*export_status_message)
-        .clone()
-        .unwrap_or_else(|| (*export_options).hint_text());
-    let export_hint_class = classes!(
-        "timeline-hint",
-        "export-panel__hint",
-        (*export_status_error).then_some("export-panel__hint--error"),
-        (*is_exporting_video).then_some("export-panel__hint--busy")
-    );
+    let export_hint_text = (*export_status_message).clone().unwrap_or_else(|| (*export_options).hint_text());
+    let export_hint_class = classes!("timeline-hint", "export-panel__hint", (*export_status_error).then_some("export-panel__hint--error"), (*is_exporting_video).then_some("export-panel__hint--busy"));
 
     html! {
         <div id="montage-page" class="container montage-page">
-            <div
-                id="montage-layout"
-                class={classes!(
-                    "montage-layout",
-                    props.explorer_on_left.then_some("montage-layout--explorer-left")
-                )}
-            >
+            <div id="montage-layout" class={classes!("montage-layout", props.explorer_on_left.then_some("montage-layout--explorer-left"))}>
                 <div id="montage-explorer-sidebar" class="explorer-sidebar">
                     if props.show_open_in_sidebar {
-                        if let Some(ref on_open_project) = props.on_open_project {
-                            <OpenPage sidebar_only=true on_open_project={on_open_project.clone()} on_open_montage={props.on_open_montage.clone()} explorer_on_left={props.explorer_on_left} />
-                        }
+                        if let Some(ref on_open_project) = props.on_open_project {<OpenPage sidebar_only=true on_open_project={on_open_project.clone()} on_open_montage={props.on_open_montage.clone()} explorer_on_left={props.explorer_on_left} />}
                     } else {
                     <div id="montage-sidebar-scroll" class="explorer-sidebar__scroll-area">
                         <ResourcesTree
@@ -3502,27 +3015,19 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         <div id="montage-error-alert" class="alert alert-error">{error}</div>
                     }
 
-                    <div
-                        id="montage-workspace"
-                        class="montage-workspace"
-                    >
+                    <div id="montage-workspace" class="montage-workspace">
                         {
                             html! {
                                 <>
                                     {
                                         match &*active_playable {
                                             Some(PlayableItem::Video {clip_id, asset_url}) => html! {
-                                                <div
-                                                    id="montage-workspace-active-pane"
-                                                    class={classes!(
-                                                        "montage-workspace-active-pane",
-                                                        (*show_workspace_overview).then_some("montage-workspace-active-pane--hidden")
-                                                    )}
-                                                >
+                                                <div id="montage-workspace-active-pane" class={classes!("montage-workspace-active-pane", (*show_workspace_overview).then_some("montage-workspace-active-pane--hidden"))}>
                                                     <div id="montage-workspace-video-pane" class="montage-workspace-pane">
                                                         <VideoPlayer
                                                             key={format!("video-{}", clip_id)}
                                                             src={asset_url.clone()}
+                                                            show_controls={false}
                                                             should_play={if *is_playing {Some(true)} else {Some(false)}}
                                                             should_reset={*should_reset}
                                                             seek_percentage={*active_seek_percentage}
@@ -3543,17 +3048,12 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 </div>
                                             },
                                             Some(PlayableItem::Frames {clip_id, directory_path, fps, frame_render_mode, frame_colors, preloaded_bundle}) => html! {
-                                                <div
-                                                    id="montage-workspace-active-pane"
-                                                    class={classes!(
-                                                        "montage-workspace-active-pane",
-                                                        (*show_workspace_overview).then_some("montage-workspace-active-pane--hidden")
-                                                    )}
-                                                >
+                                                <div id="montage-workspace-active-pane" class={classes!("montage-workspace-active-pane", (*show_workspace_overview).then_some("montage-workspace-active-pane--hidden"))}>
                                                     <div id="montage-workspace-frames-pane" class="montage-workspace-pane">
                                                         <AsciiFramesViewer
                                                             key={format!("frames-{}", clip_id)}
                                                             directory_path={directory_path.clone()}
+                                                            show_controls={false}
                                                             fps={*fps}
                                                             settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
                                                             should_play={if *is_playing {Some(true)} else {Some(false)}}
@@ -3579,13 +3079,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                     </div>
                                                 </div>
                                             },
-                                            None if !*show_workspace_overview => html! {
-                                                <p id="montage-workspace-empty-state">{
-                                                    first_preload_error
-                                                        .clone()
-                                                        .unwrap_or_else(|| "Preview area".to_string())
-                                                }</p>
-                                            },
+                                            None if !*show_workspace_overview => html! {<p id="montage-workspace-empty-state">{first_preload_error.clone().unwrap_or_else(|| "Preview area".to_string())}</p>},
                                             None => html! {},
                                         }
                                     }
@@ -3602,20 +3096,12 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                             )}
                                         >
                                             {timeline_items.iter().take(4).map(|item| {
-                                                        let tile_id = format!(
-                                                            "montage-workspace-overview-tile-{}",
-                                                            dom_id_fragment(&item.clip_id)
-                                                        );
+                                                        let tile_id = format!("montage-workspace-overview-tile-{}", dom_id_fragment(&item.clip_id));
                                                         let tile_preview_id = format!("{}-preview", tile_id);
                                                         let preload_state = clip_preloads.get(&item.clip_id).cloned();
 
                                                         html! {
-                                                            <div
-                                                                id={tile_id.clone()}
-                                                                class="montage-overview-tile"
-                                                                key={item.clip_id.clone()}
-                                                                title={item.name.clone()}
-                                                            >
+                                                            <div id={tile_id.clone()} class="montage-overview-tile" key={item.clip_id.clone()} title={item.name.clone()}>
                                                                 <div id={tile_preview_id} class="montage-overview-tile-preview">
                                                                     {
                                                                         match preload_state {
@@ -3628,32 +3114,14 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                                                 match item.media_type {
                                                                                     TimelineMediaType::Video => {
                                                                                         if let Some(asset_url) = preload.video_asset_url.clone() {
-                                                                                            html! {
-                                                                                                <MontageVideoStill
-                                                                                                    key={format!("overview-video-{}", item.clip_id)}
-                                                                                                    src={asset_url}
-                                                                                                />
-                                                                                            }
+                                                                                            html! {<MontageVideoStill key={format!("overview-video-{}", item.clip_id)} src={asset_url} />}
                                                                                         } else {
                                                                                             html! {}
                                                                                         }
                                                                                     }
                                                                                     TimelineMediaType::Frames | TimelineMediaType::Frame => {
                                                                                         if let Some(preloaded_bundle) = preload.frame_bundle.clone() {
-                                                                                            html! {
-                                                                                                <AsciiFramesViewer
-                                                                                                    key={format!("overview-frames-{}", item.clip_id)}
-                                                                                                    directory_path={preloaded_bundle.directory_path.clone()}
-                                                                                                    fps={preload.playback_fps.unwrap_or(24)}
-                                                                                                    settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>}
-                                                                                                    should_play={Some(false)}
-                                                                                                    should_reset={false}
-                                                                                                    loop_enabled={false}
-                                                                                                    frame_render_mode={Some(item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText))}
-                                                                                                    frame_colors={Some(preloaded_bundle.frame_colors.clone())}
-                                                                                                    preloaded_bundle={Some(preloaded_bundle)}
-                                                                                                />
-                                                                                            }
+                                                                                            html! {<AsciiFramesViewer key={format!("overview-frames-{}", item.clip_id)} directory_path={preloaded_bundle.directory_path.clone()} show_controls={false} fps={preload.playback_fps.unwrap_or(24)} settings={None::<crate::components::ascii_frames_viewer::ConversionSettings>} should_play={Some(false)} should_reset={false} loop_enabled={false} frame_render_mode={Some(item.frame_render_mode.clone().unwrap_or(FrameRenderMode::BwText))} frame_colors={Some(preloaded_bundle.frame_colors.clone())} preloaded_bundle={Some(preloaded_bundle)} />}
                                                                                         } else {
                                                                                             html! {}
                                                                                         }
@@ -3694,31 +3162,20 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                         </div>
                         if !timeline_items.is_empty() {
                             <div id="montage-timeline-progress" class="timeline-progress">
-                                <input
-                                    id="montage-timeline-progress-slider"
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    value={synced_progress.to_string()}
-                                    oninput={{
+                                <input id="montage-timeline-progress-slider" type="range" min="0" max="100" step="0.1" value={synced_progress.to_string()} oninput={{
                                         let synced_progress = synced_progress.clone();
-                                        let timeline_seek_percentage =
-                                            timeline_seek_percentage.clone();
+                                        let timeline_seek_percentage = timeline_seek_percentage.clone();
                                         Callback::from(move |e: web_sys::InputEvent| {
                                             if let Some(target) = e.target() {
                                                 if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
                                                     let pct = input.value_as_number();
                                                     synced_progress.set(pct);
-                                                    timeline_seek_percentage
-                                                        .set(Some(pct / 100.0));
+                                                    timeline_seek_percentage.set(Some(pct / 100.0));
                                                 }
                                             }
                                         })
                                     }}
-                                    title="Timeline progress"
-                                    disabled={transport_loading}
-                                />
+                                    title="Timeline progress" disabled={transport_loading} />
                             </div>
                         }
                         <div id="montage-timeline-track" class="timeline-track">
@@ -3740,54 +3197,34 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         let item_speed_id = format!("{}-speed-btn", item_dom_id);
                                         let item_remove_id = format!("{}-remove-btn", item_dom_id);
                                         let type_class = match item.resource_kind {
-                                            TimelineResourceKind::Source => "source",
-                                            TimelineResourceKind::AsciiConversion => "ascii",
-                                            TimelineResourceKind::Cut => "cut",
-                                            TimelineResourceKind::Preview => "preview",
+                                            TimelineResourceKind::Source            => "source",
+                                            TimelineResourceKind::AsciiConversion   => "ascii",
+                                            TimelineResourceKind::Cut               => "cut",
+                                            TimelineResourceKind::Preview           => "preview",
                                         };
                                         let type_icon = match item.resource_kind {
-                                            TimelineResourceKind::Source => IconId::LucideFileVideo,
-                                            TimelineResourceKind::Cut => IconId::LucideScissors,
-                                            TimelineResourceKind::AsciiConversion => IconId::LucideImage,
-                                            TimelineResourceKind::Preview => IconId::LucideCamera,
+                                            TimelineResourceKind::Source            => IconId::LucideFileVideo,
+                                            TimelineResourceKind::Cut               => IconId::LucideScissors,
+                                            TimelineResourceKind::AsciiConversion   => IconId::LucideImage,
+                                            TimelineResourceKind::Preview           => IconId::LucideCamera,
                                         };
                                         let preload_class = clip_preloads
                                             .get(&item.clip_id)
                                             .map(|state| match state.status {
                                                 PreloadStatus::Loading | PreloadStatus::Pending => "loading",
-                                                PreloadStatus::Error => "error",
-                                                PreloadStatus::Ready => "",
+                                                PreloadStatus::Error                            => "error",
+                                                PreloadStatus::Ready                            => "",
                                             })
                                             .unwrap_or("loading");
                                         let frame_metadata = match item.resource_kind {
-                                            TimelineResourceKind::AsciiConversion => frame_directories
-                                                .iter()
-                                                .find(|frame_dir| {
-                                                    frame_clip_resource_id(frame_dir) == item.actual_resource_id
-                                                        || frame_dir.directory_path == item.actual_resource_id
-                                                })
-                                                .map(frame_asset_metadata_from_directory),
-                                            TimelineResourceKind::Preview => previews
-                                                .iter()
-                                                .find(|preview| preview.id == item.actual_resource_id)
-                                                .map(frame_asset_metadata_from_preview),
+                                            TimelineResourceKind::AsciiConversion => frame_directories.iter().find(|frame_dir| {frame_clip_resource_id(frame_dir) == item.actual_resource_id || frame_dir.directory_path == item.actual_resource_id}).map(frame_asset_metadata_from_directory),
+                                            TimelineResourceKind::Preview => previews.iter().find(|preview| preview.id == item.actual_resource_id).map(frame_asset_metadata_from_preview),
                                             _ => None,
                                         };
-                                        let supported_modes = frame_metadata
-                                            .as_ref()
-                                            .map(supported_frame_render_modes)
-                                            .unwrap_or_default();
-                                        let current_frame_mode = item
-                                            .frame_render_mode
-                                            .clone()
-                                            .or_else(|| frame_metadata.as_ref().and_then(default_frame_render_mode));
+                                        let supported_modes = frame_metadata.as_ref().map(supported_frame_render_modes).unwrap_or_default();
+                                        let current_frame_mode = item.frame_render_mode.clone().or_else(|| frame_metadata.as_ref().and_then(default_frame_render_mode));
                                         let is_active = *active_timeline_index == Some(index);
-                                        let item_class = classes!(
-                                            "timeline-item",
-                                            type_class,
-                                            (!preload_class.is_empty()).then_some(preload_class),
-                                            is_active.then_some("active")
-                                        );
+                                        let item_class = classes!("timeline-item", type_class, (!preload_class.is_empty()).then_some(preload_class), is_active.then_some("active"));
                                         let on_remove = on_remove_timeline_item.clone();
                                         let item_name = item.name.clone();
                                         let on_toggle_frame_mode = {
@@ -3815,14 +3252,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                 }
                                             })
                                         };
-                                        let clip_speed_modes = frame_metadata
-                                            .as_ref()
-                                            .map(supported_speed_modes)
-                                            .unwrap_or_default();
-                                        let current_speed_mode = item
-                                            .clip_speed_mode
-                                            .clone()
-                                            .unwrap_or(ClipSpeedMode::Default);
+                                        let clip_speed_modes = frame_metadata.as_ref().map(supported_speed_modes).unwrap_or_default();
+                                        let current_speed_mode = item.clip_speed_mode.clone().unwrap_or(ClipSpeedMode::Default);
                                         let on_toggle_speed_mode = {
                                             let timeline_items = timeline_items.clone();
                                             let is_playing = is_playing.clone();
@@ -3845,16 +3276,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                         };
 
                                         html! {
-                                            <div
-                                                id={item_dom_id.clone()}
-                                                class={item_class}
-                                                key={item.clip_id.clone()}
-                                                data-clip-id={item.clip_id.clone()}
-                                                data-resource-id={item.actual_resource_id.clone()}
-                                                data-resource-kind={type_class}
-                                                onmousedown={on_timeline_item_pointer_down(index, item_name)}
-                                                title={item.name.clone()}
-                                            >
+                                            <div id={item_dom_id.clone()} class={item_class} key={item.clip_id.clone()} data-clip-id={item.clip_id.clone()} data-resource-id={item.actual_resource_id.clone()} data-resource-kind={type_class} onmousedown={on_timeline_item_pointer_down(index, item_name)} title={item.name.clone()}>
                                                 <div id={item_topline_id} class="timeline-item-topline">
                                                     <span id={item_icon_id} class="timeline-item-icon">
                                                         <Icon icon_id={type_icon} width={"14"} height={"14"} />
@@ -3862,42 +3284,16 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                                     <span id={item_name_id} class="timeline-item-name">{&item.name}</span>
                                                 </div>
                                                 if !supported_modes.is_empty() {
-                                                    <button
-                                                        id={item_mode_id}
-                                                        class={classes!(
-                                                            "timeline-item-mode",
-                                                            (supported_modes.len() <= 1).then_some("disabled"),
-                                                            current_frame_mode
-                                                                .as_ref()
-                                                                .filter(|mode| !matches!(mode, FrameRenderMode::BwText))
-                                                                .map(|_| "active")
-                                                        )}
-                                                        type="button"
-                                                        onclick={on_toggle_frame_mode}
-                                                        disabled={supported_modes.len() <= 1}
-                                                        title={current_frame_mode.as_ref().map(FrameRenderMode::title).unwrap_or("Frame mode")}
-                                                    >
+                                                    <button id={item_mode_id} class={classes!("timeline-item-mode", (supported_modes.len() <= 1).then_some("disabled"), current_frame_mode.as_ref().filter(|mode| !matches!(mode, FrameRenderMode::BwText)).map(|_| "active"))} type="button" onclick={on_toggle_frame_mode} disabled={supported_modes.len() <= 1} title={current_frame_mode.as_ref().map(FrameRenderMode::title).unwrap_or("Frame mode")}>
                                                         {frame_mode_icon(current_frame_mode.as_ref())}
                                                     </button>
                                                 }
                                                 if clip_speed_modes.len() > 1 {
-                                                    <button
-                                                        id={item_speed_id}
-                                                        class={classes!(
-                                                            "timeline-item-speed",
-                                                            matches!(current_speed_mode, ClipSpeedMode::Sync).then_some("active")
-                                                        )}
-                                                        type="button"
-                                                        onclick={on_toggle_speed_mode}
-                                                        title={current_speed_mode.title()}
-                                                    >
+                                                    <button id={item_speed_id} class={classes!("timeline-item-speed", matches!(current_speed_mode, ClipSpeedMode::Sync).then_some("active"))} type="button" onclick={on_toggle_speed_mode} title={current_speed_mode.title()}>
                                                         {speed_mode_icon(&current_speed_mode)}
                                                     </button>
                                                 }
-                                                <button
-                                                    id={item_remove_id}
-                                                    class="timeline-item-remove"
-                                                    onclick={Callback::from(move |e: MouseEvent| {
+                                                <button id={item_remove_id} class="timeline-item-remove" onclick={Callback::from(move |e: MouseEvent| {
                                                         e.stop_propagation();
                                                         on_remove.emit(index);
                                                     })}
@@ -3936,16 +3332,8 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 >
                                     <Icon icon_id={IconId::LucideFilm} width={"16"} height={"16"} />
                                 </button>
-                                <button
-                                    id="montage-export-files-btn"
-                                    class="ctrl-btn export-panel__action"
-                                    data-label="Export Files"
-                                    aria-label="Export Files"
-                                    type="button"
-                                    onclick={on_export_project}
-                                    disabled={*is_exporting_video}
-                                    title="Export project files"
-                                >
+                                <button id="montage-export-files-btn" class="ctrl-btn export-panel__action" data-label="Export Files" aria-label="Export Files" type="button" onclick={on_export_project}
+                                    disabled={*is_exporting_video} title="Export project files">
                                     <Icon icon_id={IconId::LucideFolderOpen} width={"16"} height={"16"} />
                                 </button>
                             </div>
@@ -3953,11 +3341,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                             <div id="montage-export-options" class="export-panel__options">
                                 <label class="export-panel__field" for="montage-export-format-select">
                                     <span class="export-panel__field-label">{"Format"}</span>
-                                    <select
-                                        id="montage-export-format-select"
-                                        class="export-panel__select"
-                                        onchange={on_export_format_change}
-                                    >
+                                    <select id="montage-export-format-select" class="export-panel__select" onchange={on_export_format_change}>
                                         <option value="mp4" selected={matches!((*export_options).format, ExportFormat::Mp4)}>{"MP4"}</option>
                                         <option value="mov" selected={matches!((*export_options).format, ExportFormat::Mov)}>{"MOV"}</option>
                                         <option value="mkv" selected={matches!((*export_options).format, ExportFormat::Mkv)}>{"MKV"}</option>
@@ -3965,11 +3349,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 </label>
                                 <label class="export-panel__field" for="montage-export-resolution-select">
                                     <span class="export-panel__field-label">{"Size"}</span>
-                                    <select
-                                        id="montage-export-resolution-select"
-                                        class="export-panel__select"
-                                        onchange={on_export_resolution_change}
-                                    >
+                                    <select id="montage-export-resolution-select" class="export-panel__select" onchange={on_export_resolution_change}>
                                         <option value="720p" selected={matches!((*export_options).resolution, ExportResolution::P720)}>{"720p"}</option>
                                         <option value="1080p" selected={matches!((*export_options).resolution, ExportResolution::P1080)}>{"1080p"}</option>
                                         <option value="1440p" selected={matches!((*export_options).resolution, ExportResolution::P1440)}>{"1440p"}</option>
@@ -3978,11 +3358,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 </label>
                                 <label class="export-panel__field" for="montage-export-frame-rate-select">
                                     <span class="export-panel__field-label">{"Frame rate"}</span>
-                                    <select
-                                        id="montage-export-frame-rate-select"
-                                        class="export-panel__select"
-                                        onchange={on_export_frame_rate_change}
-                                    >
+                                    <select id="montage-export-frame-rate-select" class="export-panel__select" onchange={on_export_frame_rate_change}>
                                         <option value="24" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps24)}>{"24 FPS"}</option>
                                         <option value="30" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps30)}>{"30 FPS"}</option>
                                         <option value="60" selected={matches!((*export_options).frame_rate, ExportFrameRate::Fps60)}>{"60 FPS"}</option>
@@ -3990,11 +3366,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 </label>
                                 <label class="export-panel__field" for="montage-export-quality-select">
                                     <span class="export-panel__field-label">{"Quality"}</span>
-                                    <select
-                                        id="montage-export-quality-select"
-                                        class="export-panel__select"
-                                        onchange={on_export_quality_change}
-                                    >
+                                    <select id="montage-export-quality-select" class="export-panel__select" onchange={on_export_quality_change}>
                                         <option value="draft" selected={matches!((*export_options).quality, ExportQuality::Draft)}>{"Draft"}</option>
                                         <option value="balanced" selected={matches!((*export_options).quality, ExportQuality::Balanced)}>{"Balanced"}</option>
                                         <option value="high" selected={matches!((*export_options).quality, ExportQuality::High)}>{"High"}</option>
@@ -4003,12 +3375,7 @@ pub fn montage_page(props: &MontagePageProps) -> Html {
                                 <label class="export-panel__field export-panel__field--checkbox" for="montage-export-audio-checkbox">
                                     <span class="export-panel__field-label">{"Audio"}</span>
                                     <span class="export-panel__checkbox-row">
-                                        <input
-                                            id="montage-export-audio-checkbox"
-                                            type="checkbox"
-                                            checked={(*export_options).include_audio}
-                                            onchange={on_export_audio_change}
-                                        />
+                                        <input id="montage-export-audio-checkbox" type="checkbox" checked={(*export_options).include_audio} onchange={on_export_audio_change} />
                                         <span>{"Include audio"}</span>
                                     </span>
                                 </label>

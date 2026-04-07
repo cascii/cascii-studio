@@ -2354,7 +2354,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             .custom_name
             .clone()
             .unwrap_or_else(|| file_name_from_path(&source.file_path));
-        format!("SOURCE VIDEO: {}", without_extension(&source_name))
+        let kind = if source.content_type == ContentType::Image {"SOURCE IMAGE"} else {"SOURCE VIDEO"};
+        format!("{}: {}", kind, without_extension(&source_name))
     });
 
     let on_data_changed = {
@@ -2674,7 +2675,103 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                     } else if let (Some(source), Some(url)) = (&*selected_source, &*asset_url) {
                                         if source.content_type == ContentType::Image {
                                             html! {
-                                                <img src={url.clone()} alt="Source Image" loading="lazy" decoding="async" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
+                                                <VideoPlayer
+                                                src={url.clone()}
+                                                class={classes!("source-video")}
+                                                is_image=true
+
+                                                project_id={Some((*project_id).clone())}
+                                                source_file_id={Some(source.id.clone())}
+                                                source_file_path={Some(source.file_path.clone())}
+
+                                                luminance={*luminance}
+                                                font_ratio={*font_ratio}
+                                                columns={*columns}
+                                                fps={*fps}
+
+                                                on_luminance_change={Some({
+                                                    let luminance = luminance.clone();
+                                                    Callback::from(move |v: u8| luminance.set(v))
+                                                })}
+                                                on_font_ratio_change={Some({
+                                                    let font_ratio = font_ratio.clone();
+                                                    Callback::from(move |v: f32| font_ratio.set(v))
+                                                })}
+                                                on_columns_change={Some({
+                                                    let columns = columns.clone();
+                                                    Callback::from(move |v: u32| columns.set(v))
+                                                })}
+                                                on_fps_change={Some({
+                                                    let fps = fps.clone();
+                                                    Callback::from(move |v: u32| fps.set(v))
+                                                })}
+
+                                                is_converting={Some(active_conversions_ref.borrow().contains_key(&source.id))}
+                                                on_conversion_start={Some({
+                                                    let active_conversions_ref = active_conversions_ref.clone();
+                                                    let conversions_update_trigger = conversions_update_trigger.clone();
+                                                    Callback::from(move |(source_id, name): (String, String)| {
+                                                        web_sys::console::log_1(&format!("🟢 CONVERSION START: {} ({})", name, source_id).into());
+                                                        active_conversions_ref.borrow_mut().insert(source_id.clone(), 0u8);
+                                                        web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
+                                                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+                                                    })
+                                                })}
+                                                on_conversion_complete={Some({
+                                                    let active_conversions_ref = active_conversions_ref.clone();
+                                                    let conversions_update_trigger = conversions_update_trigger.clone();
+                                                    Callback::from(move |source_id: String| {
+                                                        web_sys::console::log_1(&format!("🔴 CONVERSION COMPLETE: {}", source_id).into());
+                                                        active_conversions_ref.borrow_mut().remove(&source_id);
+                                                        web_sys::console::log_1(&format!("📊 Active conversions: {}", active_conversions_ref.borrow().len()).into());
+                                                        conversions_update_trigger.set(*conversions_update_trigger + 1);
+                                                    })
+                                                })}
+                                                conversion_message={(*conversion_message).clone()}
+                                                on_conversion_message_change={Some({
+                                                    let conversion_message = conversion_message.clone();
+                                                    let conversion_success_folder = conversion_success_folder.clone();
+                                                    Callback::from(move |v: Option<String>| {
+                                                        if let Some(ref msg) = v {
+                                                            if let Some(start) = msg.find("saved to: ") {
+                                                                let after_prefix = &msg[start + 10..];
+                                                                if let Some(end) = after_prefix.find(" (") {
+                                                                    let folder_path = after_prefix[..end].to_string();
+                                                                    conversion_success_folder.set(Some(folder_path));
+                                                                }
+                                                            }
+                                                        } else {
+                                                            conversion_success_folder.set(None);
+                                                        }
+                                                        conversion_message.set(v);
+                                                    })
+                                                })}
+                                                on_error_message_change={Some({
+                                                    let error_message = error_message.clone();
+                                                    Callback::from(move |v: Option<String>| error_message.set(v))
+                                                })}
+
+                                                on_refresh_frames={Some({
+                                                    let frame_directories = frame_directories.clone();
+                                                    let project_id = project_id.clone();
+                                                    Callback::from(move |_| {
+                                                        let frame_directories = frame_directories.clone();
+                                                        let project_id = (*project_id).clone();
+                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                            let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                                                            if let Ok(frames) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_frames", args).await) {
+                                                                frame_directories.set(frames);
+                                                            }
+                                                        });
+                                                    })
+                                                })}
+
+                                                custom_name={source.custom_name.clone()}
+
+                                                color_frames_default={*color_frames_default}
+
+                                                on_preview_created={Some(on_preview_created.clone())}
+                                            />
                                             }
                                         } else if source.content_type == ContentType::Video {
                                             html! {

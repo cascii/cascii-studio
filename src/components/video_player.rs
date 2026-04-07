@@ -201,6 +201,10 @@ pub struct VideoPlayerProps {
     pub on_preview_created: Option<Callback<serde_json::Value>>,
     #[prop_or(true)]
     pub show_controls: bool,
+
+    /// When true, the component renders an <img> instead of <video> and hides video-specific controls
+    #[prop_or(false)]
+    pub is_image: bool,
 }
 
 #[function_component(VideoPlayer)]
@@ -1080,7 +1084,11 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
     html! {
         <div id="video-player" class={classes!("video-player", props.class.clone())}>
             <div id="video-wrap" class="video-wrap">
-                <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="auto" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onloadeddata={on_loaded_data} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
+                if props.is_image {
+                    <img id="image-element" src={props.src.clone()} alt="Source Image" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;" />
+                } else {
+                    <video id="video-element" ref={video_ref.clone()} class="video" src={props.src.clone()} preload="auto" playsinline=true ontimeupdate={on_time_update} onloadedmetadata={on_loaded_metadata} onloadeddata={on_loaded_data} onplay={on_play} onpause={on_pause} onerror={on_error} onclick={on_toggle.clone()} />
+                }
                 if let Some(msg) = &*error_text {
                     <div id="video-error-overlay" class="error-overlay">{msg}</div>
                 }
@@ -1088,6 +1096,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
             if props.show_controls {
             <div class="controls" id="video-controls">
+                if !props.is_image {
                 <div class="control-row" id="video-progress">
                     <input id="video-progress-bar" class="progress" type="range" min="0" max="1" step="0.0001" value={progress_in_trim.to_string()} oninput={on_seek_input_trim.clone()} title="Seek (within trim)" />
                     <button id="video-play-btn" class="ctrl-btn" type="button" onclick={on_toggle.clone()} title="Play/Pause">
@@ -1105,6 +1114,7 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                         <Icon icon_id={IconId::LucideScissors} width={"20"} height={"20"} />
                     </button>
                 </div>
+                }
 
                 <div class="control-row timestamp-row" id="video-timestamp-row">
                     <div id="video-timestamp-actions" class="timestamp-actions">
@@ -1118,12 +1128,14 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                                 <Icon icon_id={IconId::LucideXCircle} width={"20"} height={"20"} />
                             }
                         </button>
+                        if !props.is_image {
                         <button id="video-audio-toggle-btn" class={classes!("ctrl-btn", "audio-toggle-btn", (*extract_audio).then_some("active"))} type="button" onclick={{
                             let extract_audio = extract_audio.clone();
                             Callback::from(move |_| extract_audio.set(!*extract_audio))
                         }} title={if *extract_audio { "Audio extraction enabled" } else { "Audio extraction disabled" }}>
                             <Icon icon_id={IconId::LucideVolume2} width={"20"} height={"20"} />
                         </button>
+                        }
                         <button id="video-advanced-settings-btn" class={classes!("ctrl-btn", "advanced-settings-btn", (*show_advanced_settings).then_some("active"))} type="button" onclick={{
                             let show_advanced_settings = show_advanced_settings.clone();
                             Callback::from(move |_| show_advanced_settings.set(!*show_advanced_settings))
@@ -1131,7 +1143,9 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
                             <Icon icon_id={IconId::LucideSettings} width={"20"} height={"20"} />
                         </button>
                     </div>
+                    if !props.is_image {
                     <span id="video-timestamp-overlay" class="timestamp-text">{timestamp}</span>
+                    }
                 </div>
 
                 if *show_advanced_settings {
@@ -1172,10 +1186,12 @@ pub fn video_player(props: &VideoPlayerProps) -> Html {
 
                 <div class="control-row" id="conversion-settings">
                     <div id="video-settings-info" class="settings-info">
+                        if !props.is_image {
                         <div id="video-settings-fps-row" class="settings-row">
                             <span id="video-settings-fps-label" class="settings-label">{"FPS:"}</span>
                             <input id="video-settings-fps-input" type="number" class="setting-input" value={props.fps.to_string()} min="1" max="120" oninput={on_fps_input.clone()} />
                         </div>
+                        }
                         <div id="video-settings-font-ratio-row" class="settings-row">
                             <span id="video-settings-font-ratio-label" class="settings-label">{"FONT RATIO:"}</span>
                             <input id="video-settings-font-ratio-input" type="number" class="setting-input" value={props.font_ratio.to_string()} min="0.1" max="2.0" step="0.1" oninput={on_font_ratio_input.clone()} />

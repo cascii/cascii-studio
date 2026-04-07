@@ -29,12 +29,13 @@ pub async fn create_preview(
     request: CreatePreviewRequest,
 ) -> Result<database::Preview, String> {
     use cascii::{AsciiConverter, ConversionOptions};
-    use std::process::{Command, Stdio};
 
     let input_path = PathBuf::from(&request.video_path);
     if !input_path.exists() {
-        return Err(format!("Video file not found: {}", request.video_path));
+        return Err(format!("File not found: {}", request.video_path));
     }
+
+    let is_image = input_path.extension().and_then(|ext| ext.to_str()).map(|ext| matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")).unwrap_or(false);
 
     let settings = settings::load();
     let project = database::get_project(&request.project_id)
@@ -50,7 +51,7 @@ pub async fn create_preview(
     let source_name = input_path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("video");
+        .unwrap_or("source");
     let random_suffix = generate_random_suffix();
     let folder_name = format!(
         "preview_{}_frame_{:04}{}",
@@ -61,45 +62,41 @@ pub async fn create_preview(
     fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Failed to create preview output directory: {}", e))?;
 
-    let temp_frame_path = output_dir.join("temp_frame.png");
-
     let ffmpeg_config = get_ffmpeg_config(&app, &settings.ffmpeg_source);
-    let ffmpeg_path = ffmpeg_config.ffmpeg_path.clone();
 
-    let ffmpeg_cmd = ffmpeg_path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .unwrap_or("ffmpeg");
+    let frame_source_path = if is_image {
+        input_path.clone()
+    } else {
+        use std::process::{Command, Stdio};
 
-    let status = Command::new(ffmpeg_cmd)
-        .arg("-ss")
-        .arg(format!("{}", request.timestamp))
-        .arg("-i")
-        .arg(&request.video_path)
-        .arg("-vframes")
-        .arg("1")
-        .arg("-y")
-        .arg(&temp_frame_path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .status()
-        .map_err(|e| {
-            format!(
-                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
-                e
-            )
-        })?;
+        let temp_frame_path = output_dir.join("temp_frame.png");
+        let ffmpeg_path = ffmpeg_config.ffmpeg_path.clone();
+        let ffmpeg_cmd = ffmpeg_path.as_ref().and_then(|p| p.to_str()).unwrap_or("ffmpeg");
 
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg frame extraction failed with status: {}",
-            status
-        ));
-    }
+        let status = Command::new(ffmpeg_cmd)
+            .arg("-ss")
+            .arg(format!("{}", request.timestamp))
+            .arg("-i")
+            .arg(&request.video_path)
+            .arg("-vframes")
+            .arg("1")
+            .arg("-y")
+            .arg(&temp_frame_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .status()
+            .map_err(|e| format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e))?;
 
-    if !temp_frame_path.exists() {
-        return Err("Failed to extract frame from video".to_string());
-    }
+        if !status.success() {
+            return Err(format!("ffmpeg frame extraction failed with status: {}", status));
+        }
+
+        if !temp_frame_path.exists() {
+            return Err("Failed to extract frame from video".to_string());
+        }
+
+        temp_frame_path
+    };
 
     let converter = AsciiConverter::new().with_ffmpeg_config(ffmpeg_config);
 
@@ -118,7 +115,7 @@ pub async fn create_preview(
     let output_txt_path = output_dir.join("frame_0001.txt");
 
     converter
-        .convert_image(&temp_frame_path, &output_txt_path, &conv_opts)
+        .convert_image(&frame_source_path, &output_txt_path, &conv_opts)
         .map_err(|e| format!("Failed to convert frame to ASCII: {}", e))?;
 
     #[derive(serde::Serialize)]
@@ -152,7 +149,11 @@ pub async fn create_preview(
     fs::write(output_dir.join("details.toml"), details_toml)
         .map_err(|e| format!("Failed to write preview details: {}", e))?;
 
-    let _ = fs::remove_file(&temp_frame_path);
+    // Clean up temp frame only for videos (images use the source directly)
+    if !is_image {
+        let temp_frame_path = output_dir.join("temp_frame.png");
+        let _ = fs::remove_file(&temp_frame_path);
+    }
 
     let mut total_size = 0i64;
     if let Ok(entries) = fs::read_dir(&output_dir) {

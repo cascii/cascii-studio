@@ -37,3 +37,7 @@ right click on "projects" in open, to duplicate
 ---> sidebar panel to select exact second/frame
 
 Add COMPUTING BAR WHEN PREPROCESSING VIDEO
+single binary as an alternative to cframes in settings
+frame number when cutting
+add sort type + arrow up down in sidebar
+hover selected files in the sidebar (while in project)

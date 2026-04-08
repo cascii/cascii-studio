@@ -2504,8 +2504,44 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         html! {}
     };
 
+    let file_add_progress_html =
+        if *is_adding_files && !file_progress_map.is_empty() {
+            let mut progress_entries = file_progress_map
+                .iter()
+                .map(|(file_name, progress)| (file_name.clone(), progress.clone()))
+                .collect::<Vec<_>>();
+            progress_entries.sort_by(|(left_name, _), (right_name, _)| left_name.cmp(right_name));
+
+            html! {
+                <>
+                    {progress_entries.into_iter().map(|(file_name, progress)| {
+                        let percentage = progress.percentage.map(|value| value.clamp(0.0, 100.0).round() as u8);
+                        let label = match percentage {
+                            Some(value) => format!("Adding {}: {}%", file_name, value),
+                            None => format!("Adding {}: {}", file_name, progress.message),
+                        };
+
+                        html! {
+                            <div class="project-computation-item" key={file_name.clone()}>
+                                <span class="conversion-progress-text">{label}</span>
+                                if let Some(value) = percentage {
+                                    <div class="conversion-progress-bar">
+                                        <div class="conversion-progress-fill" style={format!("width: {}%;", value)} />
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }).collect::<Html>()}
+                </>
+            }
+        } else {
+            html! {}
+        };
+
     let show_computation_section =
-        !active_conversions_ref.borrow().is_empty() || preprocess_progress.is_some();
+        (*is_adding_files && !file_progress_map.is_empty())
+            || !active_conversions_ref.borrow().is_empty()
+            || preprocess_progress.is_some();
 
     let computation_section_html = if show_computation_section {
         html! {
@@ -2527,6 +2563,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 </div>
                 if !*computation_collapsed {
                     <div id="project-computation-content" class="project-computation-section__content">
+                        {file_add_progress_html.clone()}
                         {preprocess_progress_html.clone()}
                         {conversion_items_html.clone()}
                     </div>
@@ -2795,47 +2832,6 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 <div id="project-main-content" class="main-content">
                     if let Some(error) = &*error_message {
                         <div id="project-error-alert" class="alert alert-error">{error}</div>
-                    }
-
-                    if *is_adding_files && !file_progress_map.is_empty() {
-                        <div id="project-add-files-progress" class="progress-container">
-                            <h3>{"Adding Files"}</h3>
-                            <div id="project-add-files-list" class="progress-list">
-                                {
-                                    file_progress_map.iter().map(|(file_name, progress)| {
-                                        let status_class = match progress.status.as_str() {
-                                            "completed"     => "status-completed",
-                                            "error"         => "status-error",
-                                            "processing"    => "status-processing",
-                                            _               => "status-pending"
-                                        };
-
-                                        let icon = match progress.status.as_str() {
-                                            "completed"     => "✓",
-                                            "error"         => "✗",
-                                            "processing"    => "⟳",
-                                            _               => "○"
-                                        };
-
-                                        html! {
-                                            <div class={classes!("progress-item", status_class)} key={file_name.clone()}>
-                                                <div class="progress-icon">{icon}</div>
-                                                <div class="progress-info">
-                                                    <div class="progress-filename">{file_name}</div>
-                                                    <div class="progress-message">{&progress.message}</div>
-                                                    if let Some(percentage) = progress.percentage {
-                                                        <div class="progress-bar-container">
-                                                            <div class="progress-bar" style={format!("width: {}%", percentage)}></div>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
-                                        }
-                                    }).collect::<Html>()
-                                }
-                            </div>
-                            <p class="progress-note">{"Please wait while files are being processed..."}</p>
-                        </div>
                     }
 
                     if !open_tabs.is_empty() {

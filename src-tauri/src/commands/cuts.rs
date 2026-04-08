@@ -90,15 +90,11 @@ pub async fn cut_video(
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn cut_video_blocking(
-    request: CutVideoRequest,
-    app: tauri::AppHandle,
-) -> Result<database::VideoCut, String> {
+fn cut_video_blocking(request: CutVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
     use std::process::{Command, Stdio};
 
     let settings = settings::load();
-    let project = database::get_project(&request.project_id)
-        .map_err(|e| format!("Failed to get project: {}", e))?;
+    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
 
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
     let cuts_dir = project_dir.join("cuts");
@@ -106,36 +102,16 @@ fn cut_video_blocking(
     fs::create_dir_all(&cuts_dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
 
     let input_path = PathBuf::from(&request.source_file_path);
-    let file_stem = input_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or("Invalid input filename")?;
-
+    let file_stem = input_path.file_stem().and_then(|s| s.to_str()).ok_or("Invalid input filename")?;
     let cut_id = Uuid::new_v4().to_string();
     let output_filename = format!("{}_cut_{}.mp4", file_stem, &cut_id[..8]);
     let output_path = cuts_dir.join(&output_filename);
-
     let duration = request.end_time - request.start_time;
 
-    let _ = app.emit(
-        "cut-progress",
-        FileProgress {
-            file_name: output_filename.clone(),
-            status: "processing".to_string(),
-            message: "Cutting video...".to_string(),
-            percentage: Some(0.0),
-        },
-    );
+    let _ = app.emit("cut-progress", FileProgress {file_name: output_filename.clone(), status: "processing".to_string(), message: "Cutting video...".to_string(), percentage: Some(0.0)});
 
-    println!(
-        "🎬 Cutting video: {} -> {}",
-        request.source_file_path,
-        output_path.display()
-    );
-    println!(
-        "   Start: {}s, End: {}s, Duration: {}s",
-        request.start_time, request.end_time, duration
-    );
+    println!("🎬 Cutting video: {} -> {}", request.source_file_path, output_path.display());
+    println!("   Start: {}s, End: {}s, Duration: {}s", request.start_time, request.end_time, duration);
 
     let status = Command::new("ffmpeg")
         .arg("-ss")
@@ -157,12 +133,7 @@ fn cut_video_blocking(
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .status()
-        .map_err(|e| {
-            format!(
-                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
-                e
-            )
-        })?;
+        .map_err(|e| {format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e)})?;
 
     if !status.success() {
         return Err(format!("ffmpeg cut failed with status: {}", status));
@@ -187,15 +158,7 @@ fn cut_video_blocking(
 
     database::add_video_cut(&cut).map_err(|e| format!("Failed to save cut to database: {}", e))?;
 
-    let _ = app.emit(
-        "cut-progress",
-        FileProgress {
-            file_name: output_filename,
-            status: "completed".to_string(),
-            message: "Cut completed".to_string(),
-            percentage: Some(100.0),
-        },
-    );
+    let _ = app.emit("cut-progress", FileProgress {file_name: output_filename, status: "completed".to_string(), message: "Cut completed".to_string(), percentage: Some(100.0)});
 
     println!("✅ Cut saved: {} ({} bytes)", cut.file_path, file_size);
 
@@ -230,8 +193,7 @@ pub(crate) struct RenameCutRequest {
 
 #[tauri::command]
 pub fn rename_cut(request: RenameCutRequest) -> Result<(), String> {
-    database::update_cut_custom_name(&request.cut_id, request.custom_name)
-        .map_err(|e| format!("Failed to rename cut: {}", e))
+    database::update_cut_custom_name(&request.cut_id, request.custom_name).map_err(|e| format!("Failed to rename cut: {}", e))
 }
 
 #[derive(serde::Deserialize)]
@@ -249,51 +211,34 @@ pub(crate) struct PreprocessVideoArgs {
 }
 
 #[tauri::command]
-pub async fn preprocess_video(
-    args: PreprocessVideoArgs,
-    app: tauri::AppHandle,
-) -> Result<database::VideoCut, String> {
-    tokio::task::spawn_blocking(move || preprocess_video_blocking(args.request, app))
-        .await
-        .map_err(|e| format!("Task failed: {}", e))?
+pub async fn preprocess_video(args: PreprocessVideoArgs, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
+    tokio::task::spawn_blocking(move || preprocess_video_blocking(args.request, app)).await.map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn preprocess_video_blocking(
-    request: PreprocessVideoRequest,
-    app: tauri::AppHandle,
-) -> Result<database::VideoCut, String> {
+fn preprocess_video_blocking(request: PreprocessVideoRequest, app: tauri::AppHandle) -> Result<database::VideoCut, String> {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
     let filter = match request.preset.as_deref() {
         Some("other") => {
-            cascii::preprocessing::resolve_preprocess_filter(request.custom_filter.as_deref(), None)
-                .map_err(|e| format!("Invalid preprocessing filter: {}", e))?
+            cascii::preprocessing::resolve_preprocess_filter(request.custom_filter.as_deref(), None).map_err(|e| format!("Invalid preprocessing filter: {}", e))?
         }
         Some(preset_name) => {
-            cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
-                .map_err(|e| format!("Invalid preprocessing preset: {}", e))?
+            cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name)).map_err(|e| format!("Invalid preprocessing preset: {}", e))?
         }
         None => return Err("No preprocessing preset selected".to_string()),
     };
     let filter = filter.ok_or("Empty preprocessing filter")?;
-
     let current_settings = settings::load();
-    let project = database::get_project(&request.project_id)
-        .map_err(|e| format!("Failed to get project: {}", e))?;
-
+    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
     let project_dir = PathBuf::from(&current_settings.output_directory).join(&project.project_path);
     let cuts_dir = project_dir.join("cuts");
     fs::create_dir_all(&cuts_dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
 
     let input_path = PathBuf::from(&request.source_file_path);
-    let file_stem = input_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or("Invalid input filename")?;
+    let file_stem = input_path.file_stem().and_then(|s| s.to_str()).ok_or("Invalid input filename")?;
 
     let cut_id = Uuid::new_v4().to_string();
-
     let in_place = current_settings.preprocess_output == settings::PreprocessOutput::CurrentFile;
 
     let output_path = if in_place {
@@ -308,20 +253,9 @@ fn preprocess_video_blocking(
         .unwrap_or(file_stem)
         .to_string();
 
-    emit_progress(
-        &app,
-        "preprocess-progress",
-        &progress_file_name,
-        "processing",
-        "Preprocessing video...",
-        Some(0.0),
-    );
+    emit_progress(&app, "preprocess-progress", &progress_file_name, "processing", "Preprocessing video...", Some(0.0));
 
-    println!(
-        "🎨 Preprocessing video: {} -> {}",
-        request.source_file_path,
-        output_path.display()
-    );
+    println!("🎨 Preprocessing video: {} -> {}", request.source_file_path, output_path.display());
 
     let ffmpeg_config = get_ffmpeg_config(&app, &current_settings.ffmpeg_source);
     let ffmpeg_cmd = ffmpeg_config
@@ -357,12 +291,7 @@ fn preprocess_video_blocking(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| {
-            format!(
-                "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
-                e
-            )
-        })?;
+        .map_err(|e| {format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e)})?;
 
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
@@ -374,20 +303,11 @@ fn preprocess_video_blocking(
             }
 
             if let Some(processed_seconds) = parse_ffmpeg_progress_seconds(&line) {
-                let percentage = ((processed_seconds / source_duration) * 100.0)
-                    .clamp(0.0, 99.0)
-                    .floor() as u8;
+                let percentage = ((processed_seconds / source_duration) * 100.0).clamp(0.0, 99.0).floor() as u8;
 
                 if percentage > last_reported {
                     last_reported = percentage;
-                    emit_progress(
-                        &app,
-                        "preprocess-progress",
-                        &progress_file_name,
-                        "processing",
-                        format!("Preprocessing video... {}%", percentage),
-                        Some(percentage as f32),
-                    );
+                    emit_progress(&app, "preprocess-progress", &progress_file_name, "processing",  format!("Preprocessing video... {}%", percentage), Some(percentage as f32));
                 }
             }
         }
@@ -396,27 +316,17 @@ fn preprocess_video_blocking(
     let status = child.wait().map_err(|e| format!("Failed to wait for ffmpeg: {}", e))?;
 
     if !status.success() {
-        emit_progress(
-            &app,
-            "preprocess-progress",
-            &progress_file_name,
-            "error",
-            "Preprocessing failed",
-            None,
-        );
+        emit_progress(&app, "preprocess-progress", &progress_file_name, "error", "Preprocessing failed", None);
         let _ = fs::remove_file(&output_path);
         return Err("ffmpeg preprocessing failed".to_string());
     }
 
     if in_place {
-        fs::rename(&output_path, &input_path)
-            .map_err(|e| format!("Failed to replace original file: {}", e))?;
+        fs::rename(&output_path, &input_path).map_err(|e| format!("Failed to replace original file: {}", e))?;
     }
 
     let final_path = if in_place { &input_path } else { &output_path };
-    let file_size = fs::metadata(final_path)
-        .map_err(|e| format!("Failed to get file size: {}", e))?
-        .len() as i64;
+    let file_size = fs::metadata(final_path).map_err(|e| format!("Failed to get file size: {}", e))?.len() as i64;
 
     let duration = probe_duration_seconds(ffprobe_cmd, &final_path.to_path_buf()).unwrap_or(0.0);
 
@@ -434,20 +344,8 @@ fn preprocess_video_blocking(
     };
 
     database::add_video_cut(&cut).map_err(|e| format!("Failed to save to database: {}", e))?;
+    emit_progress(&app, "preprocess-progress", &progress_file_name, "completed", "Preprocessing completed", Some(100.0));
 
-    emit_progress(
-        &app,
-        "preprocess-progress",
-        &progress_file_name,
-        "completed",
-        "Preprocessing completed",
-        Some(100.0),
-    );
-
-    println!(
-        "✅ Preprocessed video saved: {} ({} bytes)",
-        final_path.display(),
-        file_size
-    );
+    println!("✅ Preprocessed video saved: {} ({} bytes)",  final_path.display(), file_size);
     Ok(cut)
 }

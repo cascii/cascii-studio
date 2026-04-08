@@ -53,8 +53,7 @@ pub fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, Str
                 if path.is_dir() {
                     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                         if dir_name.ends_with("_ascii") || dir_name.contains("_ascii[") {
-                            let source_name = if let Some(bracket_start) = dir_name.find("_ascii[")
-                            {
+                            let source_name = if let Some(bracket_start) = dir_name.find("_ascii[") {
                                 &dir_name[..bracket_start]
                             } else {
                                 dir_name.strip_suffix("_ascii").unwrap_or(dir_name)
@@ -63,13 +62,7 @@ pub fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, Str
                             let folder_path = path.to_str().unwrap_or("").to_string();
                             let conversion = database::get_conversion_by_folder_path(&folder_path).ok().flatten();
                             let (frame_files, has_text_frames, has_color_frames) = inspect_frame_directory(&path)?;
-                            let metadata = resolve_frame_metadata(&path, conversion.as_ref().map(|conversion| conversion.settings.output_mode.as_str()), conversion.as_ref().map(|conversion| conversion.settings.color).unwrap_or(false), conversion.as_ref().and_then(|conversion| {
-                                    conversion.settings.foreground_color.as_deref()
-                                }),
-                                conversion.as_ref().and_then(|conversion| {
-                                    conversion.settings.background_color.as_deref()
-                                }),
-                            );
+                            let metadata = resolve_frame_metadata(&path, conversion.as_ref().map(|conversion| conversion.settings.output_mode.as_str()), conversion.as_ref().map(|conversion| conversion.settings.color).unwrap_or(false), conversion.as_ref().and_then(|conversion| {conversion.settings.foreground_color.as_deref()}), conversion.as_ref().and_then(|conversion| {conversion.settings.background_color.as_deref()}));
                             let custom_name = conversion.as_ref().and_then(|conversion| conversion.custom_name.clone());
 
                             let display_name = custom_name.clone().unwrap_or_else(|| format!("{} - Frames", source_name));
@@ -162,7 +155,6 @@ pub(crate) struct UpdateFrameCustomNameRequest {
 #[tauri::command]
 pub fn update_frame_custom_name(request: UpdateFrameCustomNameRequest) -> Result<(), String> {
     let conversion = database::get_conversion_by_folder_path(&request.folder_path).map_err(|e| format!("Failed to find conversion: {}", e))?.ok_or("Conversion not found")?;
-
     database::update_conversion_custom_name(&conversion.id, request.custom_name).map_err(|e| format!("Failed to update custom name: {}", e))
 }
 
@@ -175,9 +167,7 @@ pub fn delete_frame_directory(directory_path: String) -> Result<(), String> {
     }
 
     fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete frame directory: {}", e))?;
-
     database::delete_conversion_by_folder_path(&directory_path).map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
-
     Ok(())
 }
 
@@ -225,19 +215,13 @@ pub async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequ
         return Err(format!("File not found: {}", request.file_path));
     }
 
-    let is_image = input_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| {matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")}).unwrap_or(false);
+    let is_image = input_path.extension().and_then(|ext| ext.to_str()).map(|ext| {matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")}).unwrap_or(false);
 
     let settings = settings::load();
-    let project = database::get_project(&request.project_id)
-        .map_err(|e| format!("Failed to get project: {}", e))?;
+    let project = database::get_project(&request.project_id).map_err(|e| format!("Failed to get project: {}", e))?;
     let project_dir = PathBuf::from(&settings.output_directory).join(&project.project_path);
     let frames_dir = project_dir.join("frames");
-
-    fs::create_dir_all(&frames_dir)
-        .map_err(|e| format!("Failed to create frames directory: {}", e))?;
+    fs::create_dir_all(&frames_dir).map_err(|e| format!("Failed to create frames directory: {}", e))?;
 
     let random_suffix = generate_random_suffix();
     let folder_name = format!("{}_ascii{}", input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output"), random_suffix);
@@ -257,8 +241,7 @@ pub async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequ
     let preprocess_filter = if request.preprocess_enabled {
         let selected = request.preprocess_preset.as_deref().map(str::trim).filter(|s| !s.is_empty());
         match selected {
-            Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.preprocess_custom.as_deref(), None)
-            .map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
+            Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.preprocess_custom.as_deref(), None).map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
             Some(preset_name) => cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name)).map_err(|e| format!("Invalid preprocessing preset: {}", e))?,
             None => return Err("Preprocessing is enabled but no preset was selected".to_string()),
         }
@@ -492,16 +475,10 @@ fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Res
 
     for (new_idx, frame) in frames_to_copy.iter().enumerate() {
         let src_path = PathBuf::from(&frame.path);
-        let ext = src_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("txt");
-
+        let ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
         let new_filename = format!("frame_{:04}.{}", new_idx + 1, ext);
         let dest_path = new_folder_path.join(new_filename);
-
-        fs::copy(&src_path, &dest_path)
-            .map_err(|e| format!("Failed to copy {}: {}", frame.name, e))?;
+        fs::copy(&src_path, &dest_path).map_err(|e| format!("Failed to copy {}: {}", frame.name, e))?;
 
         let size = fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
         total_size += size as i64;
@@ -544,9 +521,7 @@ pub(crate) struct CropFramesRequest {
 
 #[tauri::command]
 pub async fn crop_frames(request: CropFramesRequest) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || crop_frames_blocking(request))
-        .await
-        .map_err(|e| format!("Task failed: {}", e))?
+    tokio::task::spawn_blocking(move || crop_frames_blocking(request)).await.map_err(|e| format!("Task failed: {}", e))?
 }
 
 fn can_crop_in_place_with_cascii(source_dir: &Path) -> Result<bool, String> {

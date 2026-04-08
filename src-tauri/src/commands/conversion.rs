@@ -7,34 +7,25 @@ use crate::util::{
     resolve_frame_metadata, scan_frames_in_dir, FrameDirectory, FrameFile,
 };
 use chrono::Utc;
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use uuid::Uuid;
 
 #[tauri::command]
-pub fn get_project_conversions(
-    project_id: String,
-) -> Result<Vec<database::AsciiConversion>, String> {
+pub fn get_project_conversions(project_id: String) -> Result<Vec<database::AsciiConversion>, String> {
     database::get_project_conversions(&project_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_conversion_by_folder_path(
-    folder_path: String,
-) -> Result<Option<database::AsciiConversion>, String> {
+pub fn get_conversion_by_folder_path(folder_path: String) -> Result<Option<database::AsciiConversion>, String> {
     database::get_conversion_by_folder_path(&folder_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_conversion_frame_speed(
-    conversion_id: String,
-    frame_speed: u32,
-) -> Result<(), String> {
-    println!(
-        "🔄 Tauri: Updating frame_speed for conversion {} to {}",
-        conversion_id, frame_speed
-    );
+pub fn update_conversion_frame_speed(conversion_id: String, frame_speed: u32) -> Result<(), String> {
+    println!("🔄 Tauri: Updating frame_speed for conversion {} to {}", conversion_id, frame_speed);
     let result = database::update_conversion_frame_speed(&conversion_id, frame_speed);
     match &result {
         Ok(_) => println!("✅ Tauri: Database update successful"),
@@ -70,64 +61,28 @@ pub fn get_project_frames(project_id: String) -> Result<Vec<FrameDirectory>, Str
                             };
 
                             let folder_path = path.to_str().unwrap_or("").to_string();
-                            let conversion = database::get_conversion_by_folder_path(&folder_path)
-                                .ok()
-                                .flatten();
-                            let (frame_files, has_text_frames, has_color_frames) =
-                                inspect_frame_directory(&path)?;
-                            let metadata = resolve_frame_metadata(
-                                &path,
-                                conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.settings.output_mode.as_str()),
-                                conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.settings.color)
-                                    .unwrap_or(false),
-                                conversion.as_ref().and_then(|conversion| {
+                            let conversion = database::get_conversion_by_folder_path(&folder_path).ok().flatten();
+                            let (frame_files, has_text_frames, has_color_frames) = inspect_frame_directory(&path)?;
+                            let metadata = resolve_frame_metadata(&path, conversion.as_ref().map(|conversion| conversion.settings.output_mode.as_str()), conversion.as_ref().map(|conversion| conversion.settings.color).unwrap_or(false), conversion.as_ref().and_then(|conversion| {
                                     conversion.settings.foreground_color.as_deref()
                                 }),
                                 conversion.as_ref().and_then(|conversion| {
                                     conversion.settings.background_color.as_deref()
                                 }),
                             );
-                            let custom_name = conversion
-                                .as_ref()
-                                .and_then(|conversion| conversion.custom_name.clone());
+                            let custom_name = conversion.as_ref().and_then(|conversion| conversion.custom_name.clone());
 
-                            let display_name = custom_name
-                                .clone()
-                                .unwrap_or_else(|| format!("{} - Frames", source_name));
+                            let display_name = custom_name.clone().unwrap_or_else(|| format!("{} - Frames", source_name));
                             frames.push(FrameDirectory {
-                                conversion_id: conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.id.clone())
-                                    .unwrap_or_else(|| format!("path:{}", folder_path)),
+                                conversion_id: conversion.as_ref().map(|conversion| conversion.id.clone()).unwrap_or_else(|| format!("path:{}", folder_path)),
                                 name: display_name,
                                 directory_path: folder_path,
                                 source_file_name: source_name.to_string(),
                                 custom_name,
-                                frame_count: conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.frame_count)
-                                    .unwrap_or(frame_files.len() as i32),
-                                fps: conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.settings.fps)
-                                    .unwrap_or(24),
-                                frame_speed: conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.settings.frame_speed)
-                                    .unwrap_or_else(|| {
-                                        conversion
-                                            .as_ref()
-                                            .map(|conversion| conversion.settings.fps)
-                                            .unwrap_or(24)
-                                    }),
-                                color: conversion
-                                    .as_ref()
-                                    .map(|conversion| conversion.settings.color)
-                                    .unwrap_or(false),
+                                frame_count: conversion.as_ref().map(|conversion| conversion.frame_count).unwrap_or(frame_files.len() as i32),
+                                fps: conversion.as_ref().map(|conversion| conversion.settings.fps).unwrap_or(24),
+                                frame_speed: conversion.as_ref().map(|conversion| conversion.settings.frame_speed).unwrap_or_else(|| {conversion.as_ref().map(|conversion| conversion.settings.fps).unwrap_or(24)}),
+                                color: conversion.as_ref().map(|conversion| conversion.settings.color).unwrap_or(false),
                                 output_mode: metadata.output_mode,
                                 foreground_color: Some(metadata.foreground_color),
                                 background_color: Some(metadata.background_color),
@@ -168,16 +123,11 @@ pub fn get_frame_files(directory_path: String) -> Result<Vec<FrameFile>, String>
 #[tauri::command]
 pub fn read_frame_file(file_path: String) -> Result<String, String> {
     let path = PathBuf::from(&file_path);
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_ascii_lowercase();
 
     if extension == "cframe" {
         let bytes = fs::read(&path).map_err(|e| format!("Failed to read cframe file: {}", e))?;
-        cascii_core_view::parse_cframe_text(&bytes)
-            .map_err(|e| format!("Failed to decode cframe text: {}", e))
+        cascii_core_view::parse_cframe_text(&bytes).map_err(|e| format!("Failed to decode cframe text: {}", e))
     } else {
         fs::read_to_string(&path).map_err(|e| format!("Failed to read frame file: {}", e))
     }
@@ -186,12 +136,7 @@ pub fn read_frame_file(file_path: String) -> Result<String, String> {
 #[tauri::command]
 pub fn read_cframe_file(txt_file_path: String) -> Result<Option<Vec<u8>>, String> {
     let source_path = PathBuf::from(&txt_file_path);
-    let cframe_path = if source_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("cframe"))
-        .unwrap_or(false)
-    {
+    let cframe_path = if source_path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.eq_ignore_ascii_case("cframe")).unwrap_or(false) {
         source_path
     } else {
         source_path.with_extension("cframe")
@@ -216,12 +161,9 @@ pub(crate) struct UpdateFrameCustomNameRequest {
 
 #[tauri::command]
 pub fn update_frame_custom_name(request: UpdateFrameCustomNameRequest) -> Result<(), String> {
-    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
-        .map_err(|e| format!("Failed to find conversion: {}", e))?
-        .ok_or("Conversion not found")?;
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path).map_err(|e| format!("Failed to find conversion: {}", e))?.ok_or("Conversion not found")?;
 
-    database::update_conversion_custom_name(&conversion.id, request.custom_name)
-        .map_err(|e| format!("Failed to update custom name: {}", e))
+    database::update_conversion_custom_name(&conversion.id, request.custom_name).map_err(|e| format!("Failed to update custom name: {}", e))
 }
 
 #[tauri::command]
@@ -232,11 +174,9 @@ pub fn delete_frame_directory(directory_path: String) -> Result<(), String> {
         return Err("Directory does not exist".to_string());
     }
 
-    fs::remove_dir_all(&dir_path)
-        .map_err(|e| format!("Failed to delete frame directory: {}", e))?;
+    fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete frame directory: {}", e))?;
 
-    database::delete_conversion_by_folder_path(&directory_path)
-        .map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
+    database::delete_conversion_by_folder_path(&directory_path).map_err(|e| format!("Failed to delete conversion from database: {}", e))?;
 
     Ok(())
 }
@@ -277,10 +217,7 @@ struct ConversionComplete {
 }
 
 #[tauri::command]
-pub async fn convert_to_ascii(
-    app: tauri::AppHandle,
-    request: ConvertToAsciiRequest,
-) -> Result<String, String> {
+pub async fn convert_to_ascii(app: tauri::AppHandle, request: ConvertToAsciiRequest) -> Result<String, String> {
     use cascii::{AsciiConverter, ConversionOptions, VideoOptions};
 
     let input_path = PathBuf::from(&request.file_path);
@@ -291,13 +228,7 @@ pub async fn convert_to_ascii(
     let is_image = input_path
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| {
-            matches!(
-                ext.to_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "webp"
-            )
-        })
-        .unwrap_or(false);
+        .map(|ext| {matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")}).unwrap_or(false);
 
     let settings = settings::load();
     let project = database::get_project(&request.project_id)
@@ -309,17 +240,9 @@ pub async fn convert_to_ascii(
         .map_err(|e| format!("Failed to create frames directory: {}", e))?;
 
     let random_suffix = generate_random_suffix();
-    let folder_name = format!(
-        "{}_ascii{}",
-        input_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("output"),
-        random_suffix
-    );
+    let folder_name = format!("{}_ascii{}", input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output"), random_suffix);
     let output_dir = frames_dir.join(&folder_name);
-    fs::create_dir_all(&output_dir)
-        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create output directory: {}", e))?;
 
     let input_path_clone = input_path.clone();
     let output_dir_clone = output_dir.clone();
@@ -327,32 +250,16 @@ pub async fn convert_to_ascii(
     let fps = request.fps.unwrap_or(30);
     let source_id_for_progress = request.source_file_id.clone();
     let source_id_for_complete = request.source_file_id.clone();
-    let display_name = request.custom_name.clone().unwrap_or_else(|| {
-        input_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string()
-    });
+    let display_name = request.custom_name.clone().unwrap_or_else(|| {input_path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string()});
     let display_name_for_return = display_name.clone();
     let folder_name_clone = folder_name.clone();
 
     let preprocess_filter = if request.preprocess_enabled {
-        let selected = request
-            .preprocess_preset
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let selected = request.preprocess_preset.as_deref().map(str::trim).filter(|s| !s.is_empty());
         match selected {
-            Some("other") => cascii::preprocessing::resolve_preprocess_filter(
-                request.preprocess_custom.as_deref(),
-                None,
-            )
+            Some("other") => cascii::preprocessing::resolve_preprocess_filter(request.preprocess_custom.as_deref(), None)
             .map_err(|e| format!("Invalid preprocessing filter: {}", e))?,
-            Some(preset_name) => {
-                cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name))
-                    .map_err(|e| format!("Invalid preprocessing preset: {}", e))?
-            }
+            Some(preset_name) => cascii::preprocessing::resolve_preprocess_filter(None, Some(preset_name)).map_err(|e| format!("Invalid preprocessing preset: {}", e))?,
             None => return Err("Preprocessing is enabled but no preset was selected".to_string()),
         }
     } else {
@@ -394,26 +301,11 @@ pub async fn convert_to_ascii(
                 .with_output_mode(output_mode);
 
             if is_image {
-                let output_file = output_dir_clone.join(format!(
-                    "{}.txt",
-                    input_path_clone
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("output")
-                ));
-                converter
-                    .convert_image(&input_path_clone, &output_file, &conv_opts)
-                    .map_err(|e| format!("Failed to convert image: {}", e))?;
+                let output_file = output_dir_clone.join(format!("{}.txt", input_path_clone.file_stem().and_then(|s| s.to_str()).unwrap_or("output")));
+                converter.convert_image(&input_path_clone, &output_file, &conv_opts).map_err(|e| format!("Failed to convert image: {}", e))?;
                 Ok(output_dir_clone)
             } else {
-                let video_opts = VideoOptions {
-                    fps,
-                    start: None,
-                    end: None,
-                    columns: request_clone.columns,
-                    extract_audio: false,
-                    preprocess_filter: preprocess_filter.clone(),
-                };
+                let video_opts = VideoOptions {fps, start: None, end: None, columns: request_clone.columns, extract_audio: false, preprocess_filter: preprocess_filter.clone()};
 
                 println!("🎬 Starting video conversion: {}", source_id_for_progress);
                 let app_clone = app.clone();
@@ -424,13 +316,7 @@ pub async fn convert_to_ascii(
                 let last_percent_clone = std::sync::Arc::clone(&last_reported_percent);
 
                 converter
-                    .convert_video_with_progress(
-                        &input_path_clone,
-                        &output_dir_clone,
-                        &video_opts,
-                        &conv_opts,
-                        false,
-                        Some(move |completed: usize, total: usize| {
+                    .convert_video_with_progress(&input_path_clone, &output_dir_clone, &video_opts, &conv_opts, false, Some(move |completed: usize, total: usize| {
                             let percentage = if total > 0 {
                                 ((completed as f64 / total as f64) * 100.0) as u8
                             } else {
@@ -441,13 +327,7 @@ pub async fn convert_to_ascii(
 
                             if percentage > last || completed == total {
                                 last_percent_clone.store(percentage, Ordering::Relaxed);
-                                let _ = app_clone.emit(
-                                    "conversion-progress",
-                                    ConversionProgress {
-                                        source_id: source_id_owned.clone(),
-                                        percentage,
-                                    },
-                                );
+                                let _ = app_clone.emit("conversion-progress", ConversionProgress {source_id: source_id_owned.clone(), percentage});
                             }
                         }),
                     )
@@ -489,32 +369,18 @@ pub async fn convert_to_ascii(
                             println!("✅ Conversion complete: {}", source_id_for_complete);
 
                             let mut audio_message = String::new();
-                            println!(
-                                "🔊 Audio extraction check: flag={}, is_image={}",
-                                extract_audio_flag, is_image_for_audio
-                            );
+                            println!("🔊 Audio extraction check: flag={}, is_image={}", extract_audio_flag, is_image_for_audio);
                             if extract_audio_flag && !is_image_for_audio {
                                 println!("🎵 Starting audio extraction...");
                                 let audio_dir = project_dir_for_audio.join("audio");
-                                match extract_audio_from_video(
-                                    &input_path_for_audio,
-                                    &audio_dir,
-                                    &random_suffix_for_audio,
-                                ) {
+                                match extract_audio_from_video(&input_path_for_audio, &audio_dir, &random_suffix_for_audio) {
                                     Ok((audio_folder_path, audio_size, duration)) => {
-                                        let audio_folder_name = audio_folder_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("audio")
-                                            .to_string();
+                                        let audio_folder_name = audio_folder_path.file_name().and_then(|n| n.to_str()).unwrap_or("audio").to_string();
 
                                         let audio_extraction = database::AudioExtraction {
                                             id: Uuid::new_v4().to_string(),
                                             folder_name: audio_folder_name,
-                                            folder_path: audio_folder_path
-                                                .to_str()
-                                                .unwrap_or("")
-                                                .to_string(),
+                                            folder_path: audio_folder_path.to_str().unwrap_or("").to_string(),
                                             source_file_id: source_id_for_audio.clone(),
                                             project_id: project_id_for_audio.clone(),
                                             creation_date: Utc::now(),
@@ -526,17 +392,11 @@ pub async fn convert_to_ascii(
 
                                         match database::add_audio_extraction(&audio_extraction) {
                                             Ok(_) => {
-                                                audio_message = format!(
-                                                    " + Audio extracted ({} bytes)",
-                                                    audio_size
-                                                );
+                                                audio_message = format!(" + Audio extracted ({} bytes)", audio_size);
                                                 println!("✅ Audio extraction saved to database");
                                             }
                                             Err(e) => {
-                                                println!(
-                                                    "❌ Failed to save audio to database: {}",
-                                                    e
-                                                );
+                                                println!("❌ Failed to save audio to database: {}", e);
                                             }
                                         }
                                     }
@@ -546,67 +406,24 @@ pub async fn convert_to_ascii(
                                 }
                             }
 
-                            let _ = app_for_complete.emit(
-                                "conversion-complete",
-                                ConversionComplete {
-                                    source_id: source_id_for_complete,
-                                    success: true,
-                                    message: format!(
-                                        "ASCII frames saved to: {} ({} frames, {} bytes){}",
-                                        result_path.display(),
-                                        frame_count,
-                                        total_size,
-                                        audio_message
-                                    ),
-                                },
-                            );
+                            let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: true, message: format!("ASCII frames saved to: {} ({} frames, {} bytes){}", result_path.display(), frame_count, total_size, audio_message)});
                         }
                         Err(e) => {
                             println!("❌ Failed to save to database: {}", e);
-                            let _ = app_for_complete.emit(
-                                "conversion-complete",
-                                ConversionComplete {
-                                    source_id: source_id_for_complete,
-                                    success: false,
-                                    message: format!(
-                                        "Failed to save conversion to database: {}",
-                                        e
-                                    ),
-                                },
-                            );
+                            let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: format!("Failed to save conversion to database: {}", e)});
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = app_for_complete.emit(
-                        "conversion-complete",
-                        ConversionComplete {
-                            source_id: source_id_for_complete,
-                            success: false,
-                            message: e,
-                        },
-                    );
+                    let _ = app_for_complete.emit("conversion-complete",
+                        ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
                 }
             },
             Ok(Err(e)) => {
-                let _ = app_for_complete.emit(
-                    "conversion-complete",
-                    ConversionComplete {
-                        source_id: source_id_for_complete,
-                        success: false,
-                        message: e,
-                    },
-                );
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: e});
             }
             Err(e) => {
-                let _ = app_for_complete.emit(
-                    "conversion-complete",
-                    ConversionComplete {
-                        source_id: source_id_for_complete,
-                        success: false,
-                        message: format!("Task failed: {}", e),
-                    },
-                );
+                let _ = app_for_complete.emit("conversion-complete", ConversionComplete {source_id: source_id_for_complete, success: false, message: format!("Task failed: {}", e)});
             }
         }
     });
@@ -628,22 +445,14 @@ pub(crate) struct CutFramesRequest {
 }
 
 #[tauri::command]
-pub async fn cut_frames(
-    request: CutFramesRequest,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
+pub async fn cut_frames(request: CutFramesRequest, app: tauri::AppHandle) -> Result<String, String> {
     tokio::task::spawn_blocking(move || cut_frames_blocking(request, app))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-fn cut_frames_blocking(
-    request: CutFramesRequest,
-    _app: tauri::AppHandle,
-) -> Result<String, String> {
-    let conversion = database::get_conversion_by_folder_path(&request.folder_path)
-        .map_err(|e| e.to_string())?
-        .ok_or("Original conversion not found")?;
+fn cut_frames_blocking(request: CutFramesRequest, _app: tauri::AppHandle) -> Result<String, String> {
+    let conversion = database::get_conversion_by_folder_path(&request.folder_path).map_err(|e| e.to_string())?.ok_or("Original conversion not found")?;
 
     let original_dir = PathBuf::from(&conversion.folder_path);
     if !original_dir.exists() {
@@ -715,16 +524,12 @@ fn cut_frames_blocking(
         settings: conversion.settings,
         creation_date: Utc::now(),
         total_size,
-        custom_name,
+        custom_name
     };
 
     database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
 
-    Ok(format!(
-        "Cut frames saved to: {} ({} frames)",
-        new_folder_path.display(),
-        copied_count
-    ))
+    Ok(format!("Cut frames saved to: {} ({} frames)", new_folder_path.display(), copied_count))
 }
 
 #[derive(serde::Deserialize)]
@@ -744,6 +549,84 @@ pub async fn crop_frames(request: CropFramesRequest) -> Result<String, String> {
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
+fn can_crop_in_place_with_cascii(source_dir: &Path) -> Result<bool, String> {
+    let (frame_files, _, _) = inspect_frame_directory(&source_dir.to_path_buf())?;
+    if frame_files.is_empty() {
+        return Err(format!("No frames found in {}", source_dir.display()));
+    }
+
+    Ok(frame_files.iter().enumerate().all(|(idx, frame)| {
+        let path = PathBuf::from(&frame.path);
+        path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.eq_ignore_ascii_case("txt")).unwrap_or(false) && path.file_name().and_then(|name| name.to_str()).map(|name| name == format!("frame_{:04}.txt", idx + 1)).unwrap_or(false)
+    }))
+}
+
+fn stage_frames_for_crop(source_dir: &Path) -> Result<PathBuf, String> {
+    let parent_dir = source_dir.parent().ok_or("Invalid directory structure")?;
+    let stage_dir = parent_dir.join(format!(".crop_stage_{}", Uuid::new_v4()));
+    fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<(), String> {
+        let (frame_files, _, _) = inspect_frame_directory(&source_dir.to_path_buf())?;
+        if frame_files.is_empty() {
+            return Err(format!("No frames found in {}", source_dir.display()));
+        }
+
+        for (idx, frame) in frame_files.iter().enumerate() {
+            let src_path = PathBuf::from(&frame.path);
+            let dest_txt = stage_dir.join(format!("frame_{:04}.txt", idx + 1));
+            let dest_cframe = stage_dir.join(format!("frame_{:04}.cframe", idx + 1));
+            let ext = src_path.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_ascii_lowercase();
+
+            match ext.as_str() {
+                "txt" => {
+                    fs::copy(&src_path, &dest_txt).map_err(|e| {format!("Failed to stage {}: {}", src_path.display(), e)})?;
+                    let src_cframe = src_path.with_extension("cframe");
+                    if src_cframe.exists() {
+                        fs::copy(&src_cframe, &dest_cframe).map_err(|e| {format!("Failed to stage {}: {}", src_cframe.display(), e)})?;
+                    }
+                }
+                "cframe" => {
+                    let bytes = fs::read(&src_path).map_err(|e| format!("Failed to read {}: {}", src_path.display(), e))?;
+                    let text = cascii_core_view::parse_cframe_text(&bytes).map_err(|e| {format!("Failed to decode {}: {}", src_path.display(), e)})?;
+                    fs::write(&dest_txt, text).map_err(|e| format!("Failed to write {}: {}", dest_txt.display(), e))?;
+                    fs::copy(&src_path, &dest_cframe).map_err(|e| format!("Failed to stage {}: {}", src_path.display(), e))?;
+                }
+                _ => return Err(format!("Unsupported frame extension for {}", src_path.display()))
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(err) = result {
+        let _ = fs::remove_dir_all(&stage_dir);
+        return Err(err);
+    }
+
+    Ok(stage_dir)
+}
+
+fn collect_existing_frame_artifacts(source_dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
+    let (frame_files, _, _) = inspect_frame_directory(&source_dir.to_path_buf())?;
+    let mut paths = BTreeSet::new();
+
+    for frame in frame_files {
+        let source_path = PathBuf::from(frame.path);
+        let txt_path = source_path.with_extension("txt");
+        let cframe_path = source_path.with_extension("cframe");
+
+        if txt_path.exists() {
+            paths.insert(txt_path);
+        }
+        if cframe_path.exists() {
+            paths.insert(cframe_path);
+        }
+    }
+
+    Ok(paths)
+}
+
 fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
     let current_settings = settings::load();
     let conversion = database::get_conversion_by_folder_path(&request.folder_path)
@@ -755,63 +638,44 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         return Err("Original directory not found".to_string());
     }
 
-    if current_settings.crop_output == settings::CropOutput::CurrentFrames {
-        let temp_dir = original_dir
-            .parent()
-            .ok_or("Invalid directory structure")?
-            .join(format!(".crop_tmp_{}", Uuid::new_v4()));
+    let existing_frame_artifacts = collect_existing_frame_artifacts(&original_dir)?;
+    let uses_native_layout = can_crop_in_place_with_cascii(&original_dir)?;
+    let staged_input_dir = if uses_native_layout {
+        None
+    } else {
+        Some(stage_frames_for_crop(&original_dir)?)
+    };
+    let crop_input_dir = staged_input_dir.as_ref().unwrap_or(&original_dir);
 
-        let result = cascii::crop_frames(
-            &original_dir,
-            request.top,
-            request.bottom,
-            request.left,
-            request.right,
-            &temp_dir,
-        )
+    if current_settings.crop_output == settings::CropOutput::CurrentFrames {
+        let temp_dir = original_dir.parent().ok_or("Invalid directory structure")?.join(format!(".crop_tmp_{}", Uuid::new_v4()));
+
+        let result = cascii::crop_frames(crop_input_dir, request.top, request.bottom, request.left, request.right, &temp_dir)
         .map_err(|e| {
+            if let Some(stage_dir) = &staged_input_dir {
+                let _ = fs::remove_dir_all(stage_dir);
+            }
             let _ = fs::remove_dir_all(&temp_dir);
             e.to_string()
         })?;
 
-        for entry in fs::read_dir(&original_dir)
-            .map_err(|e| e.to_string())?
-            .flatten()
-        {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("frame_")
-                    && (name.ends_with(".txt") || name.ends_with(".cframe"))
-                {
-                    let _ = fs::remove_file(&path);
-                }
-            }
+        for path in &existing_frame_artifacts {
+            let _ = fs::remove_file(path);
         }
 
-        for entry in fs::read_dir(&temp_dir)
-            .map_err(|e| e.to_string())?
-            .flatten()
-        {
+        for entry in fs::read_dir(&temp_dir).map_err(|e| e.to_string())?.flatten() {
             let dest = original_dir.join(entry.file_name());
             fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
         }
 
         let _ = fs::remove_dir_all(&temp_dir);
+        if let Some(stage_dir) = &staged_input_dir {
+            let _ = fs::remove_dir_all(stage_dir);
+        }
 
-        database::update_conversion_dimensions(
-            &conversion.id,
-            result.frame_count as i32,
-            result.total_size as i64,
-        )
-        .map_err(|e| e.to_string())?;
+        database::update_conversion_dimensions(&conversion.id, result.frame_count as i32, result.total_size as i64).map_err(|e| e.to_string())?;
 
-        Ok(format!(
-            "Cropped frames in-place: {} ({} frames, {}x{})",
-            original_dir.display(),
-            result.frame_count,
-            result.new_width,
-            result.new_height
-        ))
+        Ok(format!("Cropped frames in-place: {} ({} frames, {}x{})", original_dir.display(), result.frame_count, result.new_width, result.new_height))
     } else {
         let parent_dir = original_dir.parent().ok_or("Invalid directory structure")?;
         let random_suffix = generate_random_suffix();
@@ -827,15 +691,16 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
         let new_folder_name = format!("{}_ascii{}", base_name, random_suffix);
         let new_folder_path = parent_dir.join(&new_folder_name);
 
-        let result = cascii::crop_frames(
-            &original_dir,
-            request.top,
-            request.bottom,
-            request.left,
-            request.right,
-            &new_folder_path,
-        )
-        .map_err(|e| e.to_string())?;
+        let result = cascii::crop_frames(crop_input_dir, request.top, request.bottom, request.left, request.right, &new_folder_path).map_err(|e| {
+            if let Some(stage_dir) = &staged_input_dir {
+                let _ = fs::remove_dir_all(stage_dir);
+            }
+            e.to_string()
+        })?;
+
+        if let Some(stage_dir) = &staged_input_dir {
+            let _ = fs::remove_dir_all(stage_dir);
+        }
 
         let custom_name = if let Some(name) = &conversion.custom_name {
             Some(format!("Cropped {}", name))
@@ -858,12 +723,6 @@ fn crop_frames_blocking(request: CropFramesRequest) -> Result<String, String> {
 
         database::add_ascii_conversion(&new_conversion).map_err(|e| e.to_string())?;
 
-        Ok(format!(
-            "Cropped frames saved to: {} ({} frames, {}x{})",
-            new_folder_path.display(),
-            result.frame_count,
-            result.new_width,
-            result.new_height
-        ))
+        Ok(format!("Cropped frames saved to: {} ({} frames, {}x{})", new_folder_path.display(), result.frame_count, result.new_width, result.new_height))
     }
 }

@@ -21,6 +21,8 @@
 
 .explorer-sidebar__bottom {
     flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
     border-top: 1px solid #333;
     background-color: #252526;
 }
@@ -252,6 +254,121 @@
 
 .explorer-sidebar .conversion-progress {
     margin: 0.5rem 8px;
+}
+
+/* Bottom sidebar status section */
+
+.project-computation-section,
+.project-sidebar-notification {
+    border-top: 1px solid #333;
+    background-color: #252526;
+}
+
+.project-sidebar-notification__header {
+    position: static;
+    cursor: default;
+}
+
+.project-sidebar-notification__header:hover {
+    color: #bbb;
+}
+
+.project-computation-section__content,
+.project-sidebar-notification__content {
+    padding: 6px 8px;
+}
+
+.project-computation-section__content {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.project-computation-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.project-computation-item + .project-computation-item {
+    padding-top: 6px;
+    border-top: 1px solid #333;
+}
+
+.project-computation-section .conversion-progress-text {
+    color: #ccc;
+    font-size: 12px;
+    line-height: 1.2;
+    display: block;
+}
+
+.project-computation-section .conversion-progress-bar {
+    width: 100%;
+    height: 6px;
+    background-color: #3a3a3a;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.project-computation-section .conversion-progress-fill {
+    height: 100%;
+    background-color: #7ba3cc;
+    border-radius: 3px;
+    transition: width 0.1s ease-out;
+}
+
+.project-sidebar-notification__content {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.project-sidebar-notification__text {
+    flex: 1;
+    min-width: 0;
+    color: #ccc;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.project-sidebar-notification__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.project-sidebar-notification__actions .ctrl-btn {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 4px;
+    background: #3a3a3a;
+    color: #ccc;
+    border: 1px solid #444;
+    box-shadow: none;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.project-sidebar-notification__actions .ctrl-btn:hover {
+    background: #4a4a4a;
+    border-color: #555;
+    color: #fff;
+}
+
+.project-sidebar-notification__actions .ctrl-btn svg {
+    fill: none;
+    stroke: currentColor;
 }
 
 /* Explorer add-folder button */

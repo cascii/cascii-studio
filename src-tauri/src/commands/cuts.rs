@@ -8,6 +8,64 @@ use std::path::PathBuf;
 use tauri::Emitter;
 use uuid::Uuid;
 
+fn emit_progress(
+    app: &tauri::AppHandle,
+    event_name: &str,
+    file_name: &str,
+    status: &str,
+    message: impl Into<String>,
+    percentage: Option<f32>,
+) {
+    let _ = app.emit(
+        event_name,
+        FileProgress {
+            file_name: file_name.to_string(),
+            status: status.to_string(),
+            message: message.into(),
+            percentage,
+        },
+    );
+}
+
+fn parse_ffmpeg_timestamp_seconds(value: &str) -> Option<f64> {
+    let mut parts = value.trim().split(':');
+    let hours = parts.next()?.parse::<f64>().ok()?;
+    let minutes = parts.next()?.parse::<f64>().ok()?;
+    let seconds = parts.next()?.parse::<f64>().ok()?;
+    Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
+
+fn parse_ffmpeg_progress_seconds(line: &str) -> Option<f64> {
+    if let Some(raw) = line
+        .strip_prefix("out_time_us=")
+        .or_else(|| line.strip_prefix("out_time_ms="))
+    {
+        let micros = raw.trim().parse::<f64>().ok()?;
+        return Some(micros / 1_000_000.0);
+    }
+
+    line.strip_prefix("out_time=")
+        .and_then(parse_ffmpeg_timestamp_seconds)
+}
+
+fn probe_duration_seconds(ffprobe_cmd: &str, path: &PathBuf) -> Option<f64> {
+    use std::process::Command;
+
+    Command::new(ffprobe_cmd)
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("csv=p=0")
+        .arg(path)
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|text| text.trim().parse::<f64>().ok())
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+}
+
 #[derive(serde::Deserialize)]
 pub(crate) struct CutVideoRequest {
     source_file_path: String,
@@ -204,6 +262,7 @@ fn preprocess_video_blocking(
     request: PreprocessVideoRequest,
     app: tauri::AppHandle,
 ) -> Result<database::VideoCut, String> {
+    use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
     let filter = match request.preset.as_deref() {
@@ -243,19 +302,19 @@ fn preprocess_video_blocking(
         let output_filename = format!("{}_preprocessed_{}.mp4", file_stem, &cut_id[..8]);
         cuts_dir.join(&output_filename)
     };
+    let progress_file_name = input_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_stem)
+        .to_string();
 
-    let _ = app.emit(
-        "cut-progress",
-        FileProgress {
-            file_name: output_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-            status: "processing".to_string(),
-            message: "Preprocessing video...".to_string(),
-            percentage: Some(0.0),
-        },
+    emit_progress(
+        &app,
+        "preprocess-progress",
+        &progress_file_name,
+        "processing",
+        "Preprocessing video...",
+        Some(0.0),
     );
 
     println!(
@@ -270,8 +329,19 @@ fn preprocess_video_blocking(
         .as_ref()
         .and_then(|p| p.to_str())
         .unwrap_or("ffmpeg");
+    let ffprobe_cmd = ffmpeg_config
+        .ffprobe_path
+        .as_ref()
+        .and_then(|p| p.to_str())
+        .unwrap_or("ffprobe");
+    let source_duration = probe_duration_seconds(ffprobe_cmd, &input_path).unwrap_or(0.0);
 
-    let status = Command::new(ffmpeg_cmd)
+    let mut child = Command::new(ffmpeg_cmd)
+        .arg("-progress")
+        .arg("pipe:1")
+        .arg("-nostats")
+        .arg("-loglevel")
+        .arg("error")
         .arg("-i")
         .arg(&request.source_file_path)
         .arg("-vf")
@@ -284,9 +354,9 @@ fn preprocess_video_blocking(
         .arg("+faststart")
         .arg("-y")
         .arg(&output_path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .map_err(|e| {
             format!(
                 "Failed to run ffmpeg: {}. Make sure ffmpeg is installed.",
@@ -294,7 +364,46 @@ fn preprocess_video_blocking(
             )
         })?;
 
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        let mut last_reported = 0u8;
+
+        for line in reader.lines().map_while(Result::ok) {
+            if source_duration <= 0.0 {
+                continue;
+            }
+
+            if let Some(processed_seconds) = parse_ffmpeg_progress_seconds(&line) {
+                let percentage = ((processed_seconds / source_duration) * 100.0)
+                    .clamp(0.0, 99.0)
+                    .floor() as u8;
+
+                if percentage > last_reported {
+                    last_reported = percentage;
+                    emit_progress(
+                        &app,
+                        "preprocess-progress",
+                        &progress_file_name,
+                        "processing",
+                        format!("Preprocessing video... {}%", percentage),
+                        Some(percentage as f32),
+                    );
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Failed to wait for ffmpeg: {}", e))?;
+
     if !status.success() {
+        emit_progress(
+            &app,
+            "preprocess-progress",
+            &progress_file_name,
+            "error",
+            "Preprocessing failed",
+            None,
+        );
         let _ = fs::remove_file(&output_path);
         return Err("ffmpeg preprocessing failed".to_string());
     }
@@ -309,25 +418,7 @@ fn preprocess_video_blocking(
         .map_err(|e| format!("Failed to get file size: {}", e))?
         .len() as i64;
 
-    let ffprobe_cmd = ffmpeg_config
-        .ffprobe_path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .unwrap_or("ffprobe");
-    let duration_output = Command::new(ffprobe_cmd)
-        .arg("-v")
-        .arg("error")
-        .arg("-show_entries")
-        .arg("format=duration")
-        .arg("-of")
-        .arg("csv=p=0")
-        .arg(final_path)
-        .output();
-    let duration = duration_output
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .unwrap_or(0.0);
+    let duration = probe_duration_seconds(ffprobe_cmd, &final_path.to_path_buf()).unwrap_or(0.0);
 
     let cut = database::VideoCut {
         id: cut_id,
@@ -344,18 +435,13 @@ fn preprocess_video_blocking(
 
     database::add_video_cut(&cut).map_err(|e| format!("Failed to save to database: {}", e))?;
 
-    let _ = app.emit(
-        "cut-progress",
-        FileProgress {
-            file_name: final_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-            status: "completed".to_string(),
-            message: "Preprocessing completed".to_string(),
-            percentage: Some(100.0),
-        },
+    emit_progress(
+        &app,
+        "preprocess-progress",
+        &progress_file_name,
+        "completed",
+        "Preprocessing completed",
+        Some(100.0),
     );
 
     println!(

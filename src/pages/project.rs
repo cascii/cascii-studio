@@ -1767,18 +1767,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
         Callback::from(move |frame_dir: FrameDirectory| {
-            let resource = ResourceRef::FrameDirectory {
-                directory_path: frame_dir.directory_path.clone(),
-            };
-            open_or_activate_tab(
-                &open_tabs,
-                &active_tab_id,
-                OpenTab {
-                    id: tab_id_for_resource(&resource),
-                    resource,
-                    label: frame_dir_tab_label(&frame_dir),
-                },
-            );
+            let resource = ResourceRef::FrameDirectory {directory_path: frame_dir.directory_path.clone()};
+            open_or_activate_tab(&open_tabs, &active_tab_id, OpenTab {id: tab_id_for_resource(&resource), resource, label: frame_dir_tab_label(&frame_dir)});
 
             let directory_path = frame_dir.directory_path.clone();
             selected_frame_dir.set(Some(frame_dir));
@@ -1789,21 +1779,13 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let frame_speed = frame_speed.clone();
             let current_conversion_id = current_conversion_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({ "folderPath": directory_path })).unwrap();
                 match tauri_invoke("get_conversion_by_folder_path", args).await {
                     result => {
-                        if let Ok(Some(conversion)) =
-                            serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result)
-                        {
-                            let conversion_id = conversion
-                                .get("id")
-                                .and_then(|id| id.as_str())
-                                .map(|s| s.to_string());
+                        if let Ok(Some(conversion)) = serde_wasm_bindgen::from_value::<Option<serde_json::Value>>(result) {
+                            let conversion_id = conversion.get("id").and_then(|id| id.as_str()).map(|s| s.to_string());
                             if let Some(settings) = conversion.get("settings") {
-                                if let Ok(conv_settings) =
-                                    serde_json::from_value::<ConversionSettings>(settings.clone())
-                                {
+                                if let Ok(conv_settings) = serde_json::from_value::<ConversionSettings>(settings.clone()) {
                                     frame_speed.set(Some(conv_settings.frame_speed));
                                     selected_frame_settings.set(Some(conv_settings));
                                     current_conversion_id.set(conversion_id);
@@ -1830,16 +1812,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let resource = ResourceRef::Preview {
                 preview_id: preview.id.clone(),
             };
-            open_or_activate_tab(
-                &open_tabs,
-                &active_tab_id,
-                OpenTab {
-                    id: tab_id_for_resource(&resource),
-                    resource,
-                    label: preview_tab_label(&preview),
-                },
-            );
-
+            open_or_activate_tab(&open_tabs, &active_tab_id, OpenTab {id: tab_id_for_resource(&resource), resource, label: preview_tab_label(&preview)});
             selected_preview.set(Some(preview));
             selected_frame_dir.set(None);
         })
@@ -1856,18 +1829,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         let open_tabs = open_tabs.clone();
         let active_tab_id = active_tab_id.clone();
         Callback::from(move |cut: VideoCut| {
-            let resource = ResourceRef::VideoCut {
-                cut_id: cut.id.clone(),
-            };
-            open_or_activate_tab(
-                &open_tabs,
-                &active_tab_id,
-                OpenTab {
-                    id: tab_id_for_resource(&resource),
-                    resource,
-                    label: cut_tab_label(&cut),
-                },
-            );
+            let resource = ResourceRef::VideoCut {cut_id: cut.id.clone()};
+            open_or_activate_tab(&open_tabs, &active_tab_id, OpenTab {id: tab_id_for_resource(&resource), resource, label: cut_tab_label(&cut)});
 
             selected_cut.set(Some(cut.clone()));
             let file_path = cut.file_path.clone();
@@ -1895,8 +1858,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let args = serde_wasm_bindgen::to_value(&json!({ "path": file_path })).unwrap();
                 match tauri_invoke("prepare_media", args).await {
                     result => {
-                        if let Ok(prepared) =
-                            serde_wasm_bindgen::from_value::<PreparedMedia>(result)
+                        if let Ok(prepared) = serde_wasm_bindgen::from_value::<PreparedMedia>(result)
                         {
                             let asset_url_str = app_convert_file_src(&prepared.cached_abs_path);
                             let mut cache = (*url_cache).clone();
@@ -1937,11 +1899,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let project_id = (*project_id).clone();
                 let source_id = source.id.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let rename_args = serde_wasm_bindgen::to_value(&json!({
-                        "sourceId": source_id.clone(),
-                        "customName": custom_name
-                    }))
-                    .unwrap();
+                    let rename_args = serde_wasm_bindgen::to_value(&json!({"sourceId": source_id.clone(), "customName": custom_name})).unwrap();
                     let _ = tauri_invoke("rename_source_file", rename_args).await;
 
                     let args =
@@ -1952,17 +1910,11 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                         if let Some(updated_source) =
                             sources.iter().find(|s| s.id == source_id).cloned()
                         {
-                            if selected_source
-                                .as_ref()
-                                .map(|s| s.id == source_id)
-                                .unwrap_or(false)
-                            {
+                            if selected_source.as_ref().map(|s| s.id == source_id).unwrap_or(false) {
                                 selected_source.set(Some(updated_source.clone()));
                             }
 
-                            let tab_id = tab_id_for_resource(&ResourceRef::SourceFile {
-                                source_id: source_id.clone(),
-                            });
+                            let tab_id = tab_id_for_resource(&ResourceRef::SourceFile {source_id: source_id.clone()});
                             let mut tabs = (*open_tabs).clone();
                             if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
                                 tab.label = source_tab_label(&updated_source);
@@ -1991,36 +1943,18 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 let project_id = (*project_id).clone();
                 let directory_path = frame_dir.directory_path.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let rename_args = serde_wasm_bindgen::to_value(&json!({
-                        "request": {
-                            "folderPath": directory_path.clone(),
-                            "customName": custom_name
-                        }
-                    }))
-                    .unwrap();
+                    let rename_args = serde_wasm_bindgen::to_value(&json!({"request": {"folderPath": directory_path.clone(), "customName": custom_name}})).unwrap();
                     let _ = tauri_invoke("update_frame_custom_name", rename_args).await;
-
-                    let args =
-                        serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                    let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
                     if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
                         tauri_invoke("get_project_frames", args).await,
                     ) {
-                        if let Some(updated_frame) = frames
-                            .iter()
-                            .find(|frame| frame.directory_path == directory_path)
-                            .cloned()
-                        {
-                            if selected_frame_dir
-                                .as_ref()
-                                .map(|f| f.directory_path == directory_path)
-                                .unwrap_or(false)
-                            {
+                        if let Some(updated_frame) = frames.iter().find(|frame| frame.directory_path == directory_path).cloned() {
+                            if selected_frame_dir.as_ref().map(|f| f.directory_path == directory_path).unwrap_or(false) {
                                 selected_frame_dir.set(Some(updated_frame.clone()));
                             }
 
-                            let tab_id = tab_id_for_resource(&ResourceRef::FrameDirectory {
-                                directory_path: directory_path.clone(),
-                            });
+                            let tab_id = tab_id_for_resource(&ResourceRef::FrameDirectory {directory_path: directory_path.clone()});
                             let mut tabs = (*open_tabs).clone();
                             if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
                                 tab.label = frame_dir_tab_label(&updated_frame);
@@ -2048,32 +1982,17 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let project_id = (*project_id).clone();
             let cut_id = cut.id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let rename_args = serde_wasm_bindgen::to_value(&json!({
-                    "request": {
-                        "cut_id": cut_id.clone(),
-                        "custom_name": custom_name
-                    }
-                }))
-                .unwrap();
+                let rename_args = serde_wasm_bindgen::to_value(&json!({"request": {"cut_id": cut_id.clone(),"custom_name": custom_name}})).unwrap();
                 let _ = tauri_invoke("rename_cut", rename_args).await;
 
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
-                    tauri_invoke("get_project_cuts", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
                     if let Some(updated_cut) = cuts.iter().find(|c| c.id == cut_id).cloned() {
-                        if selected_cut
-                            .as_ref()
-                            .map(|c| c.id == cut_id)
-                            .unwrap_or(false)
-                        {
+                        if selected_cut.as_ref().map(|c| c.id == cut_id).unwrap_or(false) {
                             selected_cut.set(Some(updated_cut.clone()));
                         }
 
-                        let tab_id = tab_id_for_resource(&ResourceRef::VideoCut {
-                            cut_id: cut_id.clone(),
-                        });
+                        let tab_id = tab_id_for_resource(&ResourceRef::VideoCut {cut_id: cut_id.clone()});
                         let mut tabs = (*open_tabs).clone();
                         if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
                             tab.label = cut_tab_label(&updated_cut);
@@ -2147,67 +2066,32 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             if !file_paths.is_empty() {
                                 let mut initial_map = HashMap::new();
                                 for file_path in file_paths.iter() {
-                                    let file_name = std::path::Path::new(file_path)
-                                        .file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or("unknown")
-                                        .to_string();
-                                    initial_map.insert(
-                                        file_name.clone(),
-                                        FileProgress {
-                                            file_name,
-                                            status: "pending".to_string(),
-                                            message: "Waiting...".to_string(),
-                                            percentage: None,
-                                        },
-                                    );
+                                    let file_name = std::path::Path::new(file_path).file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+                                    initial_map.insert(file_name.clone(), FileProgress {file_name, status: "pending".to_string(), message: "Waiting...".to_string(), percentage: None});
                                 }
                                 file_progress_map.set(initial_map);
                                 is_adding_files.set(true);
                                 let file_progress_map_clone = file_progress_map.clone();
                                 let callback: Closure<dyn Fn(JsValue)> =
                                     Closure::new(move |event: JsValue| {
-                                        if let Ok(payload) =
-                                            js_sys::Reflect::get(&event, &"payload".into())
-                                        {
-                                            if let Ok(progress) =
-                                                serde_wasm_bindgen::from_value::<FileProgress>(
-                                                    payload,
-                                                )
-                                            {
+                                        if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                                            if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
                                                 let mut map = (*file_progress_map_clone).clone();
                                                 map.insert(progress.file_name.clone(), progress);
                                                 file_progress_map_clone.set(map);
                                             }
                                         }
                                     });
-                                let unlisten_handle = tauri_listen(
-                                    "file-progress",
-                                    callback.as_ref().unchecked_ref(),
-                                )
-                                .await;
+                                let unlisten_handle = tauri_listen("file-progress", callback.as_ref().unchecked_ref()).await;
                                 if !project_id.is_empty() {
-                                    let invoke_args = AddSourceFilesArgs {
-                                        request: AddSourceFilesRequest {
-                                            project_id: (*project_id).to_string(),
-                                            file_paths,
-                                        },
-                                    };
-                                    let add_files_args = serde_wasm_bindgen::to_value(
-                                        &json!({ "args": invoke_args }),
-                                    )
-                                    .unwrap();
+                                    let invoke_args = AddSourceFilesArgs {request: AddSourceFilesRequest {project_id: (*project_id).to_string(), file_paths}};
+                                    let add_files_args = serde_wasm_bindgen::to_value(&json!({"args": invoke_args})).unwrap();
                                     let _ = tauri_invoke("add_source_files", add_files_args).await;
                                     tauri_unlisten(unlisten_handle).await;
                                     drop(callback);
                                     is_adding_files.set(false);
-                                    let args = serde_wasm_bindgen::to_value(
-                                        &json!({ "projectId": *project_id }),
-                                    )
-                                    .unwrap();
-                                    if let Ok(s) = serde_wasm_bindgen::from_value(
-                                        tauri_invoke("get_project_sources", args).await,
-                                    ) {
+                                    let args = serde_wasm_bindgen::to_value(&json!({"projectId": *project_id})).unwrap();
+                                    if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
                                         source_files.set(s);
                                     }
                                 } else {
@@ -2236,9 +2120,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 "explorer" => state.explorer_expanded = !state.explorer_expanded,
                 "controls" => state.controls_expanded = !state.controls_expanded,
                 "res:source_files" => state.source_files_expanded = !state.source_files_expanded,
-                "res:original_files" => {
-                    state.original_files_expanded = !state.original_files_expanded
-                }
+                "res:original_files" => state.original_files_expanded = !state.original_files_expanded,
                 "res:cuts" => state.cuts_expanded = !state.cuts_expanded,
                 "res:frames" => state.frames_expanded = !state.frames_expanded,
                 "res:source_frames" => state.source_frames_expanded = !state.source_frames_expanded,

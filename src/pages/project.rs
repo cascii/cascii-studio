@@ -2167,47 +2167,24 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                 let file_progress_map_clone = file_progress_map.clone();
                                 let callback: Closure<dyn Fn(JsValue)> =
                                     Closure::new(move |event: JsValue| {
-                                        if let Ok(payload) =
-                                            js_sys::Reflect::get(&event, &"payload".into())
-                                        {
-                                            if let Ok(progress) =
-                                                serde_wasm_bindgen::from_value::<FileProgress>(
-                                                    payload,
-                                                )
-                                            {
+                                        if let Ok(payload) = js_sys::Reflect::get(&event, &"payload".into()) {
+                                            if let Ok(progress) = serde_wasm_bindgen::from_value::<FileProgress>(payload) {
                                                 let mut map = (*file_progress_map_clone).clone();
                                                 map.insert(progress.file_name.clone(), progress);
                                                 file_progress_map_clone.set(map);
                                             }
                                         }
                                     });
-                                let unlisten_handle = tauri_listen(
-                                    "file-progress",
-                                    callback.as_ref().unchecked_ref(),
-                                )
-                                .await;
+                                let unlisten_handle = tauri_listen("file-progress", callback.as_ref().unchecked_ref()).await;
                                 if !project_id.is_empty() {
-                                    let invoke_args = AddSourceFilesArgs {
-                                        request: AddSourceFilesRequest {
-                                            project_id: (*project_id).to_string(),
-                                            file_paths,
-                                        },
-                                    };
-                                    let add_files_args = serde_wasm_bindgen::to_value(
-                                        &json!({ "args": invoke_args }),
-                                    )
-                                    .unwrap();
+                                    let invoke_args = AddSourceFilesArgs {request: AddSourceFilesRequest {project_id: (*project_id).to_string(), file_paths}};
+                                    let add_files_args = serde_wasm_bindgen::to_value(&json!({"args": invoke_args})).unwrap();
                                     let _ = tauri_invoke("add_source_files", add_files_args).await;
                                     tauri_unlisten(unlisten_handle).await;
                                     drop(callback);
                                     is_adding_files.set(false);
-                                    let args = serde_wasm_bindgen::to_value(
-                                        &json!({ "projectId": *project_id }),
-                                    )
-                                    .unwrap();
-                                    if let Ok(s) = serde_wasm_bindgen::from_value(
-                                        tauri_invoke("get_project_sources", args).await,
-                                    ) {
+                                    let args = serde_wasm_bindgen::to_value(&json!({"projectId": *project_id})).unwrap();
+                                    if let Ok(s) = serde_wasm_bindgen::from_value(tauri_invoke("get_project_sources", args).await) {
                                         source_files.set(s);
                                     }
                                 } else {
@@ -2236,9 +2213,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 "explorer" => state.explorer_expanded = !state.explorer_expanded,
                 "controls" => state.controls_expanded = !state.controls_expanded,
                 "res:source_files" => state.source_files_expanded = !state.source_files_expanded,
-                "res:original_files" => {
-                    state.original_files_expanded = !state.original_files_expanded
-                }
+                "res:original_files" => state.original_files_expanded = !state.original_files_expanded,
                 "res:cuts" => state.cuts_expanded = !state.cuts_expanded,
                 "res:frames" => state.frames_expanded = !state.frames_expanded,
                 "res:source_frames" => state.source_frames_expanded = !state.source_frames_expanded,
@@ -2261,21 +2236,9 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         Callback::from(move |new_layout: ExplorerLayout| {
             explorer_layout.set(new_layout.clone());
             let project_id = (*project_id).clone();
-            let entries = project_content_from_layout(
-                &new_layout,
-                &source_files,
-                &video_cuts,
-                &frame_directories,
-                &previews,
-            );
+            let entries = project_content_from_layout(&new_layout, &source_files, &video_cuts, &frame_directories, &previews);
             wasm_bindgen_futures::spawn_local(async move {
-                let args = serde_wasm_bindgen::to_value(&json!({
-                    "request": {
-                        "project_id": project_id,
-                        "entries": entries
-                    }
-                }))
-                .unwrap();
+                let args = serde_wasm_bindgen::to_value(&json!({"request": {"project_id": project_id, "entries": entries}})).unwrap();
                 let _ = tauri_invoke("save_project_content", args).await;
             });
         })
@@ -2300,30 +2263,23 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
             if let Some(tab) = open_tabs.iter().find(|t| t.id == tab_id).cloned() {
                 match tab.resource {
-                    ResourceRef::SourceFile { source_id } => {
-                        if let Some(source) =
-                            source_files.iter().find(|s| s.id == source_id).cloned()
-                        {
+                    ResourceRef::SourceFile {source_id} => {
+                        if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
                             on_select_source.emit(source);
                         }
                     }
-                    ResourceRef::VideoCut { cut_id } => {
+                    ResourceRef::VideoCut {cut_id} => {
                         if let Some(cut) = video_cuts.iter().find(|c| c.id == cut_id).cloned() {
                             on_select_cut_explorer.emit(cut);
                         }
                     }
-                    ResourceRef::FrameDirectory { directory_path } => {
-                        if let Some(frame_dir) = frame_directories
-                            .iter()
-                            .find(|f| f.directory_path == directory_path)
-                            .cloned()
-                        {
+                    ResourceRef::FrameDirectory {directory_path} => {
+                        if let Some(frame_dir) = frame_directories.iter().find(|f| f.directory_path == directory_path).cloned() {
                             on_select_frame_dir_explorer.emit(frame_dir);
                         }
                     }
-                    ResourceRef::Preview { preview_id } => {
-                        if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned()
-                        {
+                    ResourceRef::Preview {preview_id} => {
+                        if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
                             on_select_preview_explorer.emit(preview);
                         }
                     }
@@ -2382,9 +2338,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                 if let Some(tab) = updated_tabs.iter().find(|t| t.id == next_id).cloned() {
                     match tab.resource {
                         ResourceRef::SourceFile { source_id } => {
-                            if let Some(source) =
-                                source_files.iter().find(|s| s.id == source_id).cloned()
-                            {
+                            if let Some(source) = source_files.iter().find(|s| s.id == source_id).cloned() {
                                 on_select_source.emit(source);
                             }
                         }
@@ -2394,18 +2348,12 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                             }
                         }
                         ResourceRef::FrameDirectory { directory_path } => {
-                            if let Some(frame_dir) = frame_directories
-                                .iter()
-                                .find(|f| f.directory_path == directory_path)
-                                .cloned()
-                            {
+                            if let Some(frame_dir) = frame_directories.iter().find(|f| f.directory_path == directory_path).cloned() {
                                 on_select_frame_dir_explorer.emit(frame_dir);
                             }
                         }
                         ResourceRef::Preview { preview_id } => {
-                            if let Some(preview) =
-                                previews.iter().find(|p| p.id == preview_id).cloned()
-                            {
+                            if let Some(preview) = previews.iter().find(|p| p.id == preview_id).cloned() {
                                 on_select_preview_explorer.emit(preview);
                             }
                         }
@@ -2454,10 +2402,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
         if !conversions.is_empty() {
             // Helper to look up source name by ID
             let get_source_name = |source_id: &str| -> String {
-                source_files
-                    .iter()
-                    .find(|s| s.id == source_id)
-                    .map(|s| {
+                source_files.iter().find(|s| s.id == source_id).map(|s| {
                         s.custom_name.clone().unwrap_or_else(|| {
                             std::path::Path::new(&s.file_path)
                                 .file_name()
@@ -2489,9 +2434,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     let preprocess_progress_html = if let Some(progress) = &*preprocess_progress {
         let percentage = progress.percentage.unwrap_or(0.0).clamp(0.0, 100.0).round() as u8;
-        let display_name = (*preprocess_display_name)
-            .clone()
-            .unwrap_or_else(|| without_extension(&progress.file_name));
+        let display_name = (*preprocess_display_name).clone().unwrap_or_else(|| without_extension(&progress.file_name));
         html! {
             <div id="project-preprocess-progress" class="project-computation-item">
                 <span class="conversion-progress-text">{format!("Preprocessing {}: {}%", display_name, percentage)}</span>
@@ -2506,12 +2449,8 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     let file_add_progress_html =
         if *is_adding_files && !file_progress_map.is_empty() {
-            let mut progress_entries = file_progress_map
-                .iter()
-                .map(|(file_name, progress)| (file_name.clone(), progress.clone()))
-                .collect::<Vec<_>>();
+            let mut progress_entries = file_progress_map.iter().map(|(file_name, progress)| (file_name.clone(), progress.clone())).collect::<Vec<_>>();
             progress_entries.sort_by(|(left_name, _), (right_name, _)| left_name.cmp(right_name));
-
             html! {
                 <>
                     {progress_entries.into_iter().map(|(file_name, progress)| {
@@ -2538,10 +2477,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             html! {}
         };
 
-    let show_computation_section =
-        (*is_adding_files && !file_progress_map.is_empty())
-            || !active_conversions_ref.borrow().is_empty()
-            || preprocess_progress.is_some();
+    let show_computation_section = (*is_adding_files && !file_progress_map.is_empty()) || !active_conversions_ref.borrow().is_empty() || preprocess_progress.is_some();
 
     let computation_section_html = if show_computation_section {
         html! {
@@ -2575,10 +2511,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     };
 
     let source_preview_label = selected_source.as_ref().map(|source| {
-        let source_name = source
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| file_name_from_path(&source.file_path));
+        let source_name = source.custom_name.clone().unwrap_or_else(|| file_name_from_path(&source.file_path));
         let kind = if source.content_type == ContentType::Image {"SOURCE IMAGE"} else {"SOURCE VIDEO"};
         format!("{}: {}", kind, without_extension(&source_name))
     });
@@ -2596,32 +2529,20 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
             let previews = previews.clone();
             let project_id = (*project_id).clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(
-                    tauri_invoke("get_project_sources", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(sources) = serde_wasm_bindgen::from_value::<Vec<SourceContent>>(tauri_invoke("get_project_sources", args).await) {
                     source_files.set(sources);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(
-                    tauri_invoke("get_project_frames", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(frames) = serde_wasm_bindgen::from_value::<Vec<FrameDirectory>>(tauri_invoke("get_project_frames", args).await,) {
                     frame_directories.set(frames);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(
-                    tauri_invoke("get_project_cuts", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(cuts) = serde_wasm_bindgen::from_value::<Vec<VideoCut>>(tauri_invoke("get_project_cuts", args).await) {
                     video_cuts.set(cuts);
                 }
-                let args =
-                    serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
-                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(
-                    tauri_invoke("get_project_previews", args).await,
-                ) {
+                let args = serde_wasm_bindgen::to_value(&json!({ "projectId": project_id })).unwrap();
+                if let Ok(previews_list) = serde_wasm_bindgen::from_value::<Vec<Preview>>(tauri_invoke("get_project_previews", args).await) {
                     previews.set(previews_list);
                 }
             });
@@ -2629,10 +2550,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
     };
 
     let frames_preview_label = if let Some(preview) = &*selected_preview {
-        let name = preview
-            .custom_name
-            .clone()
-            .unwrap_or_else(|| preview.folder_name.clone());
+        let name = preview.custom_name.clone().unwrap_or_else(|| preview.folder_name.clone());
         Some(format!("FRAMES: {}", name))
     } else if let Some(frame_dir) = &*selected_frame_dir {
         Some(format!("FRAMES: {}", frame_dir.name))
@@ -2642,13 +2560,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
 
     html! {
         <div id="project-page" class="container project-page">
-            <div
-                id="project-layout"
-                class={classes!(
-                    "project-layout",
-                    props.explorer_on_left.then_some("project-layout--explorer-left")
-                )}
-            >
+            <div id="project-layout" class={classes!("project-layout", props.explorer_on_left.then_some("project-layout--explorer-left"))}>
                 <div id="project-explorer-sidebar" class="explorer-sidebar">
                     if props.show_open_in_sidebar {
                         if let Some(ref on_open_project) = props.on_open_project {
@@ -2737,12 +2649,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                         >
                                             <yew_icons::Icon icon_id={yew_icons::IconId::LucideFolderOpen} width={"16"} height={"16"} />
                                         </button>
-                                        <button
-                                            id="project-conversion-dismiss-btn"
-                                            class="ctrl-btn"
-                                            type="button"
-                                            title="Dismiss"
-                                            onclick={{
+                                        <button id="project-conversion-dismiss-btn" class="ctrl-btn" type="button" title="Dismiss" onclick={{
                                                 let output_notification = output_notification.clone();
                                                 let conversion_message = conversion_message.clone();
                                                 Callback::from(move |_| {
@@ -2997,17 +2904,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                                 && selected_frame_dir.is_some();
 
                                                             if should_sync_frames {
-                                                                let should_emit_frame_sync = limiter
-                                                                    .last_frame_sync_value
-                                                                    .map(|last| {
-                                                                        (clamped_progress - last).abs()
-                                                                            >= FRAME_SYNC_MIN_DELTA
-                                                                            || now - limiter.last_frame_sync_emit_ms
-                                                                                >= FRAME_SYNC_MIN_INTERVAL_MS
-                                                                            || clamped_progress <= 0.0
-                                                                            || clamped_progress >= 1.0
-                                                                    })
-                                                                    .unwrap_or(true);
+                                                                let should_emit_frame_sync = limiter.last_frame_sync_value.map(|last| {(clamped_progress - last).abs() >= FRAME_SYNC_MIN_DELTA || now - limiter.last_frame_sync_emit_ms >= FRAME_SYNC_MIN_INTERVAL_MS || clamped_progress <= 0.0 || clamped_progress >= 1.0}).unwrap_or(true);
 
                                                                 if should_emit_frame_sync {
                                                                     limiter.last_frame_sync_emit_ms = now;
@@ -3024,13 +2921,7 @@ pub fn project_page(props: &ProjectPageProps) -> Html {
                                                         }
 
                                                         if let Some(next) = next_frame_sync {
-                                                            let should_set = frames_sync_seek_percentage
-                                                                .as_ref()
-                                                                .map(|current| {
-                                                                    (*current - next).abs()
-                                                                        >= FRAME_SYNC_MIN_DELTA
-                                                                })
-                                                                .unwrap_or(true);
+                                                            let should_set = frames_sync_seek_percentage.as_ref().map(|current| {(*current - next).abs() >= FRAME_SYNC_MIN_DELTA}).unwrap_or(true);
                                                             if should_set {
                                                                 frames_sync_seek_percentage.set(Some(next));
                                                             }
